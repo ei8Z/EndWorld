@@ -22,7 +22,8 @@ data class StatusUpdate(
     @SerializedName("player") val player: PlayerUpdate,
     @SerializedName("world") val world: WorldUpdate,
     @SerializedName("resources") val resources: ResourceUpdate,
-    @SerializedName("memoryUpdate") val memoryUpdate: MemoryUpdate
+    @SerializedName("memoryUpdate") val memoryUpdate: MemoryUpdate,
+    @SerializedName("npcUpdate") val npcUpdate: List<NpcUpdate>? = emptyList()
 )
 
 data class PlayerUpdate(
@@ -62,4 +63,10 @@ data class ItemUpdate(
 data class MemoryUpdate(
     @SerializedName("newTempMemory") val newTempMemory: String?,
     @SerializedName("newPermanentPlot") val newPermanentPlot: String?
+)
+
+data class NpcUpdate(
+    @SerializedName("name") val name: String,
+    @SerializedName("relation") val relation: String,
+    @SerializedName("affinityDelta") val affinityDelta: Int
 )

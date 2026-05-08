@@ -3,7 +3,7 @@ package com.ei8z.endworld.data.remote.model
 import com.google.gson.annotations.SerializedName
 
 data class ChatRequest(
-    @SerializedName("model") val model: String = "deepseek-v4-pro",
+    @SerializedName("model") val model: String = "deepseek-v4-flash",
     @SerializedName("messages") val messages: List<ChatMessage>,
     @SerializedName("response_format") val responseFormat: ResponseFormat? = ResponseFormat("json_object"),
     @SerializedName("thinking") val thinking: Thinking? = Thinking("enabled"),

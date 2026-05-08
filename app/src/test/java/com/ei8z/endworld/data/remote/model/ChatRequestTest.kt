@@ -21,7 +21,7 @@ class ChatRequestTest {
         val json = gson.toJson(request)
         
         // 验证核心字段是否存在
-        assertTrue(json.contains("\"model\":\"deepseek-v4-pro\""))
+        assertTrue(json.contains("\"model\":\"deepseek-v4-flash\""))
         assertTrue(json.contains("\"response_format\":{\"type\":\"json_object\"}"))
         assertTrue(json.contains("\"thinking\":{\"type\":\"enabled\"}"))
         assertTrue(json.contains("\"reasoning_effort\":\"high\""))

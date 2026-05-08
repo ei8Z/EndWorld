@@ -1,150 +1,256 @@
 package com.ei8z.endworld.data.repository
 
+import android.content.Context
+import android.util.Log
 import com.ei8z.endworld.data.local.AppDatabase
 import com.ei8z.endworld.data.local.entity.*
 import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.model.*
+import com.ei8z.endworld.util.JsonExtractor
 import com.google.gson.Gson
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import okhttp3.ResponseBody
+import retrofit2.Call
+import retrofit2.Callback
+import retrofit2.Response
+import java.util.UUID
 
 class GameRepository(
     private val database: AppDatabase,
     private val apiService: DeepSeekApiService,
-    private val apiKey: String
+    private val apiKey: String,
+    private val context: Context
 ) {
     private val gson = Gson()
     private val authHeader = "Bearer $apiKey"
+    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    // DAOs
     private val playerDao = database.playerDao()
     private val inventoryDao = database.inventoryDao()
     private val memoryDao = database.memoryDao()
     private val worldDao = database.worldDao()
     private val npcDao = database.npcDao()
 
-    // 暴露给 UI 的数据流
+    private fun getOrCreateStableUserId(): String {
+        val prefs = context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE)
+        var uid = prefs.getString("stable_user_id", null)
+        if (uid == null) {
+            uid = "user_${UUID.randomUUID()}"
+            prefs.edit().putString("stable_user_id", uid).apply()
+        }
+        return uid
+    }
+
     val playerState: Flow<PlayerState?> = playerDao.getPlayer()
     val inventory: Flow<List<InventoryItem>> = inventoryDao.getAllItems()
     val recentMemories: Flow<List<Memory>> = memoryDao.getRecentMemories(10)
     val worldInfo: Flow<WorldInfo?> = worldDao.getWorldInfo()
+    val npcs: Flow<List<NpcRelation>> = npcDao.getAllNpcs()
 
     /**
-     * 发送玩家行动并处理 AI 回复
+     * [M6] 流式发送行动并处理回复（带 JSON 容错）
      */
-    suspend fun sendAction(action: String): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            // 1. 获取当前所有状态
-            val currentPlayer = playerState.first() ?: return@withContext Result.failure(Exception("未找到玩家数据"))
-            val currentItems = inventory.first()
-            val currentMemories = recentMemories.first()
-            val currentWeather = worldInfo.first() ?: return@withContext Result.failure(Exception("未找到世界数据"))
-
-            // 2. 组装 Prompt
-            val systemPrompt = PromptBuilder.buildSystemPrompt()
-            val userSnapshot = PromptBuilder.buildUserSnapshot(
-                currentPlayer, currentItems, currentMemories, currentWeather, action
-            )
-
-            // 3. 调用 API
-            val request = ChatRequest(
-                messages = listOf(
-                    ChatMessage("system", systemPrompt),
-                    ChatMessage("user", userSnapshot)
-                ),
-                userId = currentPlayer.userId
-            )
-
-            val response = apiService.getChatCompletions(authHeader, request)
-            val jsonResponse = response.choices.firstOrNull()?.message?.content 
-                ?: return@withContext Result.failure(Exception("AI 未返回有效内容"))
-
-            // 4. 解析并同步数据库
-            val gameData = gson.fromJson(jsonResponse, GameResponse::class.java)
-            syncGameData(gameData, currentPlayer, currentWeather)
-
-            Result.success(gameData.story)
-        } catch (e: Exception) {
-            e.printStackTrace()
-            Result.failure(e)
+    fun sendActionStream(action: String): Flow<StreamEvent> = callbackFlow {
+        val currentPlayer = playerState.first() ?: run {
+            trySend(StreamEvent.Error("未找到玩家数据"))
+            close()
+            return@callbackFlow
         }
+        val currentItems = inventory.first()
+        val currentMemories = recentMemories.first()
+        val currentWeather = worldInfo.first() ?: run {
+            trySend(StreamEvent.Error("未找到世界数据"))
+            close()
+            return@callbackFlow
+        }
+
+        val request = ChatRequest(
+            messages = listOf(
+                ChatMessage("system", PromptBuilder.buildSystemPrompt()),
+                ChatMessage("user", PromptBuilder.buildUserSnapshot(currentPlayer, currentItems, currentMemories, currentWeather, action))
+            ),
+            userId = currentPlayer.userId,
+            stream = true
+        )
+
+        val call = apiService.getChatCompletionsStream(authHeader, request)
+        val fullContent = StringBuilder()
+
+        call.enqueue(object : Callback<ResponseBody> {
+            override fun onResponse(call: Call<ResponseBody>, response: Response<ResponseBody>) {
+                if (!response.isSuccessful) {
+                    val code = response.code()
+                    val retryable = code in 500..599
+                    val msg = when {
+                        code == 401 || code == 403 -> "API 认证失败，请检查密钥配置"
+                        code == 429 -> "请求过于频繁，请稍后重试"
+                        else -> "服务器错误 ($code)"
+                    }
+                    trySend(StreamEvent.Error(msg, retryable = retryable))
+                    close()
+                    return
+                }
+
+                repositoryScope.launch {
+                    try {
+                        response.body()?.charStream()?.buffered()?.use { reader ->
+                            var line: String?
+                            while (reader.readLine().also { line = it } != null) {
+                                val row = line ?: ""
+                                if (row.startsWith("data: ")) {
+                                    val data = row.substring(6)
+                                    if (data == "[DONE]") break
+
+                                    val chunk = gson.fromJson(data, ChatChunkResponse::class.java)
+                                    val delta = chunk.choices.firstOrNull()?.delta
+
+                                    delta?.reasoningContent?.let { trySend(StreamEvent.Reasoning(it)) }
+                                    delta?.content?.let {
+                                        fullContent.append(it)
+                                        trySend(StreamEvent.Content(it))
+                                    }
+                                    chunk.usage?.let { u ->
+                                        Log.d("CacheStats", "hit=${u.promptCacheHitTokens ?: 0} miss=${u.promptCacheMissTokens ?: 0}")
+                                    }
+                                }
+                            }
+                        }
+
+                        val finalJson = fullContent.toString()
+                        try {
+                            val gameData = gson.fromJson(finalJson, GameResponse::class.java)
+                            syncGameData(gameData, currentPlayer, currentWeather)
+                            trySend(StreamEvent.FinalResponse(gameData))
+                        } catch (e: Exception) {
+                            val salvagedStory = JsonExtractor.tryExtractStory(finalJson)
+                            if (salvagedStory != null) {
+                                val salvagedSuggestions = JsonExtractor.tryExtractSuggestions(finalJson).ifEmpty { listOf("继续探索", "原地休整", "谨慎行动") }
+                                val fakeResponse = GameResponse(
+                                    header = ResponseHeader(currentWeather.currentDate, currentWeather.currentTime, currentWeather.locationScene),
+                                    story = salvagedStory,
+                                    suggestions = salvagedSuggestions,
+                                    statusUpdate = StatusUpdate(
+                                        player = PlayerUpdate(currentPlayer.mentalStateTags, currentPlayer.innerThought, currentPlayer.equippedItems),
+                                        world = WorldUpdate(currentPlayer.doomLevel, currentWeather.macroSituation),
+                                        resources = ResourceUpdate(emptyList(), InventoryUpdate()),
+                                        memoryUpdate = MemoryUpdate(null, null)
+                                    )
+                                )
+                                trySend(StreamEvent.FinalResponse(fakeResponse))
+                            } else {
+                                trySend(StreamEvent.Error("解析失败且无法修复内容"))
+                            }
+                        }
+                        close()
+                    } catch (e: Exception) {
+                        trySend(StreamEvent.Error("流处理崩溃: ${e.message}"))
+                        close()
+                    }
+                }
+            }
+
+            override fun onFailure(call: Call<ResponseBody>, t: Throwable) {
+                // 部分流恢复：如果已接收到内容，尝试解析
+                val partial = fullContent.toString()
+                if (partial.isNotEmpty()) {
+                    val salvagedStory = JsonExtractor.tryExtractStory(partial)
+                    if (salvagedStory != null) {
+                        val salvagedSuggestions = JsonExtractor.tryExtractSuggestions(partial).ifEmpty { listOf("继续探索", "原地休整", "谨慎行动") }
+                        val fakeResponse = GameResponse(
+                            header = ResponseHeader(currentWeather.currentDate, currentWeather.currentTime, currentWeather.locationScene),
+                            story = salvagedStory,
+                            suggestions = salvagedSuggestions,
+                            statusUpdate = StatusUpdate(
+                                player = PlayerUpdate(currentPlayer.mentalStateTags, currentPlayer.innerThought, currentPlayer.equippedItems),
+                                world = WorldUpdate(currentPlayer.doomLevel, currentWeather.macroSituation),
+                                resources = ResourceUpdate(emptyList(), InventoryUpdate()),
+                                memoryUpdate = MemoryUpdate(null, null)
+                            )
+                        )
+                        trySend(StreamEvent.FinalResponse(fakeResponse))
+                        close()
+                        return
+                    }
+                }
+                trySend(StreamEvent.Error("网络连接失败: ${t.message}"))
+                close()
+            }
+        })
+
+        awaitClose { call.cancel() }
     }
 
-    /**
-     * 核心逻辑：将 AI 的判定结果同步到本地数据库
-     */
-    private suspend fun syncGameData(
-        data: GameResponse,
-        oldPlayer: PlayerState,
-        oldWorld: WorldInfo
-    ) {
+    private suspend fun syncGameData(data: GameResponse, oldPlayer: PlayerState, oldWorld: WorldInfo) {
         val update = data.statusUpdate
 
-        // 1. 更新玩家属性
-        val newPlayer = oldPlayer.copy(
-            mentalStateTags = update.player.stateTags,
+        // 客户端状态验证：防止 AI 返回脏数据
+        val safeDoomLevel = update.world.doomLevel.coerceIn(1, 5)
+        val safeStateTags = update.player.stateTags.filter { it.isNotBlank() }
+
+        playerDao.updatePlayerState(oldPlayer.copy(
+            mentalStateTags = safeStateTags,
             innerThought = update.player.innerThought,
             equippedItems = update.player.equipment,
-            doomLevel = update.world.doomLevel
-        )
-        playerDao.updatePlayerState(newPlayer)
+            doomLevel = safeDoomLevel
+        ))
 
-        // 2. 更新世界信息
-        val newWorld = oldWorld.copy(
+        worldDao.updateWorldInfo(oldWorld.copy(
             currentDate = data.header.date,
             currentTime = data.header.time,
             locationScene = data.header.location,
-            macroSituation = update.world.macroSituation
-        )
-        worldDao.updateWorldInfo(newWorld)
+            macroSituation = update.world.macroSituation,
+            knownPointsJson = gson.toJson(update.resources.knownPoints)
+        ))
 
-        // 3. 更新物资 (使用全量覆盖事务)
         val allNewItems = mutableListOf<InventoryItem>()
-        update.resources.inventory.food.forEach { allNewItems.add(InventoryItem(category = "food", name = it.name, quantity = it.quantity)) }
-        update.resources.inventory.drinks.forEach { allNewItems.add(InventoryItem(category = "drinks", name = it.name, quantity = it.quantity)) }
-        update.resources.inventory.weapons.forEach { allNewItems.add(InventoryItem(category = "weapons", name = it.name, quantity = it.quantity)) }
-        update.resources.inventory.special.forEach { allNewItems.add(InventoryItem(category = "special", name = it.name, quantity = it.quantity)) }
+        fun sanitizeQuantity(q: String) = if (q.startsWith("-")) "0" else q
+        update.resources.inventory.food.filter { it.name.isNotBlank() }.forEach { allNewItems.add(InventoryItem(category = "食物", name = it.name, quantity = sanitizeQuantity(it.quantity))) }
+        update.resources.inventory.drinks.filter { it.name.isNotBlank() }.forEach { allNewItems.add(InventoryItem(category = "饮水", name = it.name, quantity = sanitizeQuantity(it.quantity))) }
+        update.resources.inventory.weapons.filter { it.name.isNotBlank() }.forEach { allNewItems.add(InventoryItem(category = "武器", name = it.name, quantity = sanitizeQuantity(it.quantity))) }
+        update.resources.inventory.special.filter { it.name.isNotBlank() }.forEach { allNewItems.add(InventoryItem(category = "特殊", name = it.name, quantity = sanitizeQuantity(it.quantity))) }
         inventoryDao.syncInventory(allNewItems)
 
-        // 4. 处理记忆
         update.memoryUpdate.newTempMemory?.let {
             memoryDao.insertMemory(Memory(location = data.header.location, event = it, result = "AI判定"))
-            memoryDao.deleteExtraTemporary(10) // FIFO
+            memoryDao.deleteExtraTemporary(10)
         }
         update.memoryUpdate.newPermanentPlot?.let {
-            memoryDao.insertMemory(Memory(location = data.header.location, event = it, result = "重大节点", isPermanent = true))
+            memoryDao.insertMemory(Memory(location = data.header.location, event = it, result = "重大剧情", isPermanent = true))
+        }
+        
+        update.npcUpdate?.forEach { npcUpdate ->
+            npcDao.upsertNpc(npcUpdate.name, npcUpdate.relation, npcUpdate.affinityDelta)
         }
     }
 
-    /**
-     * 初始化游戏
-     */
     suspend fun initializeNewGame(playerName: String, doomType: String) {
         val initialPlayer = PlayerState(
-            userId = "user_${System.currentTimeMillis()}",
+            userId = getOrCreateStableUserId(),
             name = playerName,
-            genderPhysique = "成年男性",
+            genderPhysique = "成年人",
             personality = "冷静",
-            baseDescription = "前搜救队成员",
+            baseDescription = "末日幸存者",
             doomType = doomType,
-            mentalStateTags = listOf("健康", "迷茫"),
-            innerThought = "我必须活下去。",
-            equippedItems = listOf("手电筒")
+            mentalStateTags = listOf("健康"),
+            innerThought = "游戏开始了。",
+            equippedItems = emptyList()
         )
-        
         val initialWorld = WorldInfo(
             currentDate = "第1天",
             currentTime = "清晨",
-            locationScene = "避难所地下室",
-            macroSituation = "灾难刚刚爆发，通讯中断。",
+            locationScene = "避难所",
+            macroSituation = "灾难爆发。",
             knownPointsJson = "[]"
         )
-
         playerDao.updatePlayerState(initialPlayer)
         worldDao.updateWorldInfo(initialWorld)
-        // 插入一个初始记忆
-        memoryDao.insertMemory(Memory(location = "地下室", event = "在一场大混乱后躲进了这里", result = "幸存"))
+        memoryDao.insertMemory(Memory(location = "系统", event = "降临世界", result = "初始"))
     }
 }
