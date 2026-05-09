@@ -112,16 +112,21 @@ com.example.doomsurvival
     "resources": {
       "knownPoints": [{"location": "..", "possibleItems": "..", "risk": ".."}],
       "inventory": {
-        "food": [{"name": "...", "quantity": "2包"}],
-        "drinks": [...],
-        "weapons": [...],
-        "special": [...]
+        "food": [{"name": "...", "quantity": ".."}],
+        "drinks": [{"name": "...", "quantity": ".."}],
+        "weapons": [{"name": "...", "quantity": ".."}],
+        "special": [{"name": "...", "quantity": ".."}]
       }
     },
     "memoryUpdate": {
       "newTempMemory": "时间@地点 事件->结果",
       "newPermanentPlot": "可选的重要剧情摘要"
     }
+    "npcUpdate": {
+      "name": "李湘"
+      "relation": "友好"
+      "affinityDelta": "50"
+     }
   }
 }
 ```

@@ -3,7 +3,6 @@ package com.ei8z.endworld.data.remote
 import com.ei8z.endworld.data.remote.model.ChatRequest
 import com.ei8z.endworld.data.remote.model.ChatResponse
 import okhttp3.ResponseBody
-import retrofit2.Call
 import retrofit2.http.Body
 import retrofit2.http.Header
 import retrofit2.http.POST
@@ -18,8 +17,8 @@ interface DeepSeekApiService {
 
     @Streaming
     @POST("chat/completions")
-    fun getChatCompletionsStream(
+    suspend fun getChatCompletionsStream(
         @Header("Authorization") authorization: String,
         @Body request: ChatRequest
-    ): Call<ResponseBody>
+    ): ResponseBody
 }

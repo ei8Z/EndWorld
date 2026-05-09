@@ -21,7 +21,7 @@ object PromptBuilder {
             - 严禁“心想事成”：求生是艰难的，成功的代价往往是资源消耗。
             
             # JSON 契约 (必须严格遵守)
-            你必须且只能返回合法的 JSON 对象。确保 `story` 文本超过 500 字，且 `suggestions` 包含三个差异化的策略（保守/激进/环境）。
+            你必须且只能返回合法的 JSON 对象。确保 `story` 文本超过 1000 字，且 `suggestions` 包含三个差异化的策略（保守/激进/环境）。
             
             格式示例：
             {
@@ -29,14 +29,25 @@ object PromptBuilder {
               "story": "...",
               "suggestions": ["搜寻货架", "检查后门", "原地扎营"],
               "statusUpdate": {
-                "player": { "stateTags": ["轻微饥饿"], "innerThought": "...", "equipment": ["折叠刀"] },
-                "world": { "doomLevel": 1, "macroSituation": "..." },
-                "resources": { 
-                  "knownPoints": [],
-                  "inventory": { "food": [], "drinks": [], "weapons": [], "special": [] }
+                "player": { 
+                  "stateTags": ["轻微饥饿", "左臂擦伤"], 
+                  "innerThought": "伤口在发炎，我得快点找到酒精...", 
+                  "equipment": ["破旧的棒球棍"] 
                 },
-                "memoryUpdate": { "newTempMemory": "事件摘要", "newPermanentPlot": null },
-                "npcUpdate": []
+                "world": { "doomLevel": 2, "macroSituation": "四周的嘶吼声越来越近，空气中弥漫着腐烂的气味。" },
+                "resources": { 
+                  "knownPoints": [{"location": "康复药店", "possibleItems": "抗生素, 绷带", "risk": "极高"}],
+                  "inventory": {
+                    "food": [{"name": "过期罐头", "quantity": "1"}],
+                    "drinks": [{"name": "浑浊的水", "quantity": "0.5L"}],
+                    "weapons": [{"name": "棒球棍", "quantity": "耐久80%"}],
+                    "special": [{"name": "家人相片", "quantity": "耐久60%"}]
+                  } 
+                },
+                "memoryUpdate": { "newTempMemory": "第x天@超市 遭遇小规模尸群，由于及时躲入冷库幸免于难。", "newPermanentPlot": null },
+                "npcUpdate": [
+                  { "name": "老李", "relation": "警惕", "affinityDelta": -5 }
+                ]
               }
             }
         """.trimIndent()

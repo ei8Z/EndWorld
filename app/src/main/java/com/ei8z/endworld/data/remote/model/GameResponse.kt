@@ -2,9 +2,6 @@ package com.ei8z.endworld.data.remote.model
 
 import com.google.gson.annotations.SerializedName
 
-/**
- * AI 返回的结构化游戏数据
- */
 data class GameResponse(
     @SerializedName("header") val header: ResponseHeader,
     @SerializedName("story") val story: String,
@@ -44,8 +41,8 @@ data class ResourceUpdate(
 
 data class KnownPoint(
     @SerializedName("location") val location: String,
-    @SerializedName("possibleItems") val possibleItems: String,
-    @SerializedName("risk") val risk: String
+    @SerializedName("possibleItems") val possibleItems: String = "",
+    @SerializedName("risk") val risk: String = ""
 )
 
 data class InventoryUpdate(
@@ -66,7 +63,7 @@ data class MemoryUpdate(
 )
 
 data class NpcUpdate(
-    @SerializedName("name") val name: String,
-    @SerializedName("relation") val relation: String,
-    @SerializedName("affinityDelta") val affinityDelta: Int
+    @SerializedName("name") val name: String?,
+    @SerializedName("relation") val relation: String?,
+    @SerializedName("affinityDelta") val affinityDelta: Int? // 修改为 Int?，方便数值计算
 )

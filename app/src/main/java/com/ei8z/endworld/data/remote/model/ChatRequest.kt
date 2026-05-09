@@ -8,7 +8,7 @@ data class ChatRequest(
     @SerializedName("response_format") val responseFormat: ResponseFormat? = ResponseFormat("json_object"),
     @SerializedName("thinking") val thinking: Thinking? = Thinking("enabled"),
     @SerializedName("reasoning_effort") val reasoningEffort: String = "high",
-    @SerializedName("max_tokens") val maxTokens: Int = 192000,
+    @SerializedName("max_tokens") val maxTokens: Int = 81920,
     @SerializedName("stream") val stream: Boolean = true,
     @SerializedName("user_id") val userId: String? = null
 )

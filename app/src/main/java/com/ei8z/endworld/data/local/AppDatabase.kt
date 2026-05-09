@@ -14,9 +14,10 @@ import com.ei8z.endworld.data.local.entity.*
         InventoryItem::class,
         Memory::class,
         NpcRelation::class,
-        WorldInfo::class
+        WorldInfo::class,
+        StoryHistory::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -27,6 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun memoryDao(): MemoryDao
     abstract fun npcDao(): NpcDao
     abstract fun worldDao(): WorldDao
+    abstract fun historyDao(): HistoryDao
 
     companion object {
         @Volatile
