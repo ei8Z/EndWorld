@@ -17,5 +17,18 @@ data class ChunkChoice(
 data class ChunkDelta(
     @SerializedName("role") val role: String?,
     @SerializedName("content") val content: String?,
-    @SerializedName("reasoning_content") val reasoningContent: String?
+    @SerializedName("reasoning_content") val reasoningContent: String?,
+    @SerializedName("tool_calls") val toolCalls: List<ToolCallChunk>? = null
+)
+
+data class ToolCallChunk(
+    val index: Int,
+    val id: String?,
+    val type: String?,
+    val function: FunctionCallChunk?
+)
+
+data class FunctionCallChunk(
+    val name: String?,
+    val arguments: String?
 )

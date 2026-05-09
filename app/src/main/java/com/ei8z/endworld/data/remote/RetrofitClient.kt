@@ -7,11 +7,10 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
-    private const val BASE_URL = "https://api.deepseek.com/"
+    private const val DEEPSEEK_BASE_URL = "https://api.deepseek.com/beta/"
+    private const val MEMOS_BASE_URL = "https://memos.memtensor.cn/api/openmem/v1/"
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        // 重要：流式传输必须使用 HEADERS 或 BASIC。
-        // 如果使用 BODY，拦截器会强制缓存整个响应体以打印日志，导致流式失效。
         level = HttpLoggingInterceptor.Level.HEADERS
     }
 
@@ -22,12 +21,20 @@ object RetrofitClient {
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
 
-    val instance: DeepSeekApiService by lazy {
-        Retrofit.Builder()
-            .baseUrl(BASE_URL)
+    val deepSeekApi: DeepSeekApiService by lazy {
+        createService(DEEPSEEK_BASE_URL)
+    }
+
+    val memosApi: MemosApiService by lazy {
+        createService(MEMOS_BASE_URL)
+    }
+
+    private inline fun <reified T> createService(baseUrl: String): T {
+        return Retrofit.Builder()
+            .baseUrl(baseUrl)
             .client(okHttpClient)
             .addConverterFactory(GsonConverterFactory.create())
             .build()
-            .create(DeepSeekApiService::class.java)
+            .create(T::class.java)
     }
 }

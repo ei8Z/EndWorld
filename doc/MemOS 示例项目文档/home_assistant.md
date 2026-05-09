@@ -1,0 +1,284 @@
+---
+title: 构建拥有记忆的家庭生活助手
+desc: 在MemOS的加持下，家庭助手能把日常琐事与长期计划串联起来，快速理解并回应用户真正的需求。
+---
+
+## 1. 概述
+
+在做家庭生活助手这类产品时，开发者经常会遇到一个问题：**对话上下文一旦结束，用户信息就丢失了**。
+
+*   用户随口交代的待办（「周六要带孩子去动物园」）
+    
+*   用户表达的习惯（「提醒时要先列要点，再给一句行动建议」）
+    
+*   用户介绍的家庭情况（「我太太叫小芸，孩子 6 岁」）
+    
+
+如果助手不能记住这些信息，就会显得「没心没肺」：用户第二天再问「我周末安排了啥？」时，助手完全不知道在说什么。
+
+
+### 1.1 为什么不用传统 RAG？
+
+很多人第一反应是：能不能用 RAG（检索增强生成）？  
+但传统 RAG 的特点决定了它并不适合这种「个性化助手」场景：
+
+| 传统 RAG | MemOS |
+| --- | --- |
+| 依赖静态知识库，需要人工不断维护文档 | 对话中产生的信息可直接写入，无需额外维护 |
+| 只能机械返回片段，不会自动学习偏好 | 会随对话自动形成待办、偏好、画像等记忆 |
+| 面向“共性知识”，不适合存储个人化信息 | 专门为个体化场景设计，支持长期追踪与调用 |
+
+
+### 1.2 为什么不自己造轮子？
+
+当然，你也可以尝试自己存储这些信息，但这会带来几个挑战：
+
+*   **存储与检索逻辑复杂**：要区分对话内容、长期记忆、偏好和事实，并保证随时能按需检索。
+    
+*   **和大模型对接麻烦**：不仅要存数据，还得在生成回答前把相关信息「拼进 Prompt」。
+    
+*   **可扩展性差**：随着功能增加（待办、偏好、画像），代码会变得越来越难维护。
+    
+
+### 1.3 为什么要用 MemOS？
+
+在做选型时，可以直观对比三种方案：
+
+| 方案 | 特点 | 局限 | MemOS 的优势 |
+| --- | --- | --- | --- |
+| 传统 RAG | 通过向量检索知识库文档，拼接进 Prompt | 需要人工维护静态文档；不能存储个人化待办/偏好；只会机械返回片段 | 自动捕捉对话中的关键信息，支持个性化、动态更新 |
+| 自研存储方案 | 自建表/缓存，把对话信息保存下来 | 逻辑复杂：要区分对话/长期记忆/偏好/画像；调用模型前还得手动拼 Prompt；功能扩展难维护 | MemOS 封装存储+检索+Prompt 注入，减少开发负担 |
+| MemOS | 两个接口即可：`addMessage` 写入、`searchMemory` 检索 | —— | 支持长期追踪、偏好保持、画像结合；开箱即用、易扩展 |
+
+只需调用两个接口：
+
+*   `addMessage`：把用户或助手的消息写入系统。
+    
+*   `searchMemory`：在模型生成回复前检索相关记忆，把结果拼进 Prompt。
+    
+
+这样，助手就能表现出真正的“有记忆”：
+
+*   **追踪待办**
+    
+    *   用户说「周六要带孩子去动物园」
+        
+    *   几天后问「我周末安排了啥？」 → 能准确回答
+        
+*   **保持偏好**（未来版本会支持更精细的指令补全）
+    
+    *   用户说「提醒要先列要点+一句话建议」
+        
+    *   再问「帮我规划下周家务分工」 → 输出保持偏好风格
+        
+*   **结合画像**
+    
+    *   用户说「我太太叫小芸，孩子 6 岁」
+        
+    *   再问「周末给家里安排个活动？」 → 给出贴合亲子家庭的活动方案
+
+### 1.4 本案例会展示什么？
+
+我们将用 MemOS 云服务快速实现一个“会记住用户”的家庭生活助手。  
+在运行案例脚本时，开发者能看到完整日志：
+
+*   每次调用 `addMessage` 和 `searchMemory` 的请求/响应
+    
+*   命中的记忆条目
+    
+*   拼接指令和完整指令  ← TODO: 即将上线敬请期待
+    
+*   模型生成的回答（未接入大模型时会提示【未接入大模型】）
+
+
+## 2. 示例
+
+### 2.1 环境准备
+
+使用pip安装所需的依赖项
+
+```shell
+pip install MemoryOS -U
+```
+
+
+### 2.2 完整代码
+
+```python
+import os
+import uuid
+from openai import OpenAI
+from memos.api.client import MemOSClient
+
+os.environ["MEMOS_API_KEY"] = "mpg-xx" # 从云服务控制台获取MemOS_API_KEY
+os.environ["OPENAI_API_KEY"] = "sk-xx" # 替换为你自己的API_KEY
+
+conversation_counter = 0
+
+def generate_conversation_id():
+    global conversation_counter
+    conversation_counter += 1
+    return f"conversation_{conversation_counter:03d}"
+
+class HomeAssistant:    
+    def __init__(self):
+        self.memos_client = MemOSClient(api_key=os.getenv("MEMOS_API_KEY"))
+        self.openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    
+    def search_memory(self, query, user_id, conversation_id):
+        """查询相关记忆"""
+        response = self.memos_client.search_memory(query, user_id, conversation_id)
+
+        return [memory_detail.memory_value for memory_detail in response.data.memory_detail_list]
+
+    def add_message(self, messages, user_id, conversation_id):
+        """添加消息"""
+        self.memos_client.add_message(messages, user_id, conversation_id)
+
+    def get_message(self, user_id, conversation_id):
+        """获取消息"""
+        response = self.memos_client.get_message(user_id, conversation_id)
+        
+        return response.data.message_detail_list
+
+    def build_system_prompt(self, memories):
+        """构建包含格式化记忆的系统提示"""
+        base_prompt = """
+          你是一位知识丰富、贴心周到的家庭生活助手。
+          你可调用对话记忆，助力提供更具个性化的回复。
+          请借助这些记忆，理解用户的场景背景、偏好倾向及过往互动情况。
+          若提供了记忆内容，在相关时需自然参考其中信息，但无需明确提及自己拥有记忆功能。
+        """
+
+        if memories:
+            # 将记忆格式化为编号列表
+            formatted_memories = "## 记忆:\n"
+            for i, memory in enumerate(memories, 1):
+                formatted_memories += f"{i}. {memory}\n"
+            
+            return f"{base_prompt}\n\n{formatted_memories}"
+        else:
+            return base_prompt
+        
+
+    def chat(self, query, user_id, conversation_id):
+        """处理包含记忆集成的对话的主要聊天函数"""
+        # 1. 搜索相关记忆
+        memories = self.search_memory(query, user_id, conversation_id)
+        
+        # 构建包含记忆的系统提示
+        system_prompt = self.build_system_prompt(memories)
+        
+        # 2. 使用OpenAI生成回答
+        response = self.openai_client.chat.completions.create(
+            model="gpt-4o",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": query}
+            ]
+        )
+        answer = response.choices[0].message.content
+
+        # 3. 将对话保存到记忆中
+        messages = [
+            {"role": "user", "content": query},
+            {"role": "assistant", "content": answer}
+        ]
+        self.memos_client.add_message(messages, user_id, conversation_id)
+        
+        return answer
+
+ai_assistant = HomeAssistant()
+user_id = "memos_home_management_user_123"
+
+def demo_questions():
+    return [
+      "我周末有哪些安排？",
+      "帮我规划下周家务分工"
+    ]
+
+def pre_configured_conversations():
+    """返回预配置的对话对"""
+    return [
+        {
+            "user": "周六要带孩子去动物园，帮我记一下。",
+        },
+        {
+            "user": "以后提醒或安排，请先列三条要点，再补一句简短建议。",
+        }
+    ]
+
+def execute_pre_conversations():
+    """执行预配置的对话"""
+    conversation_id = generate_conversation_id()
+    conversations = pre_configured_conversations()
+    
+    print(f"\n🔄 正在执行预配置对话（conversation_id={conversation_id}）...")
+    print("=" * 60)
+    
+    for i, conv in enumerate(conversations, 1):
+        print(f"\n💬 对话 {i}")
+        print(f"👤 用户: {conv['user']}")
+        
+        # 执行对话
+        answer = ai_assistant.chat(conv['user'], user_id, conversation_id)
+        print(f"🤖 [助手]: {answer}")
+        print("-" * 40)
+    
+    print("\n✅ 预配置对话执行完毕！")
+    print("=" * 60)
+
+def main():    
+    print("🏠 欢迎查看MemOS在家庭助手中的使用示例！")
+    print("💡 在MemOS的加持下，让您开发的产品实现真人管家效果！ 😊 \n")
+    
+    # 询问用户是否要先执行预配置对话
+    while True:
+        pre_chat = input("🤔 您想先执行预配置对话吗？预计消耗2次add和2次search的调用额度，是否执行？(y/n): ").strip().lower()
+        
+        if pre_chat in ['y', 'yes', '是', 'Y']:
+            execute_pre_conversations()
+            break
+        elif pre_chat in ['n', 'no', '否', 'N']:
+            print("📝 开始全新对话...")
+            break
+        else:
+            print("⚠️  请输入 'y' 表示是或 'n' 表示否")
+
+    print("\n⚡️ 接下来您输入的每一个问题，都将会在一个全新的会话中展开（新的 conversation id）。MemOS将会跨会话自动召回您的历史行为记忆，为您提供连续、个性化的服务。")    
+    print("\n🎯 以下是一些示例问题，您可以继续跟助手对话:")
+    for i, question in enumerate(demo_questions(), 1):
+      print(f"  {i}. {question}")
+
+    while True:
+        user_query = input("\n🤔 请输入您的问题 (或输入 'exit' 退出): ").strip()
+        
+        if user_query.lower() in ['quit', 'exit', 'q', '退出']:
+            print("👋 感谢使用家庭助手！")
+            break
+        
+        if not user_query:
+            continue
+        
+        print("🤖 正在处理...")
+        conversation_id = generate_conversation_id()
+        answer = ai_assistant.chat(user_query, user_id, conversation_id)
+        print(f"\n💬 conversation_id: {conversation_id}\n💡 [助手]: {answer}\n")
+        print("-" * 60)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### 2.3 代码说明
+
+1.   在环境变量中设置您的MemOS API秘钥以及Open AI秘钥
+    
+2.   实例化`HomeAssistant` 
+    
+3.   选择是否执行预设值的对话，会消耗2次add和2次search的额度
+    
+4.   使用`main()`函数通过对话循环与助手进行交互
+    
+5.   助手会调用 chat， 先执行 search 检索记忆，然后再调用OpenAI进行对话，最后执行 add 存储记忆

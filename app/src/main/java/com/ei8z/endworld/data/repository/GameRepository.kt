@@ -75,7 +75,7 @@ class GameRepository(
     val storyHistory: Flow<List<StoryHistory>> = historyDao.getAllHistory()
 
     /**
-     * 流式发送行动并处理回复（改为 suspend 直接调用）
+     * 流式发送行动并处理回复
      */
     fun sendActionStream(action: String): Flow<StreamEvent> = callbackFlow {
         Log.d(TAG, "sendActionStream: action=$action")
@@ -87,22 +87,19 @@ class GameRepository(
         }
         val currentItems = inventory.first()
         val currentMemories = recentMemories.first()
+        val currentHistory = storyHistory.first()
         val currentWeather = worldInfo.first() ?: run {
             trySend(StreamEvent.Error("未找到世界数据"))
             close()
             return@callbackFlow
         }
 
-        val request = buildChatRequest(action, currentPlayer, currentItems, currentMemories, currentWeather)
+        val request = buildChatRequest(action, currentPlayer, currentItems, currentMemories, currentHistory, currentWeather)
         val fullContent = StringBuilder()
 
         val job = repositoryScope.launch {
             try {
-                // 直接使用 suspend 方式调用 API
-                // 这会在收到 HTTP 头部后立即返回 ResponseBody
                 val responseBody = apiService.getChatCompletionsStream(authHeader, request)
-                
-                // 实时处理流
                 processStreamChunks(responseBody, fullContent)
 
                 val finalJson = fullContent.toString()
@@ -125,17 +122,31 @@ class GameRepository(
         player: PlayerState,
         items: List<InventoryItem>,
         memories: List<Memory>,
+        history: List<StoryHistory>,
         world: WorldInfo
     ): ChatRequest {
-        return ChatRequest(
-            messages = listOf(
-                ChatMessage("system", PromptBuilder.buildSystemPrompt()),
-                ChatMessage(
-                    "user",
-                    PromptBuilder.buildUserSnapshot(player, items, memories, world, action)
-                )
+        // 判断是否为关键抉择，动态调整推理强度
+        val isCritical = action.contains("战斗") || action.contains("逃跑") || action.contains("杀")
+        val effort = if (isCritical) "max" else "high"
+
+        val messages = mutableListOf(
+            ChatMessage("system", PromptBuilder.buildSystemPrompt()),
+            ChatMessage(
+                "user",
+                PromptBuilder.buildUserSnapshot(player, items, memories, history, world, action)
             ),
+            // 利用 Beta 特性的 Prefix Completion，强制从 JSON 开始输出
+            ChatMessage(
+                "assistant",
+                "{\n  \"header\":",
+                prefix = true
+            )
+        )
+
+        return ChatRequest(
+            messages = messages,
             userId = player.userId,
+            reasoningEffort = effort,
             stream = true
         )
     }
@@ -144,7 +155,9 @@ class GameRepository(
         responseBody: ResponseBody,
         fullContent: StringBuilder
     ) {
-        // 使用 charStream().buffered() 确保逐行读取 SSE 格式
+        // 由于使用了 prefix: true，前缀内容已经固定，手动补全到 fullContent
+        fullContent.append("{\n  \"header\":")
+        
         responseBody.charStream().buffered().use { reader ->
             var line: String?
             while (reader.readLine().also { line = it } != null) {
@@ -155,25 +168,22 @@ class GameRepository(
 
                     try {
                         val chunk = gson.fromJson(data, ChatChunkResponse::class.java)
-                        val delta = chunk.choices.firstOrNull()?.delta
                         
+                        // 监控缓存命中情况
+                        chunk.usage?.let {
+                            if ((it.promptCacheHitTokens?:0) > 0) {
+                                Log.d(TAG, "KV Cache Hit: ${it.promptCacheHitTokens} tokens")
+                            }
+                        }
+
+                        val delta = chunk.choices.firstOrNull()?.delta
                         delta?.reasoningContent?.let { trySend(StreamEvent.Reasoning(it)) }
                         delta?.content?.let {
                             fullContent.append(it)
                             trySend(StreamEvent.Content(it))
                         }
-                        chunk.usage?.let { u ->
-                            Log.d(
-                                TAG,
-                                "CacheStats: hit=${u.promptCacheHitTokens ?: 0} miss=${u.promptCacheMissTokens ?: 0}"
-                            )
-                        }
                     } catch (e: Exception) {
                         // 忽略解析失败的 chunk
-                        Log.w(
-                            TAG,
-                            "processStream: 解析单个chunk失败, data=${data.take(100)}, error=${e.message}"
-                        )
                     }
                 }
             }
@@ -195,7 +205,7 @@ class GameRepository(
                 syncGameData(result, player, world)
                 trySend(StreamEvent.FinalResponse(result))
             } else {
-                trySend(StreamEvent.Error("解析失败且无法修复内容"))
+                trySend(StreamEvent.Error("解析失败且无法修复内容: ${e.message}"))
             }
         }
     }

@@ -15,8 +15,14 @@ object DependencyContainer {
     fun getGameRepository(context: Context): GameRepository {
         return repository ?: synchronized(this) {
             val db = AppDatabase.getDatabase(context)
-            val apiService = RetrofitClient.instance
-            val repo = GameRepository(db, apiService, Config.DEEPSEEK_API_KEY, context)
+            val repo = GameRepository(
+                db, 
+                RetrofitClient.deepSeekApi, 
+                RetrofitClient.memosApi,
+                Config.DEEPSEEK_API_KEY, 
+                Config.MEMOS_API_KEY,
+                context
+            )
             repository = repo
             repo
         }
