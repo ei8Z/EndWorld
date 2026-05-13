@@ -18,7 +18,10 @@ object JsonExtractor {
             val json = JSONObject(raw)
             val arr = json.optJSONArray("suggestions")
             if (arr != null && arr.length() > 0) {
-                (0 until arr.length()).mapNotNull { arr.optString(it)?.takeIf { it.isNotEmpty() } }
+                (0 until arr.length()).mapNotNull { i ->
+                    if (arr.isNull(i)) null
+                    else arr.optString(i).takeIf { it.isNotBlank() }
+                }
             } else emptyList()
         } catch (e: Exception) {
             emptyList()

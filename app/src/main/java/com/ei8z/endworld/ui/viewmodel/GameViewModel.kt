@@ -109,6 +109,13 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
         startStream(action)
     }
 
+    /**
+     * 流式内容的三阶段状态机：
+     *   阶段 1 — 累积字符直到 contentBuffer 中出现 "story":
+     *   阶段 2 — 提取 story 文本并逐字更新 UI，同时替换转义字符
+     *   阶段 3 — 遇到 "suggestions": 时停止 story 增量，等待 FinalResponse 统一收尾
+     * 这种增量解析避免了等待完整 JSON 再渲染，极大降低首字延迟。
+     */
     private fun startStream(action: String) {
         streamJob?.cancel()
         streamJob = viewModelScope.launch {
@@ -129,35 +136,36 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
                     }
                     is StreamEvent.Content -> {
                         val delta = event.delta
-                        contentBuffer += delta    // 1. 状态切换检测
+                        contentBuffer += delta
+
+                        // 阶段 1 → 2 切换点
                         if (!hasReachedStory && contentBuffer.contains("\"story\":")) {
                             hasReachedStory = true
                         }
 
+                        // 阶段 2 → 3 切换点
                         if (!hasReachedSuggestions && contentBuffer.contains("\"suggestions\":")) {
                             hasReachedSuggestions = true
 
-                            // 此时故事流结束，对当前累积的故事内容进行最后一次清理
-                            // 移除末尾可能残存的 ", 或 "
+                            // story 流结束，去掉末尾可能残存的 JSON 语法残留
                             _currentStory.value = _currentStory.value
-                                .substringBeforeLast("\"") // 确保去掉最后一个引号及其后的内容
+                                .substringBeforeLast("\"")
                                 .trimEnd { it == ',' || it.isWhitespace() }
                         }
 
-                        // 2. 增量更新 UI (仅在 story 区域内，且 suggestions 还没出现时)
+                        // 阶段 2：增量更新 story 文本
                         if (hasReachedStory && !hasReachedSuggestions) {
-                            // 如果是刚进入 story 阶段，去掉 "story":" 前缀
                             if (_currentStory.value.isEmpty()) {
+                                // 首次进入，去掉 "story":" 前缀
                                 val storyPart = contentBuffer.substringAfter("\"story\":")
                                     .trimStart()
                                     .removePrefix("\"")
                                 _currentStory.value = storyPart
                             } else {
-                                // 后续直接追加增量，极大提升性能
                                 _currentStory.value += delta
                             }
 
-                            // 处理转义字符（可选：如果性能要求极高，可以只在 FinalResponse 处理）
+                            // 实时处理 JSON 转义字符
                             if (delta.contains("\\")) {
                                 _currentStory.value = _currentStory.value
                                     .replace("\\n", "\n")
@@ -167,14 +175,13 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
                         }
                     }
                     is StreamEvent.FinalResponse -> {
-                        // 流程结束，将流式的内容持久化到数据库历史记录中
+                        // 以 AI 解析后的 story 为准覆盖数据库，确保最终显示的是正确转义后的文本
                         repository.saveHistory(
                             action = null,
                             reasoning = _currentReasoning.value,
                             story = event.response.story
                         )
 
-                        // 清空流式状态，UI 将渲染由数据库 Flow 自动推送的最新列表
                         _currentStory.value = ""
                         _currentReasoning.value = ""
                         _suggestions.value = event.response.suggestions

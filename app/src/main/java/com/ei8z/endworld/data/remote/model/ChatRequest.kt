@@ -2,6 +2,12 @@ package com.ei8z.endworld.data.remote.model
 
 import com.google.gson.annotations.SerializedName
 
+/**
+ * DeepSeek API Chat Completions 请求体。
+ * - [thinking] 开启思维链，[reasoningEffort] 控制推理深度（high/max）
+ * - [stream] 启用 SSE 流式输出
+ * - [userId] 用于服务端 KV Cache 隔离，相同 user_id 的 system prompt 前缀会被缓存以降低延迟和 Token 消耗
+ */
 data class ChatRequest(
     @SerializedName("model") val model: String = "deepseek-v4-pro",
     @SerializedName("messages") val messages: List<ChatMessage>,
@@ -11,7 +17,6 @@ data class ChatRequest(
     @SerializedName("max_tokens") val maxTokens: Int = 8192,
     @SerializedName("stream") val stream: Boolean = true,
     @SerializedName("tools") val tools: List<Tool>? = null,
-    @SerializedName("tool_choice") val toolChoice: String? = null,
     @SerializedName("user_id") val userId: String? = null
 )
 
