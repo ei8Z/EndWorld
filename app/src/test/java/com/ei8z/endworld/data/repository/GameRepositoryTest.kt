@@ -7,7 +7,6 @@ import com.ei8z.endworld.data.local.dao.*
 import com.ei8z.endworld.data.local.entity.*
 import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.MemosApiService
-import com.ei8z.endworld.data.remote.model.*
 import io.mockk.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.runTest
@@ -34,7 +33,6 @@ class GameRepositoryTest {
 
     @Before
     fun setUp() {
-        // Platform mocks
         db = mockk(relaxed = true)
         api = mockk(relaxed = true)
         memosApi = mockk(relaxed = true)
@@ -42,7 +40,6 @@ class GameRepositoryTest {
         prefs = mockk(relaxed = true)
         prefsEdit = mockk(relaxed = true)
 
-        // DAO mocks
         playerDao = mockk(relaxed = true)
         inventoryDao = mockk(relaxed = true)
         memoryDao = mockk(relaxed = true)
@@ -50,7 +47,6 @@ class GameRepositoryTest {
         npcDao = mockk(relaxed = true)
         historyDao = mockk(relaxed = true)
 
-        // DB delegates
         every { db.playerDao() } returns playerDao
         every { db.inventoryDao() } returns inventoryDao
         every { db.memoryDao() } returns memoryDao
@@ -58,7 +54,6 @@ class GameRepositoryTest {
         every { db.npcDao() } returns npcDao
         every { db.historyDao() } returns historyDao
 
-        // SharedPreferences
         every { context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE) } returns prefs
         every { prefs.getString("stable_user_id", null) } returns "user_existing_id"
         every { prefs.edit() } returns prefsEdit
@@ -67,11 +62,8 @@ class GameRepositoryTest {
     }
 
     @After
-    fun tearDown() {
-        clearAllMocks()
-    }
+    fun tearDown() = clearAllMocks()
 
-    // Helper: creates repository AFTER all DAO flow mocks are set up
     private fun createRepo() = GameRepository(db, api, memosApi, "test-api-key", "test-memos-key", context)
 
     // region Exposed Flows
@@ -84,7 +76,6 @@ class GameRepositoryTest {
             mentalStateTags = listOf("健康"), innerThought = "", equippedItems = emptyList()
         )
         every { playerDao.getPlayer() } returns flowOf(player)
-
         val repo = createRepo()
         val result = repo.playerState.first()
         assertNotNull(result)
@@ -92,18 +83,14 @@ class GameRepositoryTest {
     }
 
     @Test
-    fun `exposed flows delegate correctly to DAOs`() = runTest {
-        every { playerDao.getPlayer() } returns flowOf(null)
-        every { inventoryDao.getAllItems() } returns flowOf(emptyList())
-        every { memoryDao.getRecentMemories(10) } returns flowOf(emptyList())
-        every { worldDao.getWorldInfo() } returns flowOf(null)
-        every { npcDao.getAllNpcs() } returns flowOf(emptyList())
-        every { historyDao.getAllHistory() } returns flowOf(emptyList())
-
+    fun `storyHistory is non-nullable action String`() = runTest {
+        val entry = StoryHistory(action = "搜索", story = "你找到了物资")
+        every { historyDao.getAllHistory() } returns flowOf(listOf(entry))
         val repo = createRepo()
-        assertTrue(repo.inventory.first().isEmpty())
-        assertTrue(repo.recentMemories.first().isEmpty())
-        assertTrue(repo.npcs.first().isEmpty())
+        val list = repo.storyHistory.first()
+        assertEquals(1, list.size)
+        assertEquals("搜索", list[0].action)
+        assertEquals("你找到了物资", list[0].story)
     }
 
     // endregion
@@ -112,20 +99,20 @@ class GameRepositoryTest {
 
     @Test
     fun `initializeNewGame clears history and inserts initial data`() = runTest {
-        val name = "幸存者A"
-        val doom = "核冬天"
-
         coEvery { playerDao.updatePlayerState(any()) } just Runs
         coEvery { worldDao.updateWorldInfo(any()) } just Runs
         coEvery { memoryDao.insertMemory(any()) } just Runs
         coEvery { historyDao.clearHistory() } just Runs
 
         val repo = createRepo()
-        repo.initializeNewGame(name, doom)
+        repo.initializeNewGame("幸存者A", "成年男性", "勇敢", "核冬天")
 
         coVerify { historyDao.clearHistory() }
         coVerify { memoryDao.insertMemory(any()) }
-        coVerify { playerDao.updatePlayerState(match { it.name == name && it.doomType == doom }) }
+        coVerify { playerDao.updatePlayerState(match {
+            it.name == "幸存者A" && it.genderPhysique == "成年男性" &&
+                    it.personality == "勇敢" && it.doomType == "核冬天"
+        }) }
         coVerify { worldDao.updateWorldInfo(match { it.currentDate == "第1天" }) }
     }
 
@@ -134,24 +121,23 @@ class GameRepositoryTest {
     // region saveHistory / clearHistory
 
     @Test
-    fun `saveHistory delegates to historyDao`() = runTest {
+    fun `saveHistory — action is now non-nullable, single record per turn`() = runTest {
         coEvery { historyDao.insertHistory(any()) } just Runs
-
         val repo = createRepo()
-        repo.saveHistory(action = "搜索", reasoning = "分析了环境", story = "你找到了物资")
+
+        // 一个回合一条记录：action + reasoning + story 合并
+        repo.saveHistory(action = "搜索", reasoning = "环境分析", story = "你找到了物资")
 
         coVerify { historyDao.insertHistory(match {
-            it.action == "搜索" && it.story == "你找到了物资"
+            it.action == "搜索" && it.reasoning == "环境分析" && it.story == "你找到了物资"
         })}
     }
 
     @Test
     fun `clearHistory delegates to historyDao`() = runTest {
         coEvery { historyDao.clearHistory() } just Runs
-
         val repo = createRepo()
         repo.clearHistory()
-
         coVerify { historyDao.clearHistory() }
     }
 

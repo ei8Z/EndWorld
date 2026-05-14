@@ -53,8 +53,11 @@ fun GameScreen(viewModel: GameViewModel) {
     val memories by viewModel.memories.collectAsStateWithLifecycle(initialValue = emptyList())
     val npcs by viewModel.npcs.collectAsStateWithLifecycle(initialValue = emptyList())
 
+    val gmStrategy by viewModel.gmStrategy.collectAsStateWithLifecycle()
+
     var customAction by remember { mutableStateOf("") }
     var showStatusDialog by remember { mutableStateOf(false) }
+    var showGmDialog by remember { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -83,6 +86,9 @@ fun GameScreen(viewModel: GameViewModel) {
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showGmDialog = true }) {
+                        Icon(Icons.Default.Settings, contentDescription = "GM策略")
+                    }
                     IconButton(onClick = { showStatusDialog = true }) {
                         Icon(Icons.Default.Person, contentDescription = "状态")
                     }
@@ -200,6 +206,15 @@ fun GameScreen(viewModel: GameViewModel) {
         }
     }
 
+    if (showGmDialog) {
+        GmSettingsDialog(
+            current = gmStrategy,
+            onSave = { viewModel.updateGmStrategy(it) },
+            onReset = { viewModel.resetGmStrategy() },
+            onDismiss = { showGmDialog = false }
+        )
+    }
+
     if (showStatusDialog) {
         StatusDialog(playerState, worldInfo, inventory, memories, npcs) { showStatusDialog = false }
     }
@@ -208,8 +223,8 @@ fun GameScreen(viewModel: GameViewModel) {
 @Composable
 fun StoryEntryItem(entry: StoryEntry) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        // 如果有玩家行动，显示在右侧或作为标题
-        if (entry.action != null) {
+        // 显示玩家行动气泡
+        if (!entry.action.isNullOrBlank()) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

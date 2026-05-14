@@ -38,6 +38,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import okhttp3.ResponseBody
+import java.io.File
 import java.util.UUID
 
 class GameRepository(
@@ -56,6 +57,7 @@ class GameRepository(
     private val authHeader = "Bearer $apiKey"
     private val memosAuthHeader = "Token $memosApiKey"
     private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val strategyManager = GmStrategyManager(context)
 
     private val playerDao = database.playerDao()
     private val inventoryDao = database.inventoryDao()
@@ -104,7 +106,7 @@ class GameRepository(
         val currentItems = inventory.first()
         val currentMemories = recentMemories.first()
         val currentHistory = storyHistory.first()
-        val currentWeather = worldInfo.first() ?: run {
+        val currentWorld = worldInfo.first() ?: run {
             trySend(StreamEvent.Error("未找到世界数据"))
             close()
             return@callbackFlow
@@ -125,18 +127,18 @@ class GameRepository(
                 }
 
                 // 2. 构建请求并发送给 DeepSeek
-                val request = buildChatRequest(action, currentPlayer, currentItems, currentMemories, currentHistory, currentWeather, memosMemories)
+                val request = buildChatRequest(action, currentPlayer, currentItems, currentMemories, currentHistory, currentWorld, memosMemories)
+                saveJsonToDebugFile(gson.toJson(request), "request")
                 val fullContent = StringBuilder()
 
                 val responseBody = apiService.getChatCompletionsStream(authHeader, request)
                 processStreamChunks(responseBody, fullContent)
 
                 val finalJson = fullContent.toString()
-                Log.d(TAG, "流读取完成, content长度=${finalJson.length}")
                 saveJsonToDebugFile(finalJson)
 
                 // 3. 解析并同步本地数据库
-                parseAndEmitResponse(finalJson, currentPlayer, currentWeather)
+                parseAndEmitResponse(finalJson, currentPlayer, currentWorld)
 
                 // 4. 将本轮对话同步回 MemOS 形成长期记忆（NonCancellable 确保不被 awaitClose 中断）
                 try {
@@ -181,11 +183,9 @@ class GameRepository(
         world: WorldInfo,
         memosMemories: List<String>
     ): ChatRequest {
-        val isCritical = action.contains("战斗") || action.contains("逃跑") || action.contains("杀")
-        val effort = if (isCritical) "max" else "high"
-
+        val currentStrategy = strategyManager.load()
         val messages = mutableListOf(
-            ChatMessage("system", PromptBuilder.buildSystemPrompt(memosMemories)),
+            ChatMessage("system", PromptBuilder.buildSystemPrompt(currentStrategy, memosMemories)),
             ChatMessage(
                 "user",
                 PromptBuilder.buildUserSnapshot(player, items, memories, history, world, action)
@@ -195,10 +195,16 @@ class GameRepository(
         return ChatRequest(
             messages = messages,
             userId = player.userId,
-            reasoningEffort = effort,
+            reasoningEffort = effortLevel(action),
             stream = true,
             tools = PromptBuilder.getTools()
         )
+    }
+
+    /**是否需要更慎重的思考*/
+    private fun effortLevel(action: String): String {
+        val check = action.contains("战斗") || action.contains("逃跑") || action.contains("杀")
+        return if (check) "max" else "high"
     }
 
     /**
@@ -355,21 +361,30 @@ class GameRepository(
         }
     }
 
-    suspend fun saveHistory(action: String?, reasoning: String, story: String) {
+    suspend fun saveHistory(action: String, reasoning: String, story: String) {
         historyDao.insertHistory(StoryHistory(action = action, reasoning = reasoning, story = story))
     }
+
+    fun loadStrategy(): GmStrategy = strategyManager.load()
+    fun saveStrategy(strategy: GmStrategy) = strategyManager.save(strategy)
+    fun resetStrategy() = strategyManager.reset()
 
     suspend fun clearHistory() {
         historyDao.clearHistory()
     }
 
-    suspend fun initializeNewGame(playerName: String, doomType: String) {
+    suspend fun initializeNewGame(
+        playerName: String,
+        genderPhysique: String,
+        personality: String,
+        doomType: String
+    ) {
         val initialPlayer = PlayerState(
             userId = getOrCreateStableUserId(),
             name = playerName,
-            genderPhysique = "成年人/女/自慰成瘾/性爱成瘾",
-            personality = "冷静",
-            baseDescription = "末日幸存者",
+            genderPhysique = genderPhysique,
+            personality = personality,
+            baseDescription = "一个${personality}的末日幸存者",
             doomType = doomType,
             mentalStateTags = listOf("健康"),
             innerThought = "游戏开始了。",
@@ -388,15 +403,23 @@ class GameRepository(
         historyDao.clearHistory()
     }
 
-    private fun saveJsonToDebugFile(json: String) {
+    private fun saveJsonToDebugFile(json: String, fileName: String = "response") {
         if (BuildConfig.DEBUG) try {
-            val debugDir = java.io.File(context.filesDir, "debug_json")
+            val debugDir = File(context.filesDir, "debug_json")
             if (!debugDir.exists()) debugDir.mkdirs()
-            val files = debugDir.listFiles { _, name -> name.startsWith("response_") && name.endsWith(".json") }
-                ?.sortedBy { it.lastModified() } ?: emptyList()
-            if (files.size >= 10) files.first().delete()
+            deleteFile(debugDir, fileName)
             val timestamp = java.text.SimpleDateFormat("HHmmss", java.util.Locale.getDefault()).format(java.util.Date())
-            java.io.File(debugDir, "response_$timestamp.json").writeText(json)
+            File(debugDir, "${fileName}_${timestamp}.json").writeText(json).let {
+                Log.i(TAG, "saveJsonToDebugFile: 保存参数 $it")
+            }
         } catch (e: Exception) { }
     }
+
+    private fun deleteFile(debugDir: File,startWith: String) {
+        val files =
+            debugDir.listFiles { _, name -> name.startsWith(startWith) && name.endsWith(".json") }
+                ?.sortedBy { it.lastModified() } ?: emptyList()
+        if (files.size >= 10) files.first().delete()
+    }
+
 }

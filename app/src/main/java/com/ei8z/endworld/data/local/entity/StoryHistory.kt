@@ -7,7 +7,7 @@ import androidx.room.PrimaryKey
 data class StoryHistory(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
-    val action: String? = null,
+    val action: String = "",
     val reasoning: String = "",
     val story: String = "",
     val timestamp: Long = System.currentTimeMillis()

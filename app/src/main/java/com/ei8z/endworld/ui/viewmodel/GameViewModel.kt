@@ -6,6 +6,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
 import com.ei8z.endworld.data.repository.GameRepository
+import com.ei8z.endworld.data.repository.GmStrategy
 import com.ei8z.endworld.data.repository.StreamEvent
 import com.ei8z.endworld.di.DependencyContainer
 import kotlinx.coroutines.Job
@@ -66,18 +67,25 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
     val memories = repository.recentMemories
     val npcs = repository.npcs
 
+    private val _gmStrategy = MutableStateFlow(repository.loadStrategy())
+    val gmStrategy: StateFlow<GmStrategy> = _gmStrategy.asStateFlow()
+
     private var lastAction: String? = null
     private var retryCount = 0
     private val MAX_RETRY = 3
     private var streamJob: Job? = null
 
-    fun initializeGame(name: String, doomType: String) {
+    fun initializeGame(
+        name: String,
+        genderPhysique: String,
+        personality: String,
+        doomType: String
+    ) {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
             try {
-                // initializeNewGame 内部已包含 historyDao.clearHistory()
-                repository.initializeNewGame(name, doomType)
+                repository.initializeNewGame(name, genderPhysique, personality, doomType)
                 sendAction("我环顾四周，开始在这场灾难中求生。")
             } catch (e: Exception) {
                 _error.value = "初始化失败: ${e.message}"
@@ -86,14 +94,22 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
         }
     }
 
+    fun updateGmStrategy(strategy: GmStrategy) {
+        _gmStrategy.value = strategy
+        repository.saveStrategy(strategy)
+    }
+
+    fun resetGmStrategy() {
+        repository.resetStrategy()
+        _gmStrategy.value = repository.loadStrategy()
+    }
+
     fun sendAction(action: String) {
         lastAction = action
         retryCount = 0
         _canRetry.value = false
 
         viewModelScope.launch {
-            // 将用户的行动存入数据库历史记录
-            repository.saveHistory(action = action, reasoning = "", story = "")
             startStream(action)
         }
     }
@@ -175,9 +191,9 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
                         }
                     }
                     is StreamEvent.FinalResponse -> {
-                        // 以 AI 解析后的 story 为准覆盖数据库，确保最终显示的是正确转义后的文本
+                        // 一个回合一条记录：action + reasoning + story 合并写入
                         repository.saveHistory(
-                            action = null,
+                            action = lastAction ?: "(系统)",
                             reasoning = _currentReasoning.value,
                             story = event.response.story
                         )

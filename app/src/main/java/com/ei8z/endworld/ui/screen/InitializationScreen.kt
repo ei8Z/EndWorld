@@ -8,11 +8,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun InitializationScreen(onStartGame: (String, String) -> Unit) {
+fun InitializationScreen(onStartGame: (String, String, String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
+    var genderPhysique by remember { mutableStateOf("成年男性") }
+    var personality by remember { mutableStateOf("冷静") }
     var doomType by remember { mutableStateOf("丧尸危机") }
+
+    val genders = listOf("成年男性", "成年女性", "青少年男性", "青少年女性")
+    val personalities = listOf("冷静", "勇敢", "谨慎", "狡猾", "暴躁")
     val doomTypes = listOf("丧尸危机", "核冬天", "极度严寒", "智械危机")
-    var expanded by remember { mutableStateOf(false) }
+
+    var genderExpanded by remember { mutableStateOf(false) }
+    var personalityExpanded by remember { mutableStateOf(false) }
+    var doomExpanded by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -34,27 +42,59 @@ fun InitializationScreen(onStartGame: (String, String) -> Unit) {
             modifier = Modifier.fillMaxWidth()
         )
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
+        // 性别/生理特征
         Box(modifier = Modifier.fillMaxWidth()) {
             OutlinedButton(
-                onClick = { expanded = true },
+                onClick = { genderExpanded = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("性别/体格: $genderPhysique")
+            }
+            DropdownMenu(expanded = genderExpanded, onDismissRequest = { genderExpanded = false }) {
+                genders.forEach { g ->
+                    DropdownMenuItem(text = { Text(g) }, onClick = {
+                        genderPhysique = g; genderExpanded = false
+                    })
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 性格
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { personalityExpanded = true },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("性格: $personality")
+            }
+            DropdownMenu(expanded = personalityExpanded, onDismissRequest = { personalityExpanded = false }) {
+                personalities.forEach { p ->
+                    DropdownMenuItem(text = { Text(p) }, onClick = {
+                        personality = p; personalityExpanded = false
+                    })
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // 末日类型
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { doomExpanded = true },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text("末日类型: $doomType")
             }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false }
-            ) {
-                doomTypes.forEach { type ->
-                    DropdownMenuItem(
-                        text = { Text(type) },
-                        onClick = {
-                            doomType = type
-                            expanded = false
-                        }
-                    )
+            DropdownMenu(expanded = doomExpanded, onDismissRequest = { doomExpanded = false }) {
+                doomTypes.forEach { t ->
+                    DropdownMenuItem(text = { Text(t) }, onClick = {
+                        doomType = t; doomExpanded = false
+                    })
                 }
             }
         }
@@ -62,7 +102,11 @@ fun InitializationScreen(onStartGame: (String, String) -> Unit) {
         Spacer(modifier = Modifier.height(32.dp))
 
         Button(
-            onClick = { if (name.isNotBlank()) onStartGame(name, doomType) },
+            onClick = {
+                if (name.isNotBlank()) {
+                    onStartGame(name, genderPhysique, personality, doomType)
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
             enabled = name.isNotBlank()
         ) {

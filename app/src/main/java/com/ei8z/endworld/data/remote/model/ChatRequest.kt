@@ -37,6 +37,7 @@ data class Tool(
 data class FunctionDef(
     val name: String,
     val description: String,
+    val strict: Boolean = true,
     val parameters: Map<String, Any>
 )
 
