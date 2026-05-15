@@ -20,6 +20,8 @@ fun GmSettingsDialog(
     var eventFrequency by remember { mutableStateOf(current.eventFrequency) }
     var descriptionRichness by remember { mutableStateOf(current.descriptionRichness) }
     var tone by remember { mutableStateOf(current.tone) }
+    var adultMode by remember { mutableStateOf(current.adultMode) }
+    var debugMode by remember { mutableStateOf(current.debugMode) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -46,6 +48,42 @@ fun GmSettingsDialog(
                     descriptionRichness = it
                 }
                 StrategyDropdown("基调", tone, GmStrategy.TONES) { tone = it }
+
+                HorizontalDivider()
+
+                // 成人模式开关
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("成人模式", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            "允许详细的生理描写",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = adultMode, onCheckedChange = { adultMode = it })
+                }
+
+                // 调试模式开关
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("调试模式", style = MaterialTheme.typography.labelMedium)
+                        Text(
+                            "显示 GM 裁决推理过程",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(checked = debugMode, onCheckedChange = { debugMode = it })
+                }
             }
         },
         confirmButton = {
@@ -58,7 +96,7 @@ fun GmSettingsDialog(
                     TextButton(onClick = onDismiss) { Text("取消") }
                     Button(onClick = {
                         onSave(
-                            GmStrategy(narrativeStyle, difficulty, eventFrequency, descriptionRichness, tone)
+                            GmStrategy(narrativeStyle, difficulty, eventFrequency, descriptionRichness, tone, adultMode, debugMode)
                         )
                         onDismiss()
                     }) { Text("保存") }

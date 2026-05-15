@@ -24,7 +24,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,6 +34,7 @@ import com.ei8z.endworld.ui.viewmodel.GameViewModel
 import com.ei8z.endworld.ui.viewmodel.StoryEntry
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -46,7 +46,7 @@ fun GameScreen(viewModel: GameViewModel) {
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val canRetry by viewModel.canRetry.collectAsStateWithLifecycle()
-    
+
     val playerState by viewModel.playerState.collectAsStateWithLifecycle(initialValue = null)
     val worldInfo by viewModel.worldInfo.collectAsStateWithLifecycle(initialValue = null)
     val inventory by viewModel.inventory.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -58,14 +58,14 @@ fun GameScreen(viewModel: GameViewModel) {
     var customAction by remember { mutableStateOf("") }
     var showStatusDialog by remember { mutableStateOf(false) }
     var showGmDialog by remember { mutableStateOf(false) }
+    var suggestionsExpanded by remember { mutableStateOf(true) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    // 自动滚动到底部
     LaunchedEffect(history.size, currentStory) {
         if (history.isNotEmpty() || currentStory.isNotEmpty()) {
             listState.animateScrollToItem(
-                index = (history.size * 2).coerceAtLeast(0) // 简略估算，history 包含 action 和 story
+                index = (history.size * 2).coerceAtLeast(0)
             )
         }
     }
@@ -104,17 +104,45 @@ fun GameScreen(viewModel: GameViewModel) {
                         .navigationBarsPadding()
                         .imePadding()
                 ) {
+                    // 可折叠的建议区域
                     if (suggestions.isNotEmpty() && !isLoading) {
-                        FlowRow(
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
-                            suggestions.forEach { suggestion ->
-                                OutlinedButton(
-                                    onClick = { viewModel.sendAction(suggestion) },
-                                    modifier = Modifier.padding(bottom = 4.dp)
-                                ) {
-                                    Text(suggestion, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "行动建议",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            IconButton(
+                                onClick = { suggestionsExpanded = !suggestionsExpanded },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    if (suggestionsExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = if (suggestionsExpanded) "收起" else "展开",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                        }
+                        AnimatedVisibility(
+                            visible = suggestionsExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                suggestions.forEach { suggestion ->
+                                    OutlinedButton(
+                                        onClick = { viewModel.sendAction(suggestion) },
+                                        modifier = Modifier.padding(bottom = 4.dp)
+                                    ) {
+                                        Text(suggestion, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
                                 }
                             }
                         }
@@ -156,12 +184,10 @@ fun GameScreen(viewModel: GameViewModel) {
                 contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // 渲染历史记录
                 items(history) { entry ->
-                    StoryEntryItem(entry)
+                    StoryEntryItem(entry, debugMode = gmStrategy.debugMode)
                 }
 
-                // 渲染当前流式输出
                 if (currentStory.isNotEmpty() || currentReasoning.isNotEmpty() || isLoading) {
                     item {
                         StoryEntryItem(
@@ -169,12 +195,12 @@ fun GameScreen(viewModel: GameViewModel) {
                                 reasoning = currentReasoning,
                                 story = currentStory,
                                 isStreaming = true
-                            )
+                            ),
+                            debugMode = gmStrategy.debugMode
                         )
                     }
                 }
 
-                // 错误信息显示
                 if (error != null) {
                     item {
                         Card(
@@ -195,8 +221,7 @@ fun GameScreen(viewModel: GameViewModel) {
                         }
                     }
                 }
-                
-                // 底部占位，确保内容不被输入框完全遮挡
+
                 item { Spacer(modifier = Modifier.height(100.dp)) }
             }
 
@@ -221,9 +246,8 @@ fun GameScreen(viewModel: GameViewModel) {
 }
 
 @Composable
-fun StoryEntryItem(entry: StoryEntry) {
+fun StoryEntryItem(entry: StoryEntry, debugMode: Boolean = false) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        // 显示玩家行动气泡
         if (!entry.action.isNullOrBlank()) {
             Box(
                 modifier = Modifier
@@ -243,41 +267,49 @@ fun StoryEntryItem(entry: StoryEntry) {
             }
         }
 
-        // 推理过程 (折叠或半透明展示)
+        // 推理过程：debug 模式显示完整内容，否则仅流式时显示动态省略号
         if (entry.reasoning.isNotEmpty()) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                ),
-                modifier = Modifier.padding(bottom = 8.dp).fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            Icons.Default.Psychology, 
-                            null, 
-                            modifier = Modifier.size(14.dp), 
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
+            if (debugMode) {
+                // 调试模式：显示完整推理
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.padding(bottom = 8.dp).fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Default.Psychology, null,
+                                modifier = Modifier.size(14.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                if (entry.isStreaming) "城主裁决中..." else "裁决记录",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Text(
-                            if (entry.isStreaming) "城主裁决中..." else "裁决记录",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold
+                            text = entry.reasoning,
+                            style = MaterialTheme.typography.bodySmall.copy(lineHeight = 16.sp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            fontStyle = FontStyle.Italic,
+                            modifier = Modifier.padding(top = 4.dp)
                         )
                     }
-                    Text(
-                        text = entry.reasoning,
-                        style = MaterialTheme.typography.bodySmall.copy(lineHeight = 16.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        fontStyle = FontStyle.Italic,
-                        modifier = Modifier.padding(top = 4.dp)
+                }
+            } else {
+                // 非调试模式：流式时显示动态省略号，完成后不渲染
+                if (entry.isStreaming) {
+                    AnimatedThinkingDots(
+                        modifier = Modifier.padding(bottom = 8.dp)
                     )
                 }
             }
         }
 
-        // 故事文本
         if (entry.story.isNotEmpty()) {
             Text(
                 text = entry.story,
@@ -288,6 +320,35 @@ fun StoryEntryItem(entry: StoryEntry) {
                 modifier = Modifier.padding(bottom = 8.dp)
             )
         }
+    }
+}
+
+@Composable
+private fun AnimatedThinkingDots(modifier: Modifier = Modifier) {
+    var dotCount by remember { mutableIntStateOf(1) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(500)
+            dotCount = (dotCount % 3) + 1
+        }
+    }
+
+    Row(
+        modifier = modifier.padding(start = 4.dp, bottom = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            Icons.Default.Psychology, null,
+            modifier = Modifier.size(14.dp),
+            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "思考中" + ".".repeat(dotCount),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+        )
     }
 }
 
@@ -356,9 +417,9 @@ fun StatusTab(playerState: PlayerState?, worldInfo: WorldInfo?) {
                     }
                 }
             }
-            
+
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
-            
+
             InfoSection("生命体征", Icons.Default.Favorite) {
                 FlowRow(modifier = Modifier.fillMaxWidth()) {
                     playerState?.mentalStateTags?.forEach { tag ->

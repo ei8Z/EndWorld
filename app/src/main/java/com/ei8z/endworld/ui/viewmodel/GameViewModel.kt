@@ -55,7 +55,8 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
     private val _currentStory = MutableStateFlow("")
     val currentStory: StateFlow<String> = _currentStory.asStateFlow()
 
-    private val _suggestions = MutableStateFlow<List<String>>(emptyList())
+    // 从持久化存储恢复上次的选项，确保重启后仍可见
+    private val _suggestions = MutableStateFlow(repository.loadSuggestions())
     val suggestions: StateFlow<List<String>> = _suggestions.asStateFlow()
 
     private val _canRetry = MutableStateFlow(false)
@@ -79,13 +80,16 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
         name: String,
         genderPhysique: String,
         personality: String,
+        adultProfile: String,
         doomType: String
     ) {
         viewModelScope.launch {
             _isLoading.value = true
             _error.value = null
             try {
-                repository.initializeNewGame(name, genderPhysique, personality, doomType)
+                repository.initializeNewGame(name, genderPhysique, personality, adultProfile, doomType)
+                _suggestions.value = emptyList()
+                repository.saveSuggestions(emptyList())
                 sendAction("我环顾四周，开始在这场灾难中求生。")
             } catch (e: Exception) {
                 _error.value = "初始化失败: ${e.message}"
@@ -201,9 +205,14 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
                         _currentStory.value = ""
                         _currentReasoning.value = ""
                         _suggestions.value = event.response.suggestions
+                        repository.saveSuggestions(event.response.suggestions)
                         _isLoading.value = false
                         retryCount = 0
                         _canRetry.value = false
+                    }
+                    is StreamEvent.ToolCallRequest -> {
+                        // 未来扩展：AI 请求调用工具时的增量参数
+                        // 完整流程见 ToolRegistry.kt 文档
                     }
                     is StreamEvent.Error -> {
                         _error.value = event.message

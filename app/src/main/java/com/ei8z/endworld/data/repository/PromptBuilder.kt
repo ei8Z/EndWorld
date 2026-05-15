@@ -1,7 +1,6 @@
 package com.ei8z.endworld.data.repository
 
 import com.ei8z.endworld.data.local.entity.*
-import com.ei8z.endworld.data.remote.model.FunctionDef
 import com.ei8z.endworld.data.remote.model.Tool
 
 object PromptBuilder {
@@ -10,7 +9,7 @@ object PromptBuilder {
         # 世界百科 (World Lore)
         - 核心设定：末日后的世界，资源枯竭，文明崩塌。
         - 裁决物理法则：
-            * 物品消耗：任何涉及使用物资的行为（如治疗、进食、战斗）必须先通过 `check_inventory` 工具确认物资充足。
+            * 物品消耗：任何涉及使用物资的行为（如治疗、进食、战斗）需基于玩家当前背包快照判定可行性。
             * 属性判定：高难度行为需参考玩家生理特征与状态标签。
     """.trimIndent()
 
@@ -90,12 +89,13 @@ object PromptBuilder {
             1. 裁决判定：分析玩家行动难度，结合其性格、当前伤病状态、环境风险和拥有的物资，判定行动是【成功】、【失败】还是【产生意外】。当前难度策略：${s.difficulty}，末日烈度范围：${doomRange}。
             2. 物资损耗：若涉及行动，判定是否消耗了食物、饮水或工具耐久。
             3. 环境演变：判定是否触发随机事件（如远处枪声、天气骤变、丧尸徘徊）。随机事件频率：${s.eventFrequency}。
-            4. **先查后说**：在描述玩家使用任何物品前，必须调用 `check_inventory` 工具。
+            4. 物资校验：在涉及使用物品前，先查阅【当前生存状态快照】中的随身物资清单，确认玩家确实拥有该物品后再描述使用。
 
             # 叙事要求
             - 风格：第一人称叙事，基调为【${s.tone}】。描述感官细节（嗅觉、听觉、寒冷度），描述丰富度：${s.descriptionRichness}。
             - 严禁"心想事成"：求生是艰难的，成功的代价往往是资源消耗。
             ${if (s.difficulty == "地狱") "- 额外提示：角色随时可能死亡，不要吝惜残酷的转折。" else ""}
+            ${if (s.adultMode) "- 成人模式激活：叙事中可自然融入情欲描写，严格依据【成人特质/性癖】来塑造角色的身体反应、心理羞耻感及互动偏好。避免夸张失真，保持第一人称真实感。" else ""}
         """.trimIndent()
     }
 
@@ -121,6 +121,7 @@ object PromptBuilder {
 
         append("\n### 当前生存状态快照\n")
         append("- 幸存者: ${player.name} (${player.genderPhysique})\n")
+        if (player.adultProfile.isNotBlank()) append("- 成人特质/性癖: $player.adultProfile\n")
         append("- 特质: ${player.personality} | ${player.baseDescription}\n")
         append("- 状态标签: ${if (player.mentalStateTags.isEmpty()) "良好" else player.mentalStateTags.joinToString()}\n")
         append("- 随身物资: ${if (inventory.isEmpty()) "无" else inventory.joinToString { "${it.name}(${it.quantity})" }}\n")
@@ -129,24 +130,10 @@ object PromptBuilder {
         append("- 当前环境: ${world.locationScene} | ${world.currentDate} ${world.currentTime}\n")
     }
 
-    fun getTools(): List<Tool> {
-        return listOf(
-            Tool(
-                function = FunctionDef(
-                    name = "check_inventory",
-                    description = "查询玩家背包中特定物品的数量，确保行动有据可依。",
-                    parameters = mapOf(
-                        "type" to "object",
-                        "properties" to mapOf(
-                            "item_name" to mapOf(
-                                "type" to "string",
-                                "description" to "物品名称，如：'过期罐头', '子弹', '绷带'"
-                            )
-                        ),
-                        "required" to listOf("item_name")
-                    )
-                )
-            )
-        )
-    }
+    /**
+     * 获取当前激活的工具列表。
+     * 当前返回空列表 — 工具调用为未来扩展项。
+     * 启用时改用 ToolRegistry.getActiveTools()。
+     */
+    fun getTools(): List<Tool> = emptyList()
 }

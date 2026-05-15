@@ -25,6 +25,7 @@ import com.ei8z.endworld.data.remote.model.PlayerUpdate
 import com.ei8z.endworld.data.remote.model.ResourceUpdate
 import com.ei8z.endworld.data.remote.model.ResponseHeader
 import com.ei8z.endworld.data.remote.model.StatusUpdate
+import com.ei8z.endworld.data.remote.model.ToolChoice
 import com.ei8z.endworld.data.remote.model.WorldUpdate
 import com.ei8z.endworld.util.JsonExtractor
 import com.google.gson.Gson
@@ -192,12 +193,14 @@ class GameRepository(
             ),
         )
 
+        val tools = PromptBuilder.getTools()
         return ChatRequest(
             messages = messages,
             userId = player.userId,
             reasoningEffort = effortLevel(action),
             stream = true,
-            tools = PromptBuilder.getTools()
+            tools = tools.ifEmpty { null },
+            toolChoice = if (tools.isEmpty()) ToolChoice.none() else null
         )
     }
 
@@ -238,6 +241,18 @@ class GameRepository(
                         delta?.content?.let {
                             fullContent.append(it)
                             trySend(StreamEvent.Content(it))
+                        }
+                        // 检测工具调用（未来扩展：当前 tools 为空时不会触发）
+                        delta?.toolCalls?.forEach { tc ->
+                            tc.function?.let { fn ->
+                                trySend(
+                                    StreamEvent.ToolCallRequest(
+                                        toolCallId = tc.id ?: "",
+                                        functionName = fn.name ?: "",
+                                        argumentsDelta = fn.arguments ?: ""
+                                    )
+                                )
+                            }
                         }
                     } catch (e: Exception) {
                         // 忽略解析失败的 chunk
@@ -368,6 +383,8 @@ class GameRepository(
     fun loadStrategy(): GmStrategy = strategyManager.load()
     fun saveStrategy(strategy: GmStrategy) = strategyManager.save(strategy)
     fun resetStrategy() = strategyManager.reset()
+    fun loadSuggestions(): List<String> = strategyManager.loadSuggestions()
+    fun saveSuggestions(suggestions: List<String>) = strategyManager.saveSuggestions(suggestions)
 
     suspend fun clearHistory() {
         historyDao.clearHistory()
@@ -377,6 +394,7 @@ class GameRepository(
         playerName: String,
         genderPhysique: String,
         personality: String,
+        adultProfile: String,
         doomType: String
     ) {
         val initialPlayer = PlayerState(
@@ -384,6 +402,7 @@ class GameRepository(
             name = playerName,
             genderPhysique = genderPhysique,
             personality = personality,
+            adultProfile = adultProfile,
             baseDescription = "一个${personality}的末日幸存者",
             doomType = doomType,
             mentalStateTags = listOf("健康"),

@@ -12,7 +12,9 @@ data class GmStrategy(
     val difficulty: String = "普通",              // 难度
     val eventFrequency: String = "中",            // 随机事件频率
     val descriptionRichness: String = "标准",     // 描述丰富度
-    val tone: String = "压抑"                     // 基调
+    val tone: String = "压抑",                    // 基调
+    val adultMode: Boolean = false,              // 成人模式开关
+    val debugMode: Boolean = false                // 调试模式：开启后显示 GM 裁决过程
 ) {
     companion object {
         val NARRATIVE_STYLES = listOf("硬核写实", "轻度生存", "剧情驱动")
@@ -48,5 +50,19 @@ class GmStrategyManager(context: Context) {
 
     fun reset() {
         prefs.edit().remove(key).apply()
+    }
+
+    // 持久化最后一条建议列表，确保重启后仍然显示
+    fun loadSuggestions(): List<String> {
+        val json = prefs.getString("last_suggestions", null) ?: return emptyList()
+        return try {
+            gson.fromJson(json, Array<String>::class.java).toList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveSuggestions(suggestions: List<String>) {
+        prefs.edit().putString("last_suggestions", gson.toJson(suggestions)).apply()
     }
 }

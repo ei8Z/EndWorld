@@ -8,10 +8,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun InitializationScreen(onStartGame: (String, String, String, String) -> Unit) {
+fun InitializationScreen(onStartGame: (String, String, String, String, String) -> Unit) {
     var name by remember { mutableStateOf("") }
     var genderPhysique by remember { mutableStateOf("成年男性") }
     var personality by remember { mutableStateOf("冷静") }
+    var adultProfile by remember { mutableStateOf("") }
     var doomType by remember { mutableStateOf("丧尸危机") }
 
     val genders = listOf("成年男性", "成年女性", "青少年男性", "青少年女性")
@@ -101,10 +102,17 @@ fun InitializationScreen(onStartGame: (String, String, String, String) -> Unit) 
 
         Spacer(modifier = Modifier.height(32.dp))
 
+        OutlinedTextField(
+            value = adultProfile,
+            onValueChange = { adultProfile = it },
+            label = { Text("成人特质/性癖") },
+            modifier = Modifier.fillMaxWidth()
+        )
+
         Button(
             onClick = {
                 if (name.isNotBlank()) {
-                    onStartGame(name, genderPhysique, personality, doomType)
+                    onStartGame(name, genderPhysique, personality, adultProfile, doomType)
                 }
             },
             modifier = Modifier.fillMaxWidth(),

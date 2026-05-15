@@ -16,7 +16,7 @@ class PromptBuilderTest {
         assertTrue(prompt.contains("JSON 契约"))
         assertTrue(prompt.contains("\"story\""))
         assertTrue(prompt.contains("\"suggestions\""))
-        assertTrue(prompt.contains("check_inventory"))
+        assertTrue(prompt.contains("物资校验"))
     }
 
     @Test
@@ -140,24 +140,12 @@ class PromptBuilderTest {
 
     // endregion
 
-    // region getTools
+    // region getTools — 工具调用为未来扩展项，当前返回空列表
 
     @Test
-    fun `getTools returns check_inventory tool`() {
+    fun `getTools returns empty list by default`() {
         val tools = PromptBuilder.getTools()
-        assertEquals(1, tools.size)
-        assertEquals("function", tools[0].type)
-        assertEquals("check_inventory", tools[0].function.name)
-    }
-
-    @Test
-    fun `getTools function parameters include item_name as required`() {
-        val params = PromptBuilder.getTools()[0].function.parameters
-        assertEquals("object", params["type"])
-
-        @Suppress("UNCHECKED_CAST")
-        val required = params["required"] as List<String>
-        assertTrue(required.contains("item_name"))
+        assertTrue("tools should be empty when disabled", tools.isEmpty())
     }
 
     // endregion
