@@ -482,6 +482,15 @@ GameResponse {
 【客户端掷骰】：
 - 掷骰结果: {rollValue}（范围1-100）
 
+【候选事件池】：
+{formattedEventCandidates}
+- formattedEventCandidates 由客户端从事件卡组筛选后按以下格式拼装：
+- 每行一个事件，格式："- [id] name：narrativeHint"
+- 示例：
+- - [military_checkpoint] 军队检查站：三名武装士兵正在盘查接近者
+- - [toxic_spore] 毒孢子爆发：空气中弥漫着绿色孢子
+- 若候选池为空，此行显示"- 无"
+
 【剧情引导】：
 - 章节: {plotContext.chapterTitle}
 - 节奏: {plotContext.pacing}
@@ -498,7 +507,7 @@ GameResponse {
 {
   "actionResult": {
     "result": "失败",
-    "dcValue": 55,
+    "dcValue": 65,
     "rollValue": 23,
     "totalValue": 18,
     "modifiersBreakdown": "基础DC=45, 夜间+30%=13.5, 负重+15%=6.75, 最终DC=65; 掷骰23, 伤病修正-5, 最终值=18",
