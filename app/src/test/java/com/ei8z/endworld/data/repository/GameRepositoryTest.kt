@@ -72,7 +72,7 @@ class GameRepositoryTest {
     fun `playerState delegates to playerDao`() = runTest {
         val player = PlayerState(
             userId = "u1", name = "测试", genderPhysique = "男",
-            personality = "冷静", baseDescription = "幸存者", doomType = "丧尸",
+            personality = "冷静", adultProfile = "", baseDescription = "幸存者", doomType = "丧尸",
             mentalStateTags = listOf("健康"), innerThought = "", equippedItems = emptyList()
         )
         every { playerDao.getPlayer() } returns flowOf(player)
@@ -105,7 +105,7 @@ class GameRepositoryTest {
         coEvery { historyDao.clearHistory() } just Runs
 
         val repo = createRepo()
-        repo.initializeNewGame("幸存者A", "成年男性", "勇敢", "核冬天")
+        repo.initializeNewGame("幸存者A", "成年男性", "勇敢", "", "核冬天")
 
         coVerify { historyDao.clearHistory() }
         coVerify { memoryDao.insertMemory(any()) }

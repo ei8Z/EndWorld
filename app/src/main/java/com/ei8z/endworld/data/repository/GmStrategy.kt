@@ -13,7 +13,7 @@ data class GmStrategy(
     val eventFrequency: String = "中",            // 随机事件频率
     val descriptionRichness: String = "标准",     // 描述丰富度
     val tone: String = "压抑",                    // 基调
-    val adultMode: Boolean = false,              // 成人模式开关
+    val adultMode: Boolean = true,              // 成人模式开关
     val debugMode: Boolean = false                // 调试模式：开启后显示 GM 裁决过程
 ) {
     companion object {

@@ -100,7 +100,7 @@ fun InitializationScreen(onStartGame: (String, String, String, String, String) -
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(12.dp))
 
         OutlinedTextField(
             value = adultProfile,
@@ -108,6 +108,8 @@ fun InitializationScreen(onStartGame: (String, String, String, String, String) -
             label = { Text("成人特质/性癖") },
             modifier = Modifier.fillMaxWidth()
         )
+
+        Spacer(modifier = Modifier.height(32.dp))
 
         Button(
             onClick = {

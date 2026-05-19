@@ -116,7 +116,7 @@ class GameRepository(
         val job = repositoryScope.launch {
             try {
                 // 1. MemOS 检索长期记忆
-                val memosMemories = try {
+                val longTermMemories = try {
                     val searchResponse = memosApiService.searchMemory(
                         memosAuthHeader,
                         MemosSearchRequest(currentPlayer.userId, getConversationId(), action)
@@ -128,7 +128,8 @@ class GameRepository(
                 }
 
                 // 2. 构建请求并发送给 DeepSeek
-                val request = buildChatRequest(action, currentPlayer, currentItems, currentMemories, currentHistory, currentWorld, memosMemories)
+                val recentActions = currentHistory.takeLast(3).map { it.action }
+                val request = buildChatRequest(action, currentPlayer, currentItems, currentMemories, recentActions, currentWorld, longTermMemories)
                 saveJsonToDebugFile(gson.toJson(request), "request")
                 val fullContent = StringBuilder()
 
@@ -180,16 +181,16 @@ class GameRepository(
         player: PlayerState,
         items: List<InventoryItem>,
         memories: List<Memory>,
-        history: List<StoryHistory>,
+        recentActions: List<String>,
         world: WorldInfo,
-        memosMemories: List<String>
+        longTermMemories: List<String>
     ): ChatRequest {
         val currentStrategy = strategyManager.load()
         val messages = mutableListOf(
-            ChatMessage("system", PromptBuilder.buildSystemPrompt(currentStrategy, memosMemories)),
+            ChatMessage("system", PromptBuilder.buildSystemPrompt(currentStrategy, longTermMemories)),
             ChatMessage(
                 "user",
-                PromptBuilder.buildUserSnapshot(player, items, memories, history, world, action)
+                PromptBuilder.buildUserSnapshot(player, items, memories, recentActions, world, action)
             ),
         )
 
@@ -200,7 +201,7 @@ class GameRepository(
             reasoningEffort = effortLevel(action),
             stream = true,
             tools = tools.ifEmpty { null },
-            toolChoice = if (tools.isEmpty()) ToolChoice.none() else null
+            toolChoice = if (tools.isEmpty()) ToolChoice.none() else ToolChoice.auto()
         )
     }
 

@@ -22,15 +22,15 @@ class PromptBuilderTest {
     @Test
     fun `buildSystemPrompt with MemOS memories includes memory section`() {
         val memories = listOf("第1天@超市 遭遇尸群", "第3天@医院 找到抗生素")
-        val prompt = PromptBuilder.buildSystemPrompt(memosMemories = memories)
-        assertTrue(prompt.contains("长期记忆回顾"))
+        val prompt = PromptBuilder.buildSystemPrompt(longTermMemories = memories)
+        assertTrue(prompt.contains("<memories>"))
         assertTrue(prompt.contains("第1天@超市 遭遇尸群"))
     }
 
     @Test
-    fun `buildSystemPrompt with empty list does not include memory header`() {
-        val prompt = PromptBuilder.buildSystemPrompt(memosMemories = emptyList())
-        assertFalse(prompt.contains("长期记忆回顾"))
+    fun `buildSystemPrompt with empty list shows empty placeholder`() {
+        val prompt = PromptBuilder.buildSystemPrompt(longTermMemories = emptyList())
+        assertTrue(prompt.contains("无相关历史记忆"))
     }
 
     @Test
@@ -94,7 +94,7 @@ class PromptBuilderTest {
 
     private fun samplePlayer() = PlayerState(
         userId = "user_test", name = "测试者", genderPhysique = "成年人/男",
-        personality = "谨慎", baseDescription = "前军人", doomType = "丧尸危机",
+        personality = "谨慎", adultProfile = "", baseDescription = "前军人", doomType = "丧尸危机",
         doomLevel = 3, mentalStateTags = listOf("轻微饥饿", "左臂擦伤"),
         innerThought = "我需要找到安全的地方...", equippedItems = listOf("棒球棍")
     )
@@ -126,16 +126,28 @@ class PromptBuilderTest {
     }
 
     @Test
-    fun `buildUserSnapshot with history shows action without null fallback`() {
-        val histories = listOf(
-            StoryHistory(action = "搜寻", story = "废墟中找到了半瓶水..."),
-            StoryHistory(action = "逃跑", story = "躲进了废弃建筑...")
+    fun `buildUserSnapshot with recentActions shows action history`() {
+        val actions = listOf("搜寻", "逃跑")
+        val snapshot = PromptBuilder.buildUserSnapshot(
+            samplePlayer(), emptyList(), emptyList(), actions, sampleWorld(), "前进"
+        )
+        assertTrue(snapshot.contains("最近行动"))
+        assertTrue(snapshot.contains("搜寻"))
+        assertTrue(snapshot.contains("逃跑"))
+    }
+
+    @Test
+    fun `buildUserSnapshot with memories shows narrative context`() {
+        val memories = listOf(
+            Memory(location = "超市", event = "遭遇小规模尸群", result = "AI判定"),
+            Memory(location = "医院", event = "找到抗生素", result = "AI判定")
         )
         val snapshot = PromptBuilder.buildUserSnapshot(
-            samplePlayer(), emptyList(), emptyList(), histories, sampleWorld(), "前进"
+            samplePlayer(), emptyList(), memories, emptyList(), sampleWorld(), "前进"
         )
-        assertTrue(snapshot.contains("搜寻"))
-        assertTrue(snapshot.contains("半瓶水"))
+        assertTrue(snapshot.contains("最近剧情回顾"))
+        assertTrue(snapshot.contains("遭遇小规模尸群"))
+        assertTrue(snapshot.contains("找到抗生素"))
     }
 
     // endregion

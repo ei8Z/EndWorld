@@ -409,6 +409,7 @@ fun StatusTab(playerState: PlayerState?, worldInfo: WorldInfo?) {
                 InfoRow("代号", playerState?.name ?: "...")
                 InfoRow("特质", playerState?.personality ?: "...")
                 InfoRow("背景", playerState?.baseDescription ?: "...")
+                InfoRow("性", (playerState?.genderPhysique?:"") +","+ (playerState?.adultProfile ?: "..."))
                 Row(modifier = Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("末日烈度", modifier = Modifier.width(80.dp), style = MaterialTheme.typography.bodyMedium, color = Color.Gray)
                     repeat(5) { i ->

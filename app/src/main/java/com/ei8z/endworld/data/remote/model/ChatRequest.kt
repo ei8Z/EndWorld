@@ -18,7 +18,7 @@ data class ChatRequest(
     @SerializedName("max_tokens") val maxTokens: Int = 8192,
     @SerializedName("stream") val stream: Boolean = true,
     @SerializedName("tools") val tools: List<Tool>? = null,
-    @SerializedName("tool_choice") val toolChoice: ToolChoice? = null,
+    @SerializedName("tool_choice") val toolChoice: String = ToolChoice.none(),
     @SerializedName("user_id") val userId: String? = null
 )
 
@@ -28,20 +28,13 @@ data class ChatRequest(
  * - "auto" — 模型自行决定
  * - "required" — 强制调用某个工具（需指定 function.name）
  */
-data class ToolChoice(
-    @SerializedName("type") val type: String,
-    @SerializedName("function") val function: ToolChoiceFunction? = null
-) {
+class ToolChoice{
     companion object {
-        fun none() = ToolChoice("none")
-        fun auto() = ToolChoice("auto")
-        fun required(functionName: String) = ToolChoice("required", ToolChoiceFunction(functionName))
+        fun none() = "none"
+        fun auto() = "auto"
+        fun required(functionName: String) = "{\"type\": \"function\", \"function\": {\"name\": \"${functionName}\"}}"
     }
 }
-
-data class ToolChoiceFunction(
-    @SerializedName("name") val name: String
-)
 
 data class ChatMessage(
     @SerializedName("role") val role: String,
