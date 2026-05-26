@@ -1,0 +1,52 @@
+{
+  "id": "chapter_01",
+  "title": "降临",
+  "description": "灾难爆发后的最初时刻，幸存者必须找到立足之地。",
+  "pacing": "紧张",
+  "pacingHint": "环境充满未知威胁，每一处阴影都可能藏着危险。保持警觉，短句快节奏描写。",
+  "nodes": [
+    {
+      "id": "find_shelter",
+      "title": "寻找庇护所",
+      "triggerCondition": "幸存者到达任意室内安全位置",
+      "narrativeContent": "找到一个可以暂时喘息的地方。铁门虽破，但至少能挡住外面的未知。"
+    },
+    {
+      "id": "first_encounter",
+      "title": "初次遭遇",
+      "triggerCondition": "首次遇到其他幸存者或敌对生物",
+      "narrativeContent": "意识到自己并非孤身一人——但并非所有存在都抱有善意。"
+    },
+    {
+      "id": "scavenge_supplies",
+      "title": "搜索物资",
+      "triggerCondition": "成功搜索到食物或医疗物资",
+      "narrativeContent": "在废墟中找到了维生的必需品。每一口食物都在提醒自己还活着。"
+    }
+  ],
+  "foreshadows": [
+    {
+      "id": "military_presence",
+      "name": "军队踪迹",
+      "hint": "远处偶尔传来整齐的脚步声和无线电杂音",
+      "payoffCondition": "遭遇军队检查站事件",
+      "isPlanted": false,
+      "isPayedOff": false
+    },
+    {
+      "id": "strange_signal",
+      "name": "加密信号",
+      "hint": "对讲机偶尔收到无法解读的加密信号",
+      "payoffCondition": "触发求救信号事件",
+      "isPlanted": false,
+      "isPayedOff": false
+    }
+  ],
+  "requiredElements": ["废墟环境描写", "资源短缺感", "至少两种感官细节"],
+  "forbiddenTopics": ["外星人", "时间旅行", "超能力"],
+  "worldContext": "灾难突然降临，文明在一夕之间崩塌。幸存者们各自为战，信任成了一种奢侈品。",
+  "factionInfo": "目前已知的势力有：军方的残余力量、零散的幸存者群体、以及不明身份的新威胁。",
+  "transitionConditions": {
+    "next": "chapter_02"
+  }
+}

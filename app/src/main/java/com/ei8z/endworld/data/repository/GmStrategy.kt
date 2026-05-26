@@ -1,7 +1,9 @@
 package com.ei8z.endworld.data.repository
 
 import android.content.Context
+import com.ei8z.endworld.data.model.SuggestionItem
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 
 /**
  * GM 策略参数，影响 system prompt 中的角色设定/核心指令/叙事要求，
@@ -52,17 +54,17 @@ class GmStrategyManager(context: Context) {
         prefs.edit().remove(key).apply()
     }
 
-    // 持久化最后一条建议列表，确保重启后仍然显示
-    fun loadSuggestions(): List<String> {
+    fun loadSuggestions(): List<SuggestionItem> {
         val json = prefs.getString("last_suggestions", null) ?: return emptyList()
         return try {
-            gson.fromJson(json, Array<String>::class.java).toList()
+            val type = object : TypeToken<List<SuggestionItem>>() {}.type
+            gson.fromJson(json, type)
         } catch (e: Exception) {
             emptyList()
         }
     }
 
-    fun saveSuggestions(suggestions: List<String>) {
+    fun saveSuggestions(suggestions: List<SuggestionItem>) {
         prefs.edit().putString("last_suggestions", gson.toJson(suggestions)).apply()
     }
 }

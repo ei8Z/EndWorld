@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ei8z.endworld.data.local.entity.*
+import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.remote.model.KnownPoint
 import com.ei8z.endworld.ui.viewmodel.GameViewModel
 import com.ei8z.endworld.ui.viewmodel.StoryEntry
@@ -138,10 +139,10 @@ fun GameScreen(viewModel: GameViewModel) {
                             ) {
                                 suggestions.forEach { suggestion ->
                                     OutlinedButton(
-                                        onClick = { viewModel.sendAction(suggestion) },
+                                        onClick = { viewModel.sendAction(suggestion.label) },
                                         modifier = Modifier.padding(bottom = 4.dp)
                                     ) {
-                                        Text(suggestion, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(suggestion.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     }
                                 }
                             }
@@ -471,7 +472,7 @@ fun StatusTab(playerState: PlayerState?, worldInfo: WorldInfo?) {
 
 @Composable
 fun InventoryTab(inventory: List<InventoryItem>) {
-    val categories = listOf("食物", "饮水", "武器", "特殊")
+    val categories = listOf("食物", "饮水", "武器", "工具", "医疗", "特殊")
     LazyColumn(modifier = Modifier.fillMaxSize()) {
         if (inventory.isEmpty()) {
             item { Text("行囊空空", modifier = Modifier.padding(16.dp), fontStyle = FontStyle.Italic) }

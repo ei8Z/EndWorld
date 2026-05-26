@@ -18,6 +18,7 @@ import com.ei8z.endworld.data.remote.MemosSearchRequest
 import com.ei8z.endworld.data.remote.model.ChatChunkResponse
 import com.ei8z.endworld.data.remote.model.ChatMessage
 import com.ei8z.endworld.data.remote.model.ChatRequest
+import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.remote.model.GameResponse
 import com.ei8z.endworld.data.remote.model.InventoryUpdate
 import com.ei8z.endworld.data.remote.model.MemoryUpdate
@@ -297,11 +298,12 @@ class GameRepository(
         val salvagedStory = JsonExtractor.tryExtractStory(raw)
         if (salvagedStory != null) {
             val salvagedSuggestions = JsonExtractor.tryExtractSuggestions(raw)
-                .ifEmpty { listOf("继续探索", "原地休整", "谨慎行动") }
             return GameResponse(
                 header = ResponseHeader(world.currentDate, world.currentTime, world.locationScene),
                 story = salvagedStory,
                 suggestions = salvagedSuggestions,
+                customActionAvailable = true,
+                customActionHint = "输入你的行动...",
                 statusUpdate = StatusUpdate(
                     player = PlayerUpdate(
                         player.mentalStateTags,
@@ -319,6 +321,9 @@ class GameRepository(
 
     /**
      * 将 AI 返回的 GameResponse 同步到本地 Room DB，包含安全裁剪（doomLevel 夹到 1-5，过滤空白标签）。
+     *
+     * TODO: Phase 6 叙事Agent接入后，tools/medical 分类将有真实数据流入。
+     *       当前阶段允许这两个分类为空，不影响现有流程。
      */
     private suspend fun syncGameData(
         data: GameResponse,
@@ -349,18 +354,24 @@ class GameRepository(
         )
 
         val allNewItems = mutableListOf<InventoryItem>()
-        fun sanitizeQuantity(q: String) = if (q.startsWith("-")) "0" else q
+        fun sanitizeQuantity(q: Int) = if (q < 0) 0 else q
         update.resources.inventory.food.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "食物", name = it.name, quantity = sanitizeQuantity(it.quantity)))
+            allNewItems.add(InventoryItem(category = "食物", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
         }
         update.resources.inventory.drinks.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "饮水", name = it.name, quantity = sanitizeQuantity(it.quantity)))
+            allNewItems.add(InventoryItem(category = "饮水", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
         }
         update.resources.inventory.weapons.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "武器", name = it.name, quantity = sanitizeQuantity(it.quantity)))
+            allNewItems.add(InventoryItem(category = "武器", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
+        }
+        update.resources.inventory.tools.filter { it.name.isNotBlank() }.forEach {
+            allNewItems.add(InventoryItem(category = "工具", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
+        }
+        update.resources.inventory.medical.filter { it.name.isNotBlank() }.forEach {
+            allNewItems.add(InventoryItem(category = "医疗", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
         }
         update.resources.inventory.special.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "特殊", name = it.name, quantity = sanitizeQuantity(it.quantity)))
+            allNewItems.add(InventoryItem(category = "特殊", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
         }
         inventoryDao.syncInventory(allNewItems)
 
@@ -384,8 +395,8 @@ class GameRepository(
     fun loadStrategy(): GmStrategy = strategyManager.load()
     fun saveStrategy(strategy: GmStrategy) = strategyManager.save(strategy)
     fun resetStrategy() = strategyManager.reset()
-    fun loadSuggestions(): List<String> = strategyManager.loadSuggestions()
-    fun saveSuggestions(suggestions: List<String>) = strategyManager.saveSuggestions(suggestions)
+    fun loadSuggestions(): List<SuggestionItem> = strategyManager.loadSuggestions()
+    fun saveSuggestions(suggestions: List<SuggestionItem>) = strategyManager.saveSuggestions(suggestions)
 
     suspend fun clearHistory() {
         historyDao.clearHistory()

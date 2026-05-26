@@ -74,11 +74,19 @@ class JsonExtractorTest {
     // region tryExtractSuggestions
 
     @Test
-    fun `extracts suggestions from valid JSON`() {
+    fun `extracts suggestions from valid V2_1 JSON with actionParsed`() {
+        val json = """{ "suggestions": [{"label":"搜索药柜","actionParsed":{"primaryType":"搜索","subType":"","target":"药柜","location":"","method":"","riskLevel":"中","estimatedTimeMinutes":10}}, {"label":"检查后门","actionParsed":{"primaryType":"观察","subType":"","target":"后门","location":"","method":"","riskLevel":"低","estimatedTimeMinutes":5}}] }"""
+        val suggestions = JsonExtractor.tryExtractSuggestions(json)
+        assertEquals(2, suggestions.size)
+        assertEquals("搜索药柜", suggestions[0].label)
+    }
+
+    @Test
+    fun `returns empty list when suggestions are old format plain strings`() {
+        // V1.0 旧格式（纯字符串数组）无法提取为 SuggestionItem，返回空列表
         val json = """{ "suggestions": ["搜索药柜", "检查后门", "原地休整"] }"""
         val suggestions = JsonExtractor.tryExtractSuggestions(json)
-        assertEquals(3, suggestions.size)
-        assertTrue(suggestions.contains("搜索药柜"))
+        assertTrue(suggestions.isEmpty())
     }
 
     @Test
@@ -94,21 +102,22 @@ class JsonExtractorTest {
     }
 
     @Test
-    fun `filters out blank and null suggestions`() {
-        val json = """{ "suggestions": ["有效建议", "", "  ", null] }"""
+    fun `filters out items without label`() {
+        val json = """{ "suggestions": [{"label":"有效建议","actionParsed":{"primaryType":"观察","subType":"","target":"","location":"","method":"","riskLevel":"低","estimatedTimeMinutes":5}}, {"no_label":true}] }"""
         val suggestions = JsonExtractor.tryExtractSuggestions(json)
         assertEquals(1, suggestions.size)
-        assertEquals("有效建议", suggestions[0])
+        assertEquals("有效建议", suggestions[0].label)
     }
 
     @Test
-    fun `extract both story and suggestions from full GameResponse`() {
-        val json = """{"header":{"date":"第3天","time":"深夜","location":"废墟"},"story":"月亮被乌云遮蔽。","suggestions":["静步后退","大声喊话","投掷石块试探"],"statusUpdate":{"player":{"stateTags":["恐惧"],"innerThought":"糟糕","equipment":[]},"world":{"doomLevel":4,"macroSituation":"..."},"resources":{"knownPoints":[],"inventory":{"food":[],"drinks":[],"weapons":[],"special":[]}},"memoryUpdate":{"newTempMemory":null,"newPermanentPlot":null}}}"""
+    fun `extract both story and suggestions from full V2_1 GameResponse`() {
+        val json = """{"header":{"date":"第3天","time":"深夜","location":"废墟"},"story":"月亮被乌云遮蔽。","suggestions":[{"label":"静步后退","actionParsed":{"primaryType":"潜行","subType":"","target":"","location":"废墟","method":"","riskLevel":"中","estimatedTimeMinutes":5}}],"customActionAvailable":true,"statusUpdate":{"player":{"stateTags":["恐惧"],"innerThought":"糟糕","equipment":[]},"world":{"doomLevel":4,"macroSituation":"..."},"resources":{"knownPoints":[],"inventory":{"food":[],"drinks":[],"weapons":[],"tools":[],"medical":[],"special":[]}},"memoryUpdate":{"newTempMemory":null,"newPermanentPlot":null}}}"""
         val story = JsonExtractor.tryExtractStory(json)
         val suggestions = JsonExtractor.tryExtractSuggestions(json)
         assertNotNull(story)
         assertTrue(story!!.contains("月亮"))
-        assertEquals(3, suggestions.size)
+        assertEquals(1, suggestions.size)
+        assertEquals("静步后退", suggestions[0].label)
     }
 
     // endregion

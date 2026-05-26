@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.repository.GameRepository
 import com.ei8z.endworld.data.repository.GmStrategy
 import com.ei8z.endworld.data.repository.StreamEvent
@@ -57,7 +58,7 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
 
     // 从持久化存储恢复上次的选项，确保重启后仍可见
     private val _suggestions = MutableStateFlow(repository.loadSuggestions())
-    val suggestions: StateFlow<List<String>> = _suggestions.asStateFlow()
+    val suggestions: StateFlow<List<SuggestionItem>> = _suggestions.asStateFlow()
 
     private val _canRetry = MutableStateFlow(false)
     val canRetry: StateFlow<Boolean> = _canRetry.asStateFlow()
