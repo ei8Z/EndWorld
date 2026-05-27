@@ -11,6 +11,9 @@ import com.ei8z.endworld.data.repository.GameRepository
 import com.ei8z.endworld.data.repository.GmStrategy
 import com.ei8z.endworld.data.repository.StreamEvent
 import com.ei8z.endworld.di.DependencyContainer
+import com.ei8z.endworld.domain.opening.FateRevelationOpening
+import com.ei8z.endworld.domain.opening.OpeningModule
+import com.ei8z.endworld.domain.opening.OpeningParams
 import com.ei8z.endworld.ui.mode.UIMode
 import com.ei8z.endworld.ui.mode.UIModeManager
 import kotlinx.coroutines.Job
@@ -63,6 +66,9 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
     private val _suggestions = MutableStateFlow(repository.loadSuggestions())
     val suggestions: StateFlow<List<SuggestionItem>> = _suggestions.asStateFlow()
 
+    // V2.2 开局模块（可替换为其他实现）
+    var openingModule: OpeningModule = FateRevelationOpening()
+
     // V2.1 UI 模式管理（探索/命运/阅读/危险/宁静）
     private val uiModeManager = UIModeManager()
     val uiMode: StateFlow<UIMode> = uiModeManager.currentMode
@@ -85,6 +91,33 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
     private val MAX_RETRY = 3
     private var streamJob: Job? = null
 
+    /**
+     * V2.2 开局入口。委托 OpeningModule 执行掷骰+DB初始化+构建首个ActionParsed，
+     * 然后触发主线双Agent流程。
+     */
+    fun initializeGameV22(
+        name: String, genderPhysique: String, personality: String,
+        adultProfile: String, doomType: String, doomLevel: Int
+    ) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _error.value = null
+            try {
+                val params = OpeningParams(name, genderPhysique, personality, adultProfile, doomType, doomLevel)
+                val result = openingModule.prepare(repository, params)
+
+                _suggestions.value = emptyList()
+                repository.saveSuggestions(emptyList())
+                sendAction(result.initialAction, result.initialActionParsed)
+            } catch (e: Exception) {
+                _error.value = "初始化失败: ${e.message}"
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /** @deprecated V2.1 旧入口，保留兼容。新代码请用 initializeGameV22 */
+    @Deprecated("使用 initializeGameV22")
     fun initializeGame(
         name: String,
         genderPhysique: String,

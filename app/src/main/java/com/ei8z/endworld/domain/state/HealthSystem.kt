@@ -10,6 +10,11 @@ import com.ei8z.endworld.data.model.InjuryTag
  */
 class HealthSystem(private val injuryLibrary: InjuryLibrary) {
 
+    companion object {
+        /** 每小时感染概率累计增量 */
+        const val INFECTION_INCREMENT = 0.05f
+    }
+
     private val _activeTags = mutableListOf<InjuryTag>()
 
     /** 当前活跃伤病标签（只读） */
@@ -83,7 +88,7 @@ class HealthSystem(private val injuryLibrary: InjuryLibrary) {
         for (i in _activeTags.indices) {
             val tag = _activeTags[i]
             if (tag.infectionRisk > 0f) {
-                val newRisk = (tag.infectionRisk + 0.05f).coerceAtMost(1.0f)
+                val newRisk = (tag.infectionRisk + INFECTION_INCREMENT).coerceAtMost(1.0f)
                 _activeTags[i] = tag.copy(infectionRisk = newRisk)
             }
         }

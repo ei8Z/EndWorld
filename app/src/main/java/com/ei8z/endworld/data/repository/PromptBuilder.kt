@@ -5,28 +5,55 @@ import com.ei8z.endworld.data.model.ActionResult
 import com.ei8z.endworld.data.model.EventCard
 import com.ei8z.endworld.data.model.PlotContext
 import com.ei8z.endworld.data.model.WorldSnapshot
+import com.ei8z.endworld.domain.state.HealthSystem
+import com.ei8z.endworld.domain.state.InjuryLibrary
+import com.ei8z.endworld.domain.state.ReasonerConstants
+import com.ei8z.endworld.domain.state.VitalSystem
+import com.ei8z.endworld.domain.state.WeatherSystem
 
 
 object PromptBuilder {
 
     // ======================== V2.1 裁决Agent ========================
+    private val injuryLibrary = InjuryLibrary()
 
     /**
-     * 裁决Agent 系统提示词（文档 3.4 完整版）。
-     * 包含世界时钟规则、DC选取、掷骰判定、物资校验、伤病判定、事件触发、剧情节点、记忆参考。
+     * V2.2: 动态生成裁决Agent 系统提示词。
+     * 所有跨层数值（伤病名/SP消耗/DC乘数等）从代码常量提取，
+     * 确保 Prompt 与代码逻辑 100% 同步，消除"逻辑幻觉"。
      */
-    val REASONER_SYSTEM_PROMPT = """
+    fun buildReasonerSystemPrompt(strategy: GmStrategy = GmStrategy.default()): String {
+        val injuries = injuryLibrary.getAll().map { it.name }.sorted()
+        val injuryList = injuries.joinToString("、")
+
+        val rc = ReasonerConstants
+        val dcMult = difficultyMultiplier(strategy.difficulty)
+        val evtMult = eventFrequencyMultiplier(strategy.eventFrequency)
+        val spCosts = VitalSystem.SP_COSTS
+        val passive = "饱食度-${VitalSystem.PASSIVE_HUNGER_PER_HOUR}/h, 口渴度-${VitalSystem.PASSIVE_THIRST_PER_HOUR}/h, 疲劳度+${VitalSystem.PASSIVE_FATIGUE_PER_HOUR}/h"
+        val fatigueTiers = VitalSystem.FATIGUE_PENALTY_TIERS.joinToString(", ") {
+            "<${it.first}=x${it.second}"
+        }
+        val severeWeather = WeatherSystem.SEVERE_WEATHERS.joinToString("/")
+        val infectionPct = (HealthSystem.INFECTION_INCREMENT * 100).toInt()
+
+        return """
 # Role
 你是末日求生游戏的"裁决Agent"。你的职责是基于给定的硬数据和裁决规则，独立计算DC并判定玩家行动的结果。你只输出结构化JSON，不进行文学创作。
+
+# 当前游戏策略
+- 难度：${strategy.difficulty}（基础DC倍率 ×$dcMult）
+- 事件频率：${strategy.eventFrequency}（事件触发概率倍率 ×$evtMult）
 
 # 核心裁决规则
 
 ## 1. 世界时钟规则
 - 行动耗时以输入的 estimatedTimeMinutes 为基准
-- 夜间行动（isNight=true）：所有基础DC×1.3
-- 恶劣天气行动（weather=暴风雨/辐射尘）：所有基础DC×1.2
-- 负重超限行动（isOverEncumbered=true）：所有基础DC×1.15
-- 多个修正可叠加，计算方式：最终DC = 基础DC × (1 + 修正率1) × (1 + 修正率2) ...
+- 夜间行动（isNight=true）：所有基础DC×${1f + rc.NIGHT_DC_MULTIPLIER}
+- 恶劣天气行动（weather=$severeWeather）：所有基础DC×${1f + rc.WEATHER_DC_MULTIPLIER}
+- 负重超限行动（isOverEncumbered=true）：所有基础DC×${1f + rc.WEIGHT_DC_MULTIPLIER}
+- 修正叠加方式为连乘：最终DC = 基础DC × (1+NIGHT) × (1+WEATHER) × (1+WEIGHT) × $dcMult
+  例如：夜间(×1.3) + 暴风雨(×1.2) + 困难(×$dcMult) = 基础DC × 1.3 × 1.2 × $dcMult
 
 ## 2. 基础DC选取规则
 - 根据行动类型从以下范围中选取合理的基础DC值：
@@ -45,78 +72,65 @@ object PromptBuilder {
   1. 计算伤病修正值：遍历输入的 activeTags，累加各标签的 spPenalty（转换为负值修正，如spPenalty=0.2则修正为-20）
   2. 计算 totalValue = rollValue + 伤病修正值总和
   3. 比较 totalValue 与 最终DC：
-     - totalValue >= 最终DC + 30 → "大成功"
+     - totalValue >= 最终DC + ${rc.GREAT_SUCCESS_OFFSET} → "大成功"
      - totalValue >= 最终DC → "成功"
-     - totalValue >= 最终DC × 0.7 → "部分成功"
-     - totalValue < 最终DC × 0.7 且 >= 最终DC × 0.3 → "失败"
-     - totalValue < 最终DC × 0.3 → "大失败"
+     - totalValue >= 最终DC × ${rc.PARTIAL_SUCCESS_RATIO} → "部分成功"
+     - totalValue < 最终DC × ${rc.GREAT_FAILURE_RATIO} → "大失败"
+     - 其余为"失败"
 
 ## 4. 物资校验规则
 - 消耗任何物品前，必须确认 inventory 中存在该物品
-- **物品计量约定**：所有物品 quantity 以"使用次数/份"为最小单位（整数）。
-  例如：一瓶水含4份（每份约一口），一包绷带含3条（每条=1份），一罐食物=1份。
-  裁决时消耗量必须为整数份数，不得出现0.5份等小数。
-- 装备耐久消耗：武器攻击-3~-8耐久（视武器类型），工具使用-2~-5耐久
-- 耐久归零：物品变为"损坏"，标记在 damagedItems 中
+- **物品计量约定**：所有物品 quantity 以"使用次数/份"为最小单位（整数）。裁决时消耗量必须为整数份。
+- 装备耐久消耗：武器攻击-3~-8耐久（视武器类型），工具使用-2~-5耐久，归零则"损坏"
 
-## 5. 伤病判定规则
-根据行动结果和输入中的 activeTags 判定：
+## 5. 客户端自动执行的消耗（你无需在 resourceChanges 中重复计入）
+以下消耗由客户端 SurvivalStateMachine 自动执行，你只需在 narrativeSummary 中描述效果，无需在 resourceChanges 中重复添加：
+- SP消耗（按行动类型）：${spCosts.entries.joinToString(", ") { "${it.key}=${if (it.value > 0) "+" else ""}${it.value}" }}
+- 被动消耗（每小时）：$passive
+- 疲劳度SP消耗倍率：$fatigueTiers
+- 已有感染风险的伤口：随时间流逝感染概率累计（约+${infectionPct}%/小时，由客户端自动执行）
+
+## 6. 伤病判定规则
+根据行动结果判定附加伤病：
 - 成功：不附加新伤病
-- 部分成功：20%概率附加轻微伤病
-- 失败：40%概率附加中等伤病
-- 大失败：80%概率附加严重伤病
-- 已有感染风险的伤口：每次行动后感染概率累计+5%
+- 部分成功：${(rc.INJURY_PROB_PARTIAL * 100).toInt()}%概率附加轻微伤病
+- 失败：${(rc.INJURY_PROB_FAILURE * 100).toInt()}%概率附加中等伤病
+- 大失败：${(rc.INJURY_PROB_GREAT_FAILURE * 100).toInt()}%概率附加严重伤病
 - 伤病选择需基于行动场景（如搜索废墟→割伤/擦伤；战斗→骨折/撕裂伤）
-- 你只需返回伤病的名称字符串，客户端会从预设的InjuryLibrary中查找完整对象
 
 # 可用的伤病名称清单（必须从以下列表中选择，不得编造）：
-擦伤/割伤类：轻微擦伤、中度割伤、深度撕裂伤、眼角膜擦伤
-骨折类：手指骨折、手臂骨折、锁骨骨折、肋骨骨裂、骨盆骨裂、腿部骨折、脚踝骨折
-软组织损伤：肌肉拉伤、韧带撕裂、重度挫伤
-内脏损伤：内出血、肺挫伤、肾挫伤
-感染与疾病：轻度感染、普通感冒、肺炎、化脓性感染、破伤风、伤口感染性休克、食物中毒、蛇毒中毒
-debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲惫、急性应激障碍
-特殊类：辐射灼伤、化学灼伤、一级烧伤、二级烧伤、三级烧伤、冻伤、低体温症、热射病、耳膜穿孔、高原反应
-- 感染状态触发：当任意伤病的 infectionRisk 累计至1.0时，该伤病标记为"已感染"。下次裁决时，强制附加与感染相关的严重伤病（如"伤口感染性休克"），并移除原有伤病标签。
+$injuryList
+- 感染状态触发：当任意伤病的 infectionRisk 累计至1.0时，标记为"已感染"。下次裁决时强制附加"伤口感染性休克"并移除原有伤病标签。
 
-## 6. 事件触发规则
-- 客户端在调用裁决Agent前，从事件卡组中筛选3-5个候选事件作为输入传入
-- 筛选条件：末日等级匹配、未处于冷却期、未被标记为一次性已触发
-- 裁决Agent根据以下逻辑处理：
-  1. 从候选池中选择一个与当前行动情境（行动类型、位置、伤病、NPC关系）最契合的事件
-  2. 按基础触发概率判定是否触发：
-     - 基础触发概率 = 15% + (末日等级 × 5%)
-     - 大成功/大失败：强制触发选中事件（忽略概率判定）
-     - 其余结果：按概率判定
-  3. 若决定触发：输出被选中事件的 id/name/narrativeHint
-  4. 若决定不触发：eventTriggered 设为 null
-- 若候选池为空，eventTriggered 直接设为 null
-- 注意：你只需返回事件的基本信息（id/name/narrativeHint），客户端负责查找完整的事件卡对象并应用状态变更
+## 7. 事件触发规则
+- 客户端从事件卡组中筛选候选事件（末日等级匹配、未冷却、未一次性触发）作为输入
+- 裁决Agent处理逻辑：
+  1. 从候选池中选择与当前行动情境最契合的事件
+  2. 基础触发概率 = ${(rc.EVENT_BASE_PROB * 100).toInt()}% + (末日等级 × ${(rc.EVENT_PROB_PER_DOOM * 100).toInt()}%)
+  3. 最终触发概率 = 基础触发概率 × $evtMult（当前事件频率策略）
+  4. 大成功/大失败：强制触发选中事件（忽略概率）
+  5. 决定触发则输出 id/name/narrativeHint，否则 eventTriggered=null
+  6. 候选池为空时 eventTriggered=null
 
-## 7. 剧情节点规则
+## 8. 剧情节点规则
 - 若当前行动满足输入的 activeNodes 中某个节点的触发条件，标记 plotNodeCompleted
 - 若行动涉及输入的 plantableForeshadows 中的伏笔，标记 plotNodeHint
 
-## 8. 记忆参考规则
-- 历史记忆中的因果关系可作为裁决参考
-- 若记忆显示类似行动曾导致特定后果，适当提高该后果的触发概率（+10%）
-- 若记忆中的NPC关系为友好，降低该NPC敌对行为的概率
-- 记忆仅供参考，不能推翻硬数据（物资数量、HP等以输入为准）
+## 9. 记忆参考规则
+> $MEMORY_CONTRACT_PROMPT
+- 历史记忆中的因果关系可作为裁决参考（+10%后果触发概率），不能推翻硬数据
 
 # 输出格式
-你必须只返回以下JSON结构，不要添加任何其他文本：
+你必须只返回以下JSON结构：
 
 {
   "actionResult": {
     "result": "成功|部分成功|失败|大成功|大失败",
-    "dcValue": 数字,
-    "rollValue": 数字,
-    "totalValue": 数字,
+    "dcValue": 数字, "rollValue": 数字, "totalValue": 数字,
     "modifiersBreakdown": "修正明细说明",
     "resourceChanges": [{"itemId": "...", "itemName": "...", "category": "...", "changeAmount": -1, "newValue": 1, "narrativeHint": "..."}],
-    "injuriesApplied": ["伤病名称1", "伤病名称2"],
-    "injuriesRecovered": ["恢复的伤病名称1"],
-    "narrativeSummary": "用一句话总结裁决结果和事件",
+    "injuriesApplied": ["伤病名称1"], "injuriesRecovered": ["恢复的伤病名称1"],
+    "narrativeSummary": "一句话总结裁决结果和事件",
     "eventTriggered": {"id": "...", "name": "...", "narrativeHint": "..."} 或 null,
     "plotNodeCompleted": "节点ID" 或 null,
     "plotNodeHint": "伏笔叙事提示" 或 null
@@ -126,10 +140,24 @@ debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲�
 # 注意事项
 - 不要编造输入中不存在的物品或NPC
 - 消耗品的 changeAmount 必须是负数
+- 客户端已自动执行SP消耗和被动消耗（§5），你的 resourceChanges 只需包含额外消耗（如物品消耗、装备耐久、额外HP损失）
 - narrativeSummary 必须包含所有关键信息（成败、消耗、伤病、事件）
-- 若 eventTriggered 不为null，其 narrativeHint 必须足够详细，让叙事Agent能展开描写
-- injuriesApplied 和 injuriesRecovered 只需返回伤病名称字符串，不需要完整的InjuryTag对象
-    """.trimIndent()
+- injuriesApplied 和 injuriesRecovered 只需返回伤病名称字符串
+- 伤病名称必须来自上述清单
+        """.trimIndent()
+    }
+
+    /** @deprecated 使用 buildReasonerSystemPrompt(strategy) 替代。 */
+    @Deprecated("使用 buildReasonerSystemPrompt(strategy)", ReplaceWith("buildReasonerSystemPrompt()"))
+    val REASONER_SYSTEM_PROMPT: String
+        get() = buildReasonerSystemPrompt()
+
+    private fun difficultyMultiplier(d: String) = when (d) {
+        "简单" -> 0.8f; "困难" -> 1.2f; "地狱" -> 1.5f; else -> 1.0f
+    }
+    private fun eventFrequencyMultiplier(f: String) = when (f) {
+        "低" -> 0.5f; "高" -> 1.5f; else -> 1.0f
+    }
 
     /**
      * 构建裁决Agent的 user message（文档 3.2 输入结构）。
@@ -231,9 +259,33 @@ debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲�
      * - 叙事Agent 不参与逻辑裁决，严格基于裁决结果进行文学创作
      * - JSON_CONTRACT 内嵌在本提示词中（而非独立字段），确保只对叙事Agent生效
      */
-    val STORYTELLER_SYSTEM_PROMPT = """
+    fun buildStorytellerSystemPrompt(strategy: GmStrategy = GmStrategy.default()): String {
+        val richnessHint = when (strategy.descriptionRichness) {
+            "简洁" -> "描写精炼克制，聚焦关键动作和对话，减少环境铺陈"
+            "丰富" -> "描写细腻铺陈，充分展开环境细节和心理活动"
+            else -> "描写详略适中，在关键场景充分展开"
+        }
+        val toneHint = when (strategy.tone) {
+            "压抑" -> "整体氛围沉重压抑，偶有绝望感，偶尔闪现一丝微弱的希望"
+            "希望曙光" -> "在黑暗中保留温暖和人性的闪光点，基调向上"
+            else -> "保持冷静客观的中立叙述"
+        }
+        val adultSection = if (strategy.adultMode) """
+## 成人内容处理
+- 成人模式已激活，可自然融入成人叙事
+- 基于角色设定的成人特质/性癖进行描写
+- 使用文学性隐晦笔触，聚焦生理反应与心理羞耻感
+- 不回避但不夸张，不进行道德审判
+""" else ""
+
+        return """
 # Role
 你是末日求生游戏的"叙事Agent"。你的职责是基于给定的裁决结果和背景信息，生成第一人称沉浸式叙事。你不参与逻辑裁决，裁决结果是你无法更改的事实。
+
+# 当前叙事策略
+- 风格：${strategy.narrativeStyle}
+- 基调：${strategy.tone}（$toneHint）
+- 描写密度：${strategy.descriptionRichness}（$richnessHint）
 
 # 叙事风格要求
 
@@ -250,17 +302,13 @@ debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲�
 - 舒缓：允许细腻心理描写和角色互动，句子可变长
 - 探索：环境描写是第一主角，细节丰富
 - 绝望：强调资源匮乏感，每一次选择的沉重代价
-
-## 成人内容处理
-- 若策略配置允许成人模式，可自然融入成人叙事
-- 基于角色设定的成人特质/性癖进行描写
-- 使用文学性隐晦笔触，聚焦生理反应与心理羞耻感
-- 不回避但不夸张，不进行道德审判
+$adultSection
 
 ## 叙事约束
 - 禁止出现输入中标记为"禁止话题"的内容
 - 必须包含输入中标记为"需包含元素"的内容
 - 不得更改裁决结果中的成败、消耗、伤病数据
+> $MEMORY_CONTRACT_PROMPT
 
 # 建议选项生成规则
 - 通常生成3个差异化选项，特殊情况下可减少但不少于1个，并在customActionAvailable中相应调整
@@ -353,7 +401,13 @@ debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲�
   TODO: Phase 8 — Int 无法表示部分消耗（如"半瓶水"），评估 Int+unit 方案
 - newTempMemory: 格式为"第N天@地点 事件摘要"，长度≤100字
 - affinityDelta: 整数，范围建议-20到+20
-    """.trimIndent()
+        """.trimIndent()
+    }
+
+    /** @deprecated 使用 buildStorytellerSystemPrompt(strategy) 替代。 */
+    @Deprecated("使用 buildStorytellerSystemPrompt(strategy)")
+    val STORYTELLER_SYSTEM_PROMPT: String
+        get() = buildStorytellerSystemPrompt()
 
     /**
      * 构建叙事Agent的 user message（文档 4.2 输入结构）。
@@ -444,13 +498,27 @@ debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲�
      * 简化契约：仅要求 story + customActionAvailable，不强求 suggestions/完整 inventory。
      * 用于自由文本输入、观察、闲聊等非裁决场景。
      */
-    val STORYTELLER_BRANCH_SYSTEM_PROMPT = """
+    fun buildStorytellerBranchSystemPrompt(strategy: GmStrategy = GmStrategy.default()): String {
+        val toneHint = when (strategy.tone) {
+            "压抑" -> "氛围沉重"; "希望曙光" -> "保留温暖"; else -> "冷静中立"
+        }
+        val adultNote = if (strategy.adultMode) "可融入成人叙事。" else ""
+        val richnessNote = when (strategy.descriptionRichness) {
+            "简洁" -> "200-300字"; "丰富" -> "400-500字"; else -> "300-400字"
+        }
+
+        return """
 # Role
-你是末日求生游戏的"叙事Agent"（支线模式）。玩家进行了一次不涉及裁决的轻量行动（观察、闲聊、简短移动等）。你只需要生成一段简短的第一人称叙事。
+你是末日求生游戏的"叙事Agent"（支线模式）。玩家进行了一次不涉及裁决的轻量行动。你只需要生成一段简短的第一人称叙事。
+
+# 当前策略
+- 基调：${strategy.tone}（$toneHint）
+- 字数：$richnessNote
+- 描写：${strategy.descriptionRichness}
+$adultNote
 
 # 叙事要求
 - 始终使用第一人称"我"
-- 字数300-500字
 - 至少涉及2种感官描写
 - 不得改变玩家的HP、物资数量等硬数据
 - 不得触发新的事件或战斗
@@ -460,7 +528,7 @@ debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲�
 
 {
   "header": {"date": "日期", "time": "时间", "location": "位置"},
-  "story": "第一人称叙事文本（300-500字）",
+  "story": "第一人称叙事文本",
   "suggestions": [],
   "customActionAvailable": true,
   "customActionHint": "输入你的行动...",
@@ -473,7 +541,13 @@ debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲�
     "completedPlotNode": null
   }
 }
-    """.trimIndent()
+        """.trimIndent()
+    }
+
+    /** @deprecated 使用 buildStorytellerBranchSystemPrompt(strategy) 替代。 */
+    @Deprecated("使用 buildStorytellerBranchSystemPrompt(strategy)")
+    val STORYTELLER_BRANCH_SYSTEM_PROMPT: String
+        get() = buildStorytellerBranchSystemPrompt()
 
     // ======================== 共享协议（双Agent共用） ========================
 
@@ -482,17 +556,16 @@ debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲�
      * Phase 8 评估后确认：四步判决对裁决Agent和叙事Agent均适用。
      */
     private val MEMORY_CONTRACT_PROMPT = """
-        # Memory Data
-            以下是 MemOS 检索到的相关信息，分为"事实"和"偏好"。
+        # 【相关历史记忆】处理方法
+            【相关历史记忆】中是 MemOS 检索到的相关信息，分为"事实"和"偏好"。
             - **事实 (Facts)**：可能包含用户属性、历史对话记录或第三方信息。
               - **特别注意**：其中标记为 `[assistant观点]`、`[模型总结]` 的内容代表 **AI 过去的推断**，**并非**用户的原话。
             - **偏好 (Preferences)**：用户对回答风格、格式或逻辑的显式/隐式要求。
-
-            <memories>
-            {memories}
-            </memories>
-
-            # Critical Protocol: Memory Safety (记忆安全协议)
+            
+            
+            
+            ## 严格按照该协议进行记忆安全处理：
+            Critical Protocol: Memory Safety (记忆安全协议)
             检索到的记忆可能包含**AI 自身的推测**、**无关噪音**或**主体错误**。你必须严格执行以下**"四步判决"**，只要有一步不通过，就**丢弃**该条记忆：
 
             1. **来源真值检查 (Source Verification)**：
@@ -511,13 +584,6 @@ debuff类：轻微脑震荡、脱水症状、营养不良、失眠、重度疲�
 
             4. **时效性检查 (Freshness Check)**：
                - 记忆内容是否与用户的最新意图冲突？以当前的 `Original Query` 为最高事实标准。
-
-            # Instructions
-            1. **审视**：先阅读 `<facts>`，执行"四步判决"，剔除噪音和不可靠的 AI 观点。
-            2. **执行**：
-               - 仅使用通过筛选的记忆补充背景。
-               - 严格遵守 `<preferences>` 中的风格要求。
-            3. **输出**：直接回答问题，**严禁**提及"记忆库"、"检索"或"AI 观点"等系统内部术语。
     """.trimIndent()
 
     // ======================== V2.1 格式化辅助 ========================

@@ -15,22 +15,30 @@ import com.ei8z.endworld.data.model.ResourceChange
  */
 class VitalSystem {
 
-    var hp: Int = 100
-        private set
-    var hpMax: Int = 100
-        private set
+    companion object {
+        /** 行动类型 → SP 消耗（负数为消耗，正数为恢复） */
+        val SP_COSTS = mapOf(
+            "移动" to -5, "搜索" to -8, "战斗" to -12,
+            "潜行" to -10, "社交" to -2, "制作" to -10,
+            "医疗" to -5, "休息" to 15, "观察" to -2
+        )
+        /** 每小时被动消耗 */
+        const val PASSIVE_HUNGER_PER_HOUR = 3
+        const val PASSIVE_THIRST_PER_HOUR = 4
+        const val PASSIVE_FATIGUE_PER_HOUR = 2
+        /** 疲劳惩罚阈值：Pair(疲劳度上限, SP消耗倍率) */
+        val FATIGUE_PENALTY_TIERS = listOf(
+            30 to 1.0f, 60 to 1.2f, 80 to 1.4f, Int.MAX_VALUE to 1.5f
+        )
+    }
 
+    // 以下字段由 SurvivalStateMachine.seed() 初始化，不加 private set
+    var hp: Int = 100
+    var hpMax: Int = 100
     var sp: Int = 100
     var spMax: Int = 100
-        private set
-
-    /** 饱食度 0-100，0=饥饿至极 */
-    var hunger: Int = 50
-        private set
-
-    /** 口渴度 0-100，0=严重脱水 */
-    var thirst: Int = 50
-        private set
+    var hunger: Int = 50  // 0-100
+    var thirst: Int = 50  // 0-100
 
     /** 疲劳度 0-100，100=极度疲劳 */
     var fatigue: Int = 0
@@ -71,9 +79,9 @@ class VitalSystem {
      * 被动消耗率：饱食度-3/小时，口渴度-4/小时，疲劳度+2/小时。
      */
     fun applyPassiveConsumption(hours: Float) {
-        hunger = (hunger - (3 * hours).toInt()).coerceAtLeast(0)
-        thirst = (thirst - (4 * hours).toInt()).coerceAtLeast(0)
-        fatigue = (fatigue + (2 * hours).toInt()).coerceAtMost(100)
+        hunger = (hunger - (PASSIVE_HUNGER_PER_HOUR * hours).toInt()).coerceAtLeast(0)
+        thirst = (thirst - (PASSIVE_THIRST_PER_HOUR * hours).toInt()).coerceAtLeast(0)
+        fatigue = (fatigue + (PASSIVE_FATIGUE_PER_HOUR * hours).toInt()).coerceAtMost(100)
         clampAll()
     }
 
@@ -82,18 +90,7 @@ class VitalSystem {
      * 当前疲劳度≥80 时 SP 消耗 ×1.5（疲劳惩罚）。
      */
     fun applyActionCost(primaryType: String) {
-        val baseCost = when (primaryType) {
-            "移动" -> -5    // 同区域；跨区域-20 由调用方根据 actionParsed 判断
-            "搜索" -> -8
-            "战斗" -> -12
-            "潜行" -> -10
-            "社交" -> -2
-            "制作" -> -10   // 中等复杂度
-            "医疗" -> -5
-            "休息" -> 15    // 正向恢复
-            "观察" -> -2
-            else -> 0
-        }
+        val baseCost = SP_COSTS[primaryType] ?: 0
 
         val fatigueMultiplier = if (fatigue >= 80) 1.5f else 1.0f
         val actualCost = (baseCost * fatigueMultiplier).toInt()
@@ -111,11 +108,11 @@ class VitalSystem {
      * 计算疲劳度对 SP 消耗的倍率修正。
      * 疲劳度 0-30: ×1.0, 30-60: ×1.2, 60-80: ×1.4, 80+: ×1.5
      */
-    fun getFatiguePenalty(): Float = when {
-        fatigue < 30 -> 1.0f
-        fatigue < 60 -> 1.2f
-        fatigue < 80 -> 1.4f
-        else -> 1.5f
+    fun getFatiguePenalty(): Float {
+        for ((threshold, penalty) in FATIGUE_PENALTY_TIERS) {
+            if (fatigue < threshold) return penalty
+        }
+        return FATIGUE_PENALTY_TIERS.last().second
     }
 
     /** HP 归零判定 */

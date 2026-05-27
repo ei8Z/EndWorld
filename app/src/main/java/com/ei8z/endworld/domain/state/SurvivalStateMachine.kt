@@ -164,12 +164,7 @@ class SurvivalStateMachine(
     // ---- 持久化种子 ----
 
     /**
-     * 从 Room DB 实体恢复状态机运行时状态。
-     * HP/SP/饱食度/口渴度/疲劳度使用默认初始值（Room 无对应字段），
-     * 其他状态（末日等级/位置/伤病/装备）从 DB 加载。
-     *
-     * TODO: Phase 11 — Room 实体增加 HP/SP/饱食度/口渴度/疲劳度数值字段，
-     *       实现跨应用重启的状态持久化。
+     * V2.2: 从 Room DB 实体恢复状态机运行时状态（含数值字段）。
      */
     fun seed(
         doomLevel: Int,
@@ -178,9 +173,12 @@ class SurvivalStateMachine(
         locationDescription: String,
         injuryNames: List<String>,
         equippedWeapon: String?,
-        equippedTool: String?
+        equippedTool: String?,
+        hp: Int = 100, hpMax: Int = 100,
+        sp: Int = 100, spMax: Int = 100,
+        hunger: Int = 50, thirst: Int = 50, fatigue: Int = 0
     ) {
-        if (seeded) return  // 已在内存中，避免重复 seed 导致恢复进度丢失
+        if (seeded) return
         seeded = true
 
         this.doomLevel = doomLevel.coerceIn(1, 5)
@@ -191,6 +189,13 @@ class SurvivalStateMachine(
             }
         }
         inventory.setEquipmentByName(equippedWeapon, equippedTool)
+        vital.hp = hp.coerceIn(0, hpMax)
+        vital.hpMax = hpMax
+        vital.sp = sp.coerceIn(0, spMax)
+        vital.spMax = spMax
+        vital.hunger = hunger.coerceIn(0, 100)
+        vital.thirst = thirst.coerceIn(0, 100)
+        vital.fatigue = fatigue.coerceIn(0, 100)
     }
 
     // ---- 初始化 ----

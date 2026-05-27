@@ -187,12 +187,13 @@ class GameRepository(
 
         // 3. 裁决Agent（非流式）
         trySend(StreamEvent.PhaseChanged("fate"))
+        val currentStrategy = strategyManager.load()
         val reasonerMessage = PromptBuilder.buildReasonerUserMessage(
             actionParsed, preSnapshot, memoryContext, plotContext, rollValue, eventCandidates
         )
         saveJsonToDebugFile(reasonerMessage, "reasoner_user_msg")
         val actionResult = reasonerClient.reason(
-            PromptBuilder.REASONER_SYSTEM_PROMPT, reasonerMessage, player.userId
+            PromptBuilder.buildReasonerSystemPrompt(currentStrategy), reasonerMessage, player.userId
         )
         saveJsonToDebugFile(gson.toJson(actionResult), "action_result")
 
@@ -208,9 +209,10 @@ class GameRepository(
         saveJsonToDebugFile(storytellerMessage, "storyteller_user_msg")
 
         val finalGameResponse = collectStorytellerStream(
-            PromptBuilder.STORYTELLER_SYSTEM_PROMPT, storytellerMessage, player.userId
+            PromptBuilder.buildStorytellerSystemPrompt(currentStrategy), storytellerMessage, player.userId
         )
 
+        saveJsonToDebugFile(gson.toJson(finalGameResponse), "final_response")
         // 6. 同步到 Room DB + 写回 MemOS
         if (finalGameResponse != null) {
             syncGameData(finalGameResponse, player, world, postSnapshot)
@@ -231,6 +233,7 @@ class GameRepository(
         val branchType = BranchClassifier.classify(action)
 
         // 按支线类型推进时间（覆盖文档 6.1 各类型耗时）
+        val currentStrategy = strategyManager.load()
         val minutes = when (branchType) {
             BranchClassifier.Type.OBSERVE -> (5..10).random()
             BranchClassifier.Type.CHAT -> (5..15).random()
@@ -297,9 +300,13 @@ class GameRepository(
             append("\n【历史记忆】：\n${memoryContext.ifBlank { "无" }}")
         }
 
+        saveJsonToDebugFile(branchPrompt, "branchPrompt")
+
         val finalGameResponse = collectStorytellerStream(
-            PromptBuilder.STORYTELLER_BRANCH_SYSTEM_PROMPT, branchPrompt, player.userId
+            PromptBuilder.buildStorytellerBranchSystemPrompt(currentStrategy), branchPrompt, player.userId
         )
+
+        saveJsonToDebugFile(gson.toJson(finalGameResponse), "finalGameResponse")
         if (finalGameResponse != null) {
             syncGameData(finalGameResponse, player, world, preSnapshot)
             trySend(StreamEvent.FinalResponse(finalGameResponse))
@@ -334,10 +341,8 @@ class GameRepository(
     // ======================== 状态机初始化 ========================
 
     /**
-     * 每轮行动前从 Room DB 同步非数值状态到状态机。
-     * 数值字段（HP/SP/饱食/口渴/疲劳）无 Room 持久化，保持当前内存值。
-     *
-     * TODO: Phase 11 — Room 实体增加数值字段以支持跨重启持久化。
+     * 每轮行动前从 Room DB 同步状态到状态机。
+     * V2.2: HP/SP/饱食/口渴/疲劳 现在从 Room 实体持久化恢复。
      */
     private suspend fun seedStateMachine(player: PlayerState, world: WorldInfo) {
         val sm = stateMachine
@@ -348,7 +353,10 @@ class GameRepository(
             locationDescription = world.locationScene,
             injuryNames = player.mentalStateTags,
             equippedWeapon = player.equippedItems.firstOrNull(),
-            equippedTool = player.equippedItems.getOrNull(1)
+            equippedTool = player.equippedItems.getOrNull(1),
+            hp = player.hp, hpMax = player.hpMax,
+            sp = player.sp, spMax = player.spMax,
+            hunger = player.hunger, thirst = player.thirst, fatigue = player.fatigue
         )
 
         // 背包从 Room DB 同步到状态机（仅在首次 seed 时执行，由 seeded 标志控制）
@@ -362,7 +370,7 @@ class GameRepository(
                     name = item.name,
                     category = mapDbCategory(item.category),
                     quantity = qty,
-                    weight = 0.1f  // Room 无重量字段，使用默认值
+                    weight = 0.1f
                 ))
             }
         }
@@ -409,7 +417,12 @@ class GameRepository(
                 mentalStateTags = authStateTags,
                 innerThought = update.player.innerThought,  // AI 生成，软数据
                 equippedItems = authEquipment,
-                doomLevel = safeDoomLevel
+                doomLevel = safeDoomLevel,
+                // V2.2: 数值持久化（状态机权威数据）
+                hp = postSnapshot.hp, hpMax = postSnapshot.hpMax,
+                sp = postSnapshot.sp, spMax = postSnapshot.spMax,
+                hunger = postSnapshot.hunger, thirst = postSnapshot.thirst,
+                fatigue = postSnapshot.fatigue
             )
         )
 
@@ -516,6 +529,36 @@ class GameRepository(
             currentTime = "清晨",
             locationScene = "避难所",
             macroSituation = "灾难爆发。",
+            knownPointsJson = "[]"
+        )
+        playerDao.updatePlayerState(initialPlayer)
+        worldDao.updateWorldInfo(initialWorld)
+        memoryDao.insertMemory(Memory(location = "系统", event = "降临世界", result = "初始"))
+        historyDao.clearHistory()
+    }
+
+    /** V2.2: 带数值字段的初始化，供 OpeningModule 调用 */
+    suspend fun initializeNewGameV22(
+        playerName: String, genderPhysique: String, personality: String,
+        adultProfile: String, doomType: String, doomLevel: Int,
+        hp: Int, hpMax: Int, sp: Int, spMax: Int,
+        hunger: Int, thirst: Int, fatigue: Int
+    ) {
+        val initialPlayer = PlayerState(
+            userId = getOrCreateStableUserId(),
+            name = playerName, genderPhysique = genderPhysique,
+            personality = personality, adultProfile = adultProfile,
+            baseDescription = "一个${personality}的末日幸存者",
+            doomType = doomType, doomLevel = doomLevel.coerceIn(1, 5),
+            hp = hp, hpMax = hpMax, sp = sp, spMax = spMax,
+            hunger = hunger, thirst = thirst, fatigue = fatigue,
+            mentalStateTags = listOf("健康"),
+            innerThought = "灾难降临了……",
+            equippedItems = emptyList()
+        )
+        val initialWorld = WorldInfo(
+            currentDate = "第1天", currentTime = "清晨",
+            locationScene = "避难所", macroSituation = "灾难爆发。",
             knownPointsJson = "[]"
         )
         playerDao.updatePlayerState(initialPlayer)

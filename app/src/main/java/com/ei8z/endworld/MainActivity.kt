@@ -28,8 +28,10 @@ class MainActivity : ComponentActivity() {
 
                     if (playerState == null) {
                         InitializationScreen(
-                            onStartGame = { name, gender, personality, adultProfile, doomType ->
-                                viewModel.initializeGame(name, gender, personality, adultProfile, doomType)
+                            onStartGame = { name, gender, personality, adultProfile, doomType, doomLevel ->
+                                viewModel.initializeGameV22(
+                                    name, gender, personality, adultProfile, doomType, doomLevel
+                                )
                             }
                         )
                     } else {

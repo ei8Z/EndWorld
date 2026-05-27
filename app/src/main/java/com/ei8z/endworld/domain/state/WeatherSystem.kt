@@ -41,7 +41,7 @@ class WeatherSystem {
     /**
      * 返回天气 DC 修正率。暴风雨/辐射尘=0.2，其他=0。
      */
-    fun getDcModifier(): Float = if (weather in SEVERE_WEATHERS) 0.2f else 0.0f
+    fun getDcModifier(): Float = if (weather in SEVERE_WEATHERS) ReasonerConstants.WEATHER_DC_MULTIPLIER else 0.0f
 
     /**
      * 根据当前天气按转移概率随机抽取下一个天气。
