@@ -116,6 +116,14 @@ class InventoryManager {
     }
 
     /**
+     * 直接按名称设置装备（用于从 Room DB 恢复，无需 itemId）。
+     */
+    fun setEquipmentByName(weapon: String?, tool: String?) {
+        equippedWeapon = weapon?.takeIf { it.isNotBlank() }
+        equippedTool = tool?.takeIf { it.isNotBlank() }
+    }
+
+    /**
      * 装备武器。
      */
     fun equipWeapon(itemId: String) {

@@ -35,6 +35,9 @@ class SurvivalStateMachine(
     val health = HealthSystem(injuryLibrary)
     val eventDeck = EventDeck()
 
+    /** 是否已从持久层加载过初始状态（防止重复 seed 导致进度丢失） */
+    private var seeded = false
+
     /** 剧情管理器。若未提供则使用降级首章（不依赖 Android Context）。 */
     val plotManager: PlotManager = plotManager
         ?: PlotManager(listOf(ChapterDataLoader.buildFallbackChapter()))
@@ -157,6 +160,38 @@ class SurvivalStateMachine(
         weather.tick(hours)
         vital.applyPassiveConsumption(hours)
         repeat(hours.toInt()) { health.tickHourly() }
+    }
+
+    // ---- 持久化种子 ----
+
+    /**
+     * 从 Room DB 实体恢复状态机运行时状态。
+     * HP/SP/饱食度/口渴度/疲劳度使用默认初始值（Room 无对应字段），
+     * 其他状态（末日等级/位置/伤病/装备）从 DB 加载。
+     *
+     * TODO: Phase 11 — Room 实体增加 HP/SP/饱食度/口渴度/疲劳度数值字段，
+     *       实现跨应用重启的状态持久化。
+     */
+    fun seed(
+        doomLevel: Int,
+        location: String,
+        locationType: String,
+        locationDescription: String,
+        injuryNames: List<String>,
+        equippedWeapon: String?,
+        equippedTool: String?
+    ) {
+        if (seeded) return  // 已在内存中，避免重复 seed 导致恢复进度丢失
+        seeded = true
+
+        this.doomLevel = doomLevel.coerceIn(1, 5)
+        clock.updateLocation(location, locationType, locationDescription)
+        injuryNames.forEach { name ->
+            if (name.isNotBlank() && name != "健康") {
+                health.applyInjury(name)
+            }
+        }
+        inventory.setEquipmentByName(equippedWeapon, equippedTool)
     }
 
     // ---- 初始化 ----

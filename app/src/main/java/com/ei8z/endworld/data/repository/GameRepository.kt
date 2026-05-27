@@ -4,21 +4,19 @@ import android.content.Context
 import android.util.Log
 import com.ei8z.endworld.BuildConfig
 import com.ei8z.endworld.data.local.AppDatabase
-import com.ei8z.endworld.data.local.entity.InventoryItem
-import com.ei8z.endworld.data.local.entity.Memory
-import com.ei8z.endworld.data.local.entity.NpcRelation
-import com.ei8z.endworld.data.local.entity.PlayerState
-import com.ei8z.endworld.data.local.entity.StoryHistory
-import com.ei8z.endworld.data.local.entity.WorldInfo
+import com.ei8z.endworld.data.local.entity.*
+import com.ei8z.endworld.data.model.ActionParsed
+import com.ei8z.endworld.data.model.InventoryItemModel
+import com.ei8z.endworld.data.model.SuggestionItem
+import com.ei8z.endworld.data.model.WorldSnapshot
+import com.ei8z.endworld.data.plot.ChapterDataLoader
+import com.ei8z.endworld.data.plot.PlotManager
 import com.ei8z.endworld.data.remote.DeepSeekApiService
-import com.ei8z.endworld.data.remote.MemosApiService
+import com.ei8z.endworld.data.remote.MemOSAdapter
 import com.ei8z.endworld.data.remote.MemosAddMessageRequest
+import com.ei8z.endworld.data.remote.MemosApiService
 import com.ei8z.endworld.data.remote.MemosMessage
 import com.ei8z.endworld.data.remote.MemosSearchRequest
-import com.ei8z.endworld.data.remote.model.ChatChunkResponse
-import com.ei8z.endworld.data.remote.model.ChatMessage
-import com.ei8z.endworld.data.remote.model.ChatRequest
-import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.remote.model.GameResponse
 import com.ei8z.endworld.data.remote.model.InventoryUpdate
 import com.ei8z.endworld.data.remote.model.MemoryUpdate
@@ -26,12 +24,15 @@ import com.ei8z.endworld.data.remote.model.PlayerUpdate
 import com.ei8z.endworld.data.remote.model.ResourceUpdate
 import com.ei8z.endworld.data.remote.model.ResponseHeader
 import com.ei8z.endworld.data.remote.model.StatusUpdate
-import com.ei8z.endworld.data.remote.model.ToolChoice
 import com.ei8z.endworld.data.remote.model.WorldUpdate
+import com.ei8z.endworld.domain.state.BranchClassifier
+import com.ei8z.endworld.domain.state.ClientDiceRoller
+import com.ei8z.endworld.domain.state.SurvivalStateMachine
 import com.ei8z.endworld.util.JsonExtractor
 import com.google.gson.Gson
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
@@ -39,7 +40,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import okhttp3.ResponseBody
 import java.io.File
 import java.util.UUID
 
@@ -68,10 +68,23 @@ class GameRepository(
     private val npcDao = database.npcDao()
     private val historyDao = database.historyDao()
 
-    /**
-     * 获取或创建稳定用户 ID，用于 DeepSeek KV Cache 优化。
-     * 相同 user_id 的请求可复用服务端上下文缓存，降低重复 system prompt 的 Token 消耗。
-     */
+    // ======================== V2.1 双Agent组件 ========================
+
+    /** 生存状态机（客户端唯一数据权威）。PlotManager 从 assets 加载章节。 */
+    private val stateMachine: SurvivalStateMachine by lazy {
+        SurvivalStateMachine(
+            plotManager = PlotManager(ChapterDataLoader.loadChapters(context))
+        )
+    }
+
+    /** 裁决Agent API 客户端 */
+    private val reasonerClient by lazy { ReasonerApiClient(apiService, authHeader) }
+
+    /** 叙事Agent API 客户端 */
+    private val storytellerClient by lazy { StorytellerApiClient(apiService, authHeader) }
+
+    // ---- 持久化/身份 ----
+
     private fun getOrCreateStableUserId(): String {
         val prefs = context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE)
         var uid = prefs.getString("stable_user_id", null)
@@ -82,9 +95,15 @@ class GameRepository(
         return uid
     }
 
-    private fun getConversationId(): String {
-        return "conv_${getOrCreateStableUserId()}"
+    private val userId: String by lazy { getOrCreateStableUserId() }
+    private val conversationId: String by lazy { "conv_$userId" }
+
+    /** MemOS 记忆适配器（userId/conversationId 延迟初始化） */
+    private val memosAdapter: MemOSAdapter by lazy {
+        MemOSAdapter(memosApiService, memosAuthHeader, userId, conversationId)
     }
+
+    // ---- Flow 属性 ----
 
     val playerState: Flow<PlayerState?> = playerDao.getPlayer()
     val inventory: Flow<List<InventoryItem>> = inventoryDao.getAllItems()
@@ -93,75 +112,41 @@ class GameRepository(
     val npcs: Flow<List<NpcRelation>> = npcDao.getAllNpcs()
     val storyHistory: Flow<List<StoryHistory>> = historyDao.getAllHistory()
 
+    // ======================== V2.1 主线双Agent流程 ========================
+
     /**
-     * 4 步流水线：MemOS 检索 → DeepSeek 流式生成 → 本地 DB 同步 → MemOS 回写记忆
-     * 每一步失败都有降级策略，不会中断流程。
+     * V2.1 主线/支线入口。
+     *
+     * - 若 [actionParsed] 非空 → 主线：完整双Agent流程
+     * - 若 [actionParsed] 为空 → 支线：仅推进时间+叙事Agent（简化）
      */
-    fun sendActionStream(action: String): Flow<StreamEvent> = callbackFlow {
-        Log.d(TAG, "sendActionStream: action=$action")
+    fun sendActionStream(
+        action: String,
+        actionParsed: ActionParsed? = null
+    ): Flow<StreamEvent> = callbackFlow {
+        Log.d(TAG, "sendActionStream: action=$action, mainline=${actionParsed != null}")
 
         val currentPlayer = playerState.first() ?: run {
             trySend(StreamEvent.Error("未找到玩家数据"))
             close()
             return@callbackFlow
         }
-        val currentItems = inventory.first()
-        val currentMemories = recentMemories.first()
-        val currentHistory = storyHistory.first()
         val currentWorld = worldInfo.first() ?: run {
             trySend(StreamEvent.Error("未找到世界数据"))
             close()
             return@callbackFlow
         }
 
+        // 初始化状态机（首次调用时从 Room DB 注入初始状态）
+        seedStateMachine(currentPlayer, currentWorld)
+
         val job = repositoryScope.launch {
             try {
-                // 1. MemOS 检索长期记忆
-                val longTermMemories = try {
-                    val searchResponse = memosApiService.searchMemory(
-                        memosAuthHeader,
-                        MemosSearchRequest(currentPlayer.userId, getConversationId(), action)
-                    )
-                    searchResponse.data?.memories?.map { it.value } ?: emptyList()
-                } catch (e: Exception) {
-                    Log.e(TAG, "MemOS Search Failed: ${e.message}")
-                    emptyList()
+                if (actionParsed != null) {
+                    processMainline(action, actionParsed, currentPlayer, currentWorld)
+                } else {
+                    processBranch(action, currentPlayer, currentWorld)
                 }
-
-                // 2. 构建请求并发送给 DeepSeek
-                val recentActions = currentHistory.takeLast(3).map { it.action }
-                val request = buildChatRequest(action, currentPlayer, currentItems, currentMemories, recentActions, currentWorld, longTermMemories)
-                saveJsonToDebugFile(gson.toJson(request), "request")
-                val fullContent = StringBuilder()
-
-                val responseBody = apiService.getChatCompletionsStream(authHeader, request)
-                processStreamChunks(responseBody, fullContent)
-
-                val finalJson = fullContent.toString()
-                saveJsonToDebugFile(finalJson)
-
-                // 3. 解析并同步本地数据库
-                parseAndEmitResponse(finalJson, currentPlayer, currentWorld)
-
-                // 4. 将本轮对话同步回 MemOS 形成长期记忆（NonCancellable 确保不被 awaitClose 中断）
-                try {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
-                        memosApiService.addMessage(
-                            memosAuthHeader,
-                            MemosAddMessageRequest(
-                                userId = currentPlayer.userId,
-                                conversationId = getConversationId(),
-                                messages = listOf(
-                                    MemosMessage("user", action),
-                                    MemosMessage("assistant", finalJson)
-                                )
-                            )
-                        )
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "MemOS Add Message Failed: ${e.message}")
-                }
-
             } catch (e: Exception) {
                 Log.e(TAG, "流请求异常: ${e.message}", e)
                 trySend(StreamEvent.Error("连接异常: ${e.message}", retryable = true))
@@ -174,171 +159,256 @@ class GameRepository(
     }
 
     /**
-     * 构建 ChatRequest：注入 system prompt + 用户快照，动态调整推理强度。
-     * 关键抉择（战斗/逃跑）使用 max 推理，日常行动使用 high。
+     * V2.1 主线流程（完整双Agent）：
+     * 状态机预裁决 → 记忆查询 → 剧情上下文 → 事件候选 → 掷骰 →
+     * 裁决Agent → 应用结果 → 叙事Agent（流式）。
      */
-    private fun buildChatRequest(
+    private suspend fun ProducerScope<StreamEvent>.processMainline(
+        actionLabel: String,
+        actionParsed: ActionParsed,
+        player: PlayerState,
+        world: WorldInfo
+    ) {
+        // 1. 状态机预裁决：推进时间、消耗资源
+        val sm = stateMachine
+        sm.doomLevel = player.doomLevel.coerceIn(1, 5)
+        sm.processPreRuling(actionParsed.estimatedTimeMinutes, actionParsed.primaryType)
+        val preSnapshot = sm.generatePreRulingSnapshot()
+
+        // 2. 并行获取上下文
+        val plotContext = sm.generatePlotContext()
+        val memoryContext = memosAdapter.buildMemoryContext(
+            actionParsed.primaryType, preSnapshot.location, preSnapshot.nearbyNpcs
+        )
+        val eventCandidates = sm.getEventCandidates()
+        val rollValue = ClientDiceRoller.roll()
+
+        Log.d(TAG, "Mainline: roll=$rollValue, events=${eventCandidates.size}, hp=${preSnapshot.hp}")
+
+        // 3. 裁决Agent（非流式）
+        trySend(StreamEvent.PhaseChanged("fate"))
+        val reasonerMessage = PromptBuilder.buildReasonerUserMessage(
+            actionParsed, preSnapshot, memoryContext, plotContext, rollValue, eventCandidates
+        )
+        saveJsonToDebugFile(reasonerMessage, "reasoner_user_msg")
+        val actionResult = reasonerClient.reason(
+            PromptBuilder.REASONER_SYSTEM_PROMPT, reasonerMessage, player.userId
+        )
+        saveJsonToDebugFile(gson.toJson(actionResult), "action_result")
+
+        // 4. 应用裁决结果到状态机
+        sm.applyActionResult(actionResult, actionParsed)
+        val postSnapshot = sm.generatePostRulingSnapshot()
+
+        // 5. 叙事Agent（流式）
+        trySend(StreamEvent.PhaseChanged("story"))
+        val storytellerMessage = PromptBuilder.buildStorytellerUserMessage(
+            actionLabel, actionResult, plotContext, postSnapshot, memoryContext
+        )
+        saveJsonToDebugFile(storytellerMessage, "storyteller_user_msg")
+
+        val finalGameResponse = collectStorytellerStream(
+            PromptBuilder.STORYTELLER_SYSTEM_PROMPT, storytellerMessage, player.userId
+        )
+
+        // 6. 同步到 Room DB + 写回 MemOS
+        if (finalGameResponse != null) {
+            syncGameData(finalGameResponse, player, world, postSnapshot)
+            trySend(StreamEvent.FinalResponse(finalGameResponse))
+            writebackToMemos(actionLabel, gson.toJson(finalGameResponse), player.userId)
+        }
+    }
+
+    /**
+     * V2.1 支线流程：仅推进时间+被动消耗，跳过裁决Agent，直接用叙事Agent。
+     */
+    private suspend fun ProducerScope<StreamEvent>.processBranch(
         action: String,
         player: PlayerState,
-        items: List<InventoryItem>,
-        memories: List<Memory>,
-        recentActions: List<String>,
-        world: WorldInfo,
-        longTermMemories: List<String>
-    ): ChatRequest {
-        val currentStrategy = strategyManager.load()
-        val messages = mutableListOf(
-            ChatMessage("system", PromptBuilder.buildSystemPrompt(currentStrategy, longTermMemories)),
-            ChatMessage(
-                "user",
-                PromptBuilder.buildUserSnapshot(player, items, memories, recentActions, world, action)
-            ),
-        )
-
-        val tools = PromptBuilder.getTools()
-        return ChatRequest(
-            messages = messages,
-            userId = player.userId,
-            reasoningEffort = effortLevel(action),
-            stream = true,
-            tools = tools.ifEmpty { null },
-            toolChoice = if (tools.isEmpty()) ToolChoice.none() else ToolChoice.auto()
-        )
-    }
-
-    /**是否需要更慎重的思考*/
-    private fun effortLevel(action: String): String {
-        val check = action.contains("战斗") || action.contains("逃跑") || action.contains("杀")
-        return if (check) "max" else "high"
-    }
-
-    /**
-     * 按行读取 SSE 流，拆出 "data: " 前缀的 JSON chunk，
-     * 将 reasoning_content 和 content 增量转发给 UI，同时拼接 fullContent 用于最终解析。
-     */
-    private suspend fun ProducerScope<StreamEvent>.processStreamChunks(
-        responseBody: ResponseBody,
-        fullContent: StringBuilder
-    ) {
-        responseBody.charStream().buffered().use { reader ->
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                val row = line ?: ""
-                if (row.startsWith("data: ")) {
-                    val data = row.substring(6)
-                    if (data == "[DONE]") break
-
-                    try {
-                        val chunk = gson.fromJson(data, ChatChunkResponse::class.java)
-
-                        // 监控缓存命中情况
-                        chunk.usage?.let {
-                            if ((it.promptCacheHitTokens ?: 0) > 0) {
-                                Log.d(TAG, "KV Cache Hit: ${it.promptCacheHitTokens} tokens")
-                            }
-                        }
-
-                        val delta = chunk.choices.firstOrNull()?.delta
-                        delta?.reasoningContent?.let { trySend(StreamEvent.Reasoning(it)) }
-                        delta?.content?.let {
-                            fullContent.append(it)
-                            trySend(StreamEvent.Content(it))
-                        }
-                        // 检测工具调用（未来扩展：当前 tools 为空时不会触发）
-                        delta?.toolCalls?.forEach { tc ->
-                            tc.function?.let { fn ->
-                                trySend(
-                                    StreamEvent.ToolCallRequest(
-                                        toolCallId = tc.id ?: "",
-                                        functionName = fn.name ?: "",
-                                        argumentsDelta = fn.arguments ?: ""
-                                    )
-                                )
-                            }
-                        }
-                    } catch (e: Exception) {
-                        // 忽略解析失败的 chunk
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * 先尝试将完整 JSON 反序列化为 GameResponse；失败则用 [buildSalvagedResponse] 尝试从残缺 JSON 中提取 story 文本兜底。
-     */
-    private suspend fun ProducerScope<StreamEvent>.parseAndEmitResponse(
-        rawJson: String,
-        player: PlayerState,
         world: WorldInfo
     ) {
-        try {
-            val gameData = gson.fromJson(rawJson, GameResponse::class.java)
-            syncGameData(gameData, player, world)
-            trySend(StreamEvent.FinalResponse(gameData))
-        } catch (e: Exception) {
-            val result = buildSalvagedResponse(rawJson, player, world)
-            if (result != null) {
-                syncGameData(result, player, world)
-                trySend(StreamEvent.FinalResponse(result))
-            } else {
-                trySend(StreamEvent.Error("解析失败且无法修复内容: ${e.message}"))
-            }
-        }
-    }
+        val sm = stateMachine
+        val branchType = BranchClassifier.classify(action)
 
-    /**
-     * JSON 解析失败时的优雅降级：用正则提取 story 文本，维持当前状态不变，给出默认行动建议。
-     */
-    private fun buildSalvagedResponse(
-        raw: String,
-        player: PlayerState,
-        world: WorldInfo
-    ): GameResponse? {
-        val salvagedStory = JsonExtractor.tryExtractStory(raw)
-        if (salvagedStory != null) {
-            val salvagedSuggestions = JsonExtractor.tryExtractSuggestions(raw)
-            return GameResponse(
-                header = ResponseHeader(world.currentDate, world.currentTime, world.locationScene),
-                story = salvagedStory,
-                suggestions = salvagedSuggestions,
+        // 按支线类型推进时间（覆盖文档 6.1 各类型耗时）
+        val minutes = when (branchType) {
+            BranchClassifier.Type.OBSERVE -> (5..10).random()
+            BranchClassifier.Type.CHAT -> (5..15).random()
+            BranchClassifier.Type.SMALL_ACTION -> (1..5).random()
+            BranchClassifier.Type.MOVE -> (5..15).random()
+            BranchClassifier.Type.WAIT -> (10..30).random()
+            BranchClassifier.Type.OTHER -> 5
+        }
+
+        sm.processBranchAction(minutes = minutes)
+        // 应用支线 SP 消耗（非被动消耗，为行动本身消耗）
+        sm.vital.sp = (sm.vital.sp + branchType.spCost).coerceIn(0, sm.vital.spMax)
+
+        val preSnapshot = sm.generatePreRulingSnapshot()
+
+        // 小操作和等待：客户端直接执行，跳过叙事Agent
+        if (!branchType.needsStoryteller) {
+            val systemMessage = when (branchType) {
+                BranchClassifier.Type.SMALL_ACTION -> "你${action}。（${minutes}分钟）"
+                BranchClassifier.Type.WAIT -> "你${action}，休息了片刻。（${minutes}分钟，SP+5）"
+                else -> "支线行动完成。"
+            }
+            val directResponse = GameResponse(
+                header = ResponseHeader(
+                    date = "第${sm.clock.currentDay}天",
+                    time = String.format("%02d:%02d", sm.clock.currentHour, sm.clock.currentMinute),
+                    location = preSnapshot.location
+                ),
+                story = systemMessage,
+                suggestions = emptyList(),
                 customActionAvailable = true,
                 customActionHint = "输入你的行动...",
                 statusUpdate = StatusUpdate(
                     player = PlayerUpdate(
-                        player.mentalStateTags,
-                        player.innerThought,
-                        player.equippedItems
+                        stateTags = preSnapshot.activeTags.map { it.name },
+                        innerThought = "",
+                        equipment = listOfNotNull(preSnapshot.equippedWeapon, preSnapshot.equippedTool)
                     ),
-                    world = WorldUpdate(player.doomLevel, world.macroSituation),
+                    world = WorldUpdate(sm.doomLevel, world.macroSituation),
                     resources = ResourceUpdate(emptyList(), InventoryUpdate()),
                     memoryUpdate = MemoryUpdate(null, null)
                 )
             )
+            syncGameData(directResponse, player, world, preSnapshot)
+            trySend(StreamEvent.FinalResponse(directResponse))
+            return
         }
-        return null
+
+        // 需要叙事的类型：调用支线叙事Agent
+        val memoryContext = memosAdapter.buildMemoryContext(
+            branchType.label, preSnapshot.location, preSnapshot.nearbyNpcs
+        )
+
+        trySend(StreamEvent.PhaseChanged("story"))
+        val branchPrompt = buildString {
+            append("【玩家行动】：$action（支线-${branchType.label}）\n\n")
+            append("【当前状态】：\n")
+            append("- 位置：${preSnapshot.location}（${preSnapshot.locationDescription}）\n")
+            append("- HP: ${preSnapshot.hp}/${preSnapshot.hpMax} | SP: ${preSnapshot.sp}/${preSnapshot.spMax}\n")
+            append("- 天气：${preSnapshot.weather} | 昼夜：${if (preSnapshot.isNight) "夜间" else "白昼"}\n")
+            if (preSnapshot.inventory.isNotEmpty()) {
+                append("- 随身物品：${preSnapshot.inventory.joinToString("、") { "${it.name}×${it.quantity}" }}\n")
+            }
+            append("\n【历史记忆】：\n${memoryContext.ifBlank { "无" }}")
+        }
+
+        val finalGameResponse = collectStorytellerStream(
+            PromptBuilder.STORYTELLER_BRANCH_SYSTEM_PROMPT, branchPrompt, player.userId
+        )
+        if (finalGameResponse != null) {
+            syncGameData(finalGameResponse, player, world, preSnapshot)
+            trySend(StreamEvent.FinalResponse(finalGameResponse))
+        }
     }
 
     /**
-     * 将 AI 返回的 GameResponse 同步到本地 Room DB，包含安全裁剪（doomLevel 夹到 1-5，过滤空白标签）。
+     * 调用叙事Agent的流式 API，收集内容并返回最终 GameResponse。
+     * 流式过程中 emit StreamEvent.Content。
+     */
+    private suspend fun ProducerScope<StreamEvent>.collectStorytellerStream(
+        systemPrompt: String,
+        userMessage: String,
+        userId: String
+    ): GameResponse? {
+        var finalResponse: GameResponse? = null
+        try {
+            storytellerClient.tell(systemPrompt, userMessage, userId).collect { event ->
+                when (event) {
+                    is StorytellerEvent.Content -> trySend(StreamEvent.Content(event.delta))
+                    is StorytellerEvent.FinalResponse -> finalResponse = event.response
+                    is StorytellerEvent.Error -> trySend(StreamEvent.Error(event.message))
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Storyteller stream error: ${e.message}")
+            trySend(StreamEvent.Error("叙事生成异常: ${e.message}"))
+        }
+        return finalResponse
+    }
+
+    // ======================== 状态机初始化 ========================
+
+    /**
+     * 每轮行动前从 Room DB 同步非数值状态到状态机。
+     * 数值字段（HP/SP/饱食/口渴/疲劳）无 Room 持久化，保持当前内存值。
      *
-     * TODO: Phase 6 叙事Agent接入后，tools/medical 分类将有真实数据流入。
-     *       当前阶段允许这两个分类为空，不影响现有流程。
+     * TODO: Phase 11 — Room 实体增加数值字段以支持跨重启持久化。
+     */
+    private suspend fun seedStateMachine(player: PlayerState, world: WorldInfo) {
+        val sm = stateMachine
+        sm.seed(
+            doomLevel = player.doomLevel,
+            location = world.locationScene,
+            locationType = "室内", // TODO: Phase 11 从 WorldInfo 增加 locationType 字段
+            locationDescription = world.locationScene,
+            injuryNames = player.mentalStateTags,
+            equippedWeapon = player.equippedItems.firstOrNull(),
+            equippedTool = player.equippedItems.getOrNull(1)
+        )
+
+        // 背包从 Room DB 同步到状态机（仅在首次 seed 时执行，由 seeded 标志控制）
+        val dbItems = inventoryDao.getAllItems().first()
+        if (dbItems.isNotEmpty() && sm.inventory.getAllItems().isEmpty()) {
+            sm.inventory.clear()
+            dbItems.forEach { item ->
+                val qty = item.quantity.toIntOrNull() ?: 1
+                sm.inventory.addItem(InventoryItemModel(
+                    id = item.id.toString(),
+                    name = item.name,
+                    category = mapDbCategory(item.category),
+                    quantity = qty,
+                    weight = 0.1f  // Room 无重量字段，使用默认值
+                ))
+            }
+        }
+    }
+
+    /** Room 实体类别 → 模型类别映射 */
+    private fun mapDbCategory(dbCat: String): String = when (dbCat) {
+        "饮水" -> "饮品"
+        else -> dbCat
+    }
+
+    // ======================== Room DB 同步 ========================
+
+    /**
+     * 将 GameResponse + 状态机裁决后快照同步到 Room DB。
+     *
+     * 权威数据源（从 postSnapshot 取，不信任 AI）：
+     * - stateTags → postSnapshot 伤病名称列表
+     * - doomLevel → stateMachine.doomLevel
+     * - equipment → postSnapshot 装备
+     * - inventory → postSnapshot.inventory
+     *
+     * 辅助数据源（从 AI statusUpdate 取，仅软数据）：
+     * - innerThought / macroSituation / knownPoints / memory / NPC
      */
     private suspend fun syncGameData(
         data: GameResponse,
         oldPlayer: PlayerState,
-        oldWorld: WorldInfo
+        oldWorld: WorldInfo,
+        postSnapshot: WorldSnapshot
     ) {
         val update = data.statusUpdate
-        val safeDoomLevel = update.world.doomLevel.coerceIn(1, 5)
-        val safeStateTags = update.player.stateTags.filter { it.isNotBlank() }
+        val safeDoomLevel = stateMachine.doomLevel.coerceIn(1, 5)
+
+        // 权威：伤病从状态机取
+        val authStateTags = postSnapshot.activeTags.map { it.name }.filter { it.isNotBlank() }
+        // 权威：装备从状态机取
+        val authEquipment = listOfNotNull(
+            postSnapshot.equippedWeapon, postSnapshot.equippedTool
+        ).filter { it.isNotBlank() }
 
         playerDao.updatePlayerState(
             oldPlayer.copy(
-                mentalStateTags = safeStateTags,
-                innerThought = update.player.innerThought,
-                equippedItems = update.player.equipment,
+                mentalStateTags = authStateTags,
+                innerThought = update.player.innerThought,  // AI 生成，软数据
+                equippedItems = authEquipment,
                 doomLevel = safeDoomLevel
             )
         )
@@ -348,30 +418,26 @@ class GameRepository(
                 currentDate = data.header.date,
                 currentTime = data.header.time,
                 locationScene = data.header.location,
-                macroSituation = update.world.macroSituation,
+                macroSituation = update.world.macroSituation,  // AI 生成，软数据
                 knownPointsJson = gson.toJson(update.resources.knownPoints)
             )
         )
 
+        // 权威：背包从状态机 postSnapshot 构建（而非 AI statusUpdate）
         val allNewItems = mutableListOf<InventoryItem>()
-        fun sanitizeQuantity(q: Int) = if (q < 0) 0 else q
-        update.resources.inventory.food.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "食物", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
-        }
-        update.resources.inventory.drinks.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "饮水", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
-        }
-        update.resources.inventory.weapons.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "武器", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
-        }
-        update.resources.inventory.tools.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "工具", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
-        }
-        update.resources.inventory.medical.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "医疗", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
-        }
-        update.resources.inventory.special.filter { it.name.isNotBlank() }.forEach {
-            allNewItems.add(InventoryItem(category = "特殊", name = it.name, quantity = sanitizeQuantity(it.quantity).toString()))
+        fun sanitizeQty(q: Int) = if (q < 0) 0 else q
+        val catMap = mapOf(
+            "食物" to "食物", "饮品" to "饮水", "武器" to "武器",
+            "工具" to "工具", "医疗" to "医疗", "特殊" to "特殊"
+        )
+        for (item in postSnapshot.inventory) {
+            if (item.name.isBlank()) continue
+            val roomCat = catMap[item.category] ?: item.category
+            allNewItems.add(InventoryItem(
+                category = roomCat,
+                name = item.name,
+                quantity = sanitizeQty(item.quantity).toString()
+            ))
         }
         inventoryDao.syncInventory(allNewItems)
 
@@ -383,10 +449,34 @@ class GameRepository(
             memoryDao.insertMemory(Memory(location = data.header.location, event = it, result = "重大剧情", isPermanent = true))
         }
 
-        update.npcUpdate?.forEach { npcUpdate ->
-            npcDao.upsertNpc(npcUpdate.name?:"", npcUpdate.relation?:"", npcUpdate.affinityDelta?:0)
+        update.npcUpdate?.forEach { npc ->
+            npcDao.upsertNpc(npc.name ?: "", npc.relation ?: "", npc.affinityDelta ?: 0)
         }
     }
+
+    // ======================== MemOS 回写 ========================
+
+    private suspend fun writebackToMemos(userAction: String, assistantJson: String, uid: String) {
+        try {
+            kotlinx.coroutines.withContext(NonCancellable) {
+                memosApiService.addMessage(
+                    memosAuthHeader,
+                    MemosAddMessageRequest(
+                        userId = uid,
+                        conversationId = conversationId,
+                        messages = listOf(
+                            MemosMessage("user", userAction),
+                            MemosMessage("assistant", assistantJson)
+                        )
+                    )
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "MemOS Add Message Failed: ${e.message}")
+        }
+    }
+
+    // ======================== 持久化辅助 ========================
 
     suspend fun saveHistory(action: String, reasoning: String, story: String) {
         historyDao.insertHistory(StoryHistory(action = action, reasoning = reasoning, story = story))
@@ -434,6 +524,8 @@ class GameRepository(
         historyDao.clearHistory()
     }
 
+    // ======================== 调试 ========================
+
     private fun saveJsonToDebugFile(json: String, fileName: String = "response") {
         if (BuildConfig.DEBUG) try {
             val debugDir = File(context.filesDir, "debug_json")
@@ -446,11 +538,9 @@ class GameRepository(
         } catch (e: Exception) { }
     }
 
-    private fun deleteFile(debugDir: File,startWith: String) {
-        val files =
-            debugDir.listFiles { _, name -> name.startsWith(startWith) && name.endsWith(".json") }
-                ?.sortedBy { it.lastModified() } ?: emptyList()
+    private fun deleteFile(debugDir: File, startWith: String) {
+        val files = debugDir.listFiles { _, name -> name.startsWith(startWith) && name.endsWith(".json") }
+            ?.sortedBy { it.lastModified() } ?: emptyList()
         if (files.size >= 10) files.first().delete()
     }
-
 }

@@ -2,6 +2,8 @@
 package com.ei8z.endworld.ui.screen
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -22,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -31,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ei8z.endworld.data.local.entity.*
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.remote.model.KnownPoint
+import com.ei8z.endworld.ui.mode.UIMode
 import com.ei8z.endworld.ui.viewmodel.GameViewModel
 import com.ei8z.endworld.ui.viewmodel.StoryEntry
 import com.google.gson.Gson
@@ -55,6 +59,7 @@ fun GameScreen(viewModel: GameViewModel) {
     val npcs by viewModel.npcs.collectAsStateWithLifecycle(initialValue = emptyList())
 
     val gmStrategy by viewModel.gmStrategy.collectAsStateWithLifecycle()
+    val uiMode by viewModel.uiMode.collectAsStateWithLifecycle()
 
     var customAction by remember { mutableStateOf("") }
     var showStatusDialog by remember { mutableStateOf(false) }
@@ -139,7 +144,7 @@ fun GameScreen(viewModel: GameViewModel) {
                             ) {
                                 suggestions.forEach { suggestion ->
                                     OutlinedButton(
-                                        onClick = { viewModel.sendAction(suggestion.label) },
+                                        onClick = { viewModel.sendAction(suggestion.label, suggestion.actionParsed) },
                                         modifier = Modifier.padding(bottom = 4.dp)
                                     ) {
                                         Text(suggestion.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -225,6 +230,9 @@ fun GameScreen(viewModel: GameViewModel) {
 
                 item { Spacer(modifier = Modifier.height(100.dp)) }
             }
+
+            // V2.1 UI 模式视觉叠加层
+            UIModeOverlay(uiMode)
 
             if (isLoading && currentStory.isEmpty()) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
@@ -560,3 +568,55 @@ fun FlowRow(
 ) {
     androidx.compose.foundation.layout.FlowRow(modifier, horizontalArrangement, verticalArrangement, maxItemsInEachRow, content = content)
 }
+
+// ======================== V2.1 UI 模式视觉效果 ========================
+
+/**
+ * 根据 [UIMode] 渲染占位视觉效果叠加层。
+ *
+ * TODO: Phase 11 替换为实际动画（命运模式齿轮动画、危险模式心跳波纹等）。
+ *       当前使用半透明颜色遮罩作为占位实现。
+ */
+@Composable
+fun UIModeOverlay(mode: UIMode) {
+    val color = when (mode) {
+        UIMode.EXPLORE -> Color.Transparent
+        UIMode.FATE -> Color(0x30_00_00_00)    // 暗色遮罩（命运感）
+        UIMode.READING -> Color(0x15_FF_D7_00)  // 暖黄色滤镜
+        UIMode.DANGER -> Color(0x20_FF_00_00)   // 红色边框感
+        UIMode.SERENE -> Color(0x15_00_88_88)   // 蓝绿色调
+    }
+
+    val alpha by animateFloatAsState(
+        targetValue = if (mode == UIMode.EXPLORE) 0f else 1f,
+        animationSpec = androidx.compose.animation.core.tween(400),
+        label = "modeAlpha"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(color.copy(alpha = alpha * (color.alpha.coerceIn(0f, 1f))))
+    ) {
+        // 命运模式中央提示
+        if (mode == UIMode.FATE && alpha > 0.5f) {
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(48.dp),
+                    color = Color(0xFF_CC_CC_CC),
+                    strokeWidth = 3.dp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "命运裁决中...",
+                    color = Color(0xFF_CC_CC_CC),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+    }
+}
+

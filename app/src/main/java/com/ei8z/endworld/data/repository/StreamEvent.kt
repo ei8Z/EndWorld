@@ -19,5 +19,7 @@ sealed class StreamEvent {
         val argumentsDelta: String
     ) : StreamEvent()
     data class FinalResponse(val response: GameResponse) : StreamEvent()
+    /** V2.1 双Agent流程阶段切换："fate"=裁决中, "story"=叙事流式输出中 */
+    data class PhaseChanged(val phase: String) : StreamEvent()
     data class Error(val message: String, val retryable: Boolean = true) : StreamEvent()
 }

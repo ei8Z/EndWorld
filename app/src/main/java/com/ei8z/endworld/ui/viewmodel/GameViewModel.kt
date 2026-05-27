@@ -5,11 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.repository.GameRepository
 import com.ei8z.endworld.data.repository.GmStrategy
 import com.ei8z.endworld.data.repository.StreamEvent
 import com.ei8z.endworld.di.DependencyContainer
+import com.ei8z.endworld.ui.mode.UIMode
+import com.ei8z.endworld.ui.mode.UIModeManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -60,6 +63,10 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
     private val _suggestions = MutableStateFlow(repository.loadSuggestions())
     val suggestions: StateFlow<List<SuggestionItem>> = _suggestions.asStateFlow()
 
+    // V2.1 UI 模式管理（探索/命运/阅读/危险/宁静）
+    private val uiModeManager = UIModeManager()
+    val uiMode: StateFlow<UIMode> = uiModeManager.currentMode
+
     private val _canRetry = MutableStateFlow(false)
     val canRetry: StateFlow<Boolean> = _canRetry.asStateFlow()
 
@@ -73,6 +80,7 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
     val gmStrategy: StateFlow<GmStrategy> = _gmStrategy.asStateFlow()
 
     private var lastAction: String? = null
+    private var lastActionParsed: ActionParsed? = null
     private var retryCount = 0
     private val MAX_RETRY = 3
     private var streamJob: Job? = null
@@ -109,13 +117,17 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
         _gmStrategy.value = repository.loadStrategy()
     }
 
-    fun sendAction(action: String) {
+    /** V2.1: [actionParsed] 非空=主线双Agent流程，空=支线简化流程 */
+    fun sendAction(action: String, actionParsed: ActionParsed? = null) {
         lastAction = action
+        lastActionParsed = actionParsed
         retryCount = 0
         _canRetry.value = false
+        // 主线进入命运模式，支线直接进入阅读模式
+        if (actionParsed != null) uiModeManager.enterFate() else uiModeManager.enterReading()
 
         viewModelScope.launch {
-            startStream(action)
+            startStream(action, actionParsed)
         }
     }
 
@@ -127,7 +139,7 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
             return
         }
         retryCount++
-        startStream(action)
+        startStream(action, lastActionParsed)
     }
 
     /**
@@ -137,7 +149,7 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
      *   阶段 3 — 遇到 "suggestions": 时停止 story 增量，等待 FinalResponse 统一收尾
      * 这种增量解析避免了等待完整 JSON 再渲染，极大降低首字延迟。
      */
-    private fun startStream(action: String) {
+    private fun startStream(action: String, actionParsed: ActionParsed? = null) {
         streamJob?.cancel()
         streamJob = viewModelScope.launch {
             _isLoading.value = true
@@ -150,8 +162,14 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
             var hasReachedStory = false
             var hasReachedSuggestions = false
 
-            repository.sendActionStream(action).collect { event ->
+            repository.sendActionStream(action, actionParsed).collect { event ->
                 when (event) {
+                    is StreamEvent.PhaseChanged -> {
+                        when (event.phase) {
+                            "fate" -> uiModeManager.enterFate()
+                            "story" -> uiModeManager.enterReading()
+                        }
+                    }
                     is StreamEvent.Reasoning -> {
                         _currentReasoning.value += event.delta
                     }
@@ -172,6 +190,8 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
                             _currentStory.value = _currentStory.value
                                 .substringBeforeLast("\"")
                                 .trimEnd { it == ',' || it.isWhitespace() }
+                            // 释放原始 JSON 缓冲区（1000+字长文本不再需要）
+                            contentBuffer = ""
                         }
 
                         // 阶段 2：增量更新 story 文本
@@ -208,6 +228,13 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
                         _suggestions.value = event.response.suggestions
                         repository.saveSuggestions(event.response.suggestions)
                         _isLoading.value = false
+                        // 根据当前世界状态决定最终模式
+                        val location = event.response.header.location
+                        val isSafe = location.contains("安全") || location.contains("避难")
+                        // TODO: Phase 11 — hasThreats 应从 postSnapshot.dangerWarnings 或 StreamEvent 携带的数据判断
+                        val dangerWarnings = event.response.statusUpdate.player.stateTags
+                        val hasThreats = dangerWarnings.any { it.contains("伤") || it.contains("危") || it.contains("感染") }
+                        uiModeManager.settleMode(hasThreats = hasThreats, isSafeZone = isSafe)
                         retryCount = 0
                         _canRetry.value = false
                     }
