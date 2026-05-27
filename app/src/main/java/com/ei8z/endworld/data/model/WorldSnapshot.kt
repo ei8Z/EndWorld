@@ -1,10 +1,8 @@
 package com.ei8z.endworld.data.model
 
 /**
- * 生存状态快照，由 SurvivalStateMachine 在每次行动前/后生成。
- * 裁决Agent接收裁决前快照，叙事Agent接收裁决后快照（状态机已应用 ActionResult）。
- *
- * TODO: Phase 1 WorldStateProvider 实现快照生成逻辑。
+ * 生存状态快照，由 WorldStateProvider 从 SurvivalStateMachine 各子系统聚合生成。
+ * 裁决Agent接收裁决前快照，叙事Agent接收裁决后快照。
  */
 data class WorldSnapshot(
     // 时间
@@ -53,9 +51,7 @@ data class WorldSnapshot(
 
 /**
  * V2.1 物资物品模型。与 Room 实体 InventoryItem 不同，此模型使用强类型数值字段。
- *
- * TODO: Phase 1 InventoryManager 实现后，确认与 Room 实体的转换策略——
- *       是替换 Room 实体字段，还是在状态机与持久层之间维护映射。
+ * InventoryManager 使用此模型，syncGameData 负责向 Room 实体转换。
  */
 data class InventoryItemModel(
     val id: String,
@@ -74,9 +70,7 @@ data class InventoryItemModel(
 )
 
 /**
- * 伤病标签。裁决Agent仅返回伤病名称字符串，客户端通过 InjuryLibrary 查找完整对象。
- *
- * TODO: Phase 1 InjuryLibrary 定义≥15种预设伤病，此处字段为库中模板的数据结构。
+ * 伤病标签。裁决Agent仅返回名称字符串，客户端通过 InjuryLibrary（42种预设）查找完整对象。
  */
 data class InjuryTag(
     val id: String,

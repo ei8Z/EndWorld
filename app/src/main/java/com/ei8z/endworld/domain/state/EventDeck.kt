@@ -15,8 +15,7 @@ import com.ei8z.endworld.data.model.EventCard
  * - 调用 markTriggered(id) 标记已触发
  * - 若 affectsState=true，应用 stateChanges
  *
- * TODO: Phase 8 评估末日等级匹配是否需要放宽为 ±1（当前仅精确匹配）。
- * TODO: Phase 8 确认冷却回合的触发时机（当前在主流程每轮 tickRound 推进）。
+ * 末日等级采用精确匹配，冷却在主流程每轮 processPreRuling 推进。
  */
 class EventDeck(private val allCards: List<EventCard> = buildPresetCards()) {
 

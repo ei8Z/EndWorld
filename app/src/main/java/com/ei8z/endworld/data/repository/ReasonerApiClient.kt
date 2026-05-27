@@ -21,8 +21,8 @@ import org.json.JSONObject
  * - maxTokens: 1024（裁决结果较短）
  * - stream: false（裁决不需要流式）
  *
- * TODO: Phase 8 主线串通时，根据实际 API 返回的 JSON 结构调整解析路径。
- *       当前假设 response 的 choices[0].message.content 包含完整的 ActionResult JSON。
+ * 解析 response.choices[0].message.content 中的 ActionResult JSON。
+ * API 异常或 JSON 破损时返回降级结果（result="失败"）。
  */
 class ReasonerApiClient(
     private val apiService: DeepSeekApiService,

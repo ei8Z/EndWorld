@@ -5,7 +5,7 @@ package com.ei8z.endworld.data.model
  * 客户端将 ActionResult 应用到 SurvivalStateMachine 后生成裁决后 WorldSnapshot，
  * 再传入叙事Agent。
  *
- * TODO: Phase 5 裁决Agent Prompt + API 集成，确认 JSON 字段名与 @SerializedName 映射。
+ * 裁决Agent 返回 JSON 由 ReasonerApiClient 解析为 ActionResult。
  */
 data class ActionResult(
     val result: String,               // "成功"|"部分成功"|"失败"|"大成功"|"大失败"
@@ -39,7 +39,7 @@ data class ResourceChange(
  * 裁决Agent返回的事件引用。仅包含基本信息，
  * 客户端根据 id 从 EventDeck 查找完整 EventCard 对象并应用 stateChanges。
  *
- * TODO: Phase 2 EventDeck 实现后，确认客户端查找逻辑。
+ * 客户端根据 id 从 EventDeck 查找完整 EventCard 对象并应用 stateChanges。
  */
 data class EventCardRef(
     val id: String,

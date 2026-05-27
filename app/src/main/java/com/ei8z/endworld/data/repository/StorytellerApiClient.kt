@@ -22,7 +22,7 @@ import kotlinx.coroutines.flow.callbackFlow
  * - maxTokens: 8192（1000+字叙事需要较大输出空间）
  * - stream: true（流式输出，打字机效果）
  *
- * TODO: Phase 8 主线串通时，将流式事件接入 GameViewModel 的三阶段状态机。
+ * 流式事件通过回调 Flow 发射 StorytellerEvent，由 GameViewModel 消费并渲染。
  */
 class StorytellerApiClient(
     private val apiService: DeepSeekApiService,

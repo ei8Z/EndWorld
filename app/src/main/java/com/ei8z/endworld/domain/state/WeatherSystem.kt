@@ -8,7 +8,7 @@ import kotlin.random.Random
  * 天气类型：晴 → 阴 → 雨 → 暴风雨 → 辐射尘
  * DC修正：暴风雨/辐射尘对裁决DC ×1.2，其他天气无修正。
  *
- * TODO: Phase 8 评估是否需要根据末日等级调整恶劣天气的概率。
+ * 天气转移概率固定，不随末日等级变化（保持简洁性）。
  */
 class WeatherSystem {
 

@@ -22,7 +22,7 @@ import com.ei8z.endworld.data.plot.PlotManager
  *
  * @param plotManager 剧情管理器。可传入外部加载好章节的实例，null 时使用降级首章。
  *
- * TODO: Phase 8 主线串通时接入 GameRepository，替换现有的纯 AI 状态管理。
+ * 已接入 GameRepository，作为客户端唯一数据权威源。
  */
 class SurvivalStateMachine(
     plotManager: PlotManager? = null
@@ -42,8 +42,7 @@ class SurvivalStateMachine(
     val plotManager: PlotManager = plotManager
         ?: PlotManager(listOf(ChapterDataLoader.buildFallbackChapter()))
 
-    /** 当前末日等级 1-5，影响事件卡候选筛选。
-     *  TODO: Phase 8 确认 doomLevel 的初始化和更新来源（Room entity or PlotManager）。 */
+    /** 当前末日等级 1-5。由 seed() 从 Room DB 初始化，PlotManager 后续更新。 */
     var doomLevel: Int = 1
 
     private val worldStateProvider = WorldStateProvider(clock, weather, vital, inventory, health)

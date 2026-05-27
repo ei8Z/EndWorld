@@ -5,7 +5,7 @@ import com.ei8z.endworld.data.model.InventoryItemModel
 /**
  * 物资管理器。管理玩家随身物品的增删改查、装备耐久和负重计算。
  *
- * TODO: Phase 8 主线串通时，确认初始物品的注入方式（从 Room DB 迁移 or 独立初始化）。
+ * 初始物品通过 GameRepository.seedStateMachine 从 Room DB 注入。
  */
 class InventoryManager {
 

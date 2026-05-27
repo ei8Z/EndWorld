@@ -99,7 +99,18 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
                 repository.initializeNewGame(name, genderPhysique, personality, adultProfile, doomType)
                 _suggestions.value = emptyList()
                 repository.saveSuggestions(emptyList())
-                sendAction("我环顾四周，开始在这场灾难中求生。")
+                // 初始行动须为主线：携带 ActionParsed 触发完整双Agent流程，
+                // 确保首轮即生成带 actionParsed 的 suggestions，后续点击才能继续主线。
+                val initialAction = ActionParsed(
+                    primaryType = "观察",
+                    subType = "环顾四周",
+                    target = "周围环境",
+                    location = "避难所",
+                    method = "仔细观察",
+                    riskLevel = "低",
+                    estimatedTimeMinutes = 5
+                )
+                sendAction("我环顾四周，开始在这场灾难中求生。", initialAction)
             } catch (e: Exception) {
                 _error.value = "初始化失败: ${e.message}"
                 _isLoading.value = false
@@ -231,7 +242,6 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
                         // 根据当前世界状态决定最终模式
                         val location = event.response.header.location
                         val isSafe = location.contains("安全") || location.contains("避难")
-                        // TODO: Phase 11 — hasThreats 应从 postSnapshot.dangerWarnings 或 StreamEvent 携带的数据判断
                         val dangerWarnings = event.response.statusUpdate.player.stateTags
                         val hasThreats = dangerWarnings.any { it.contains("伤") || it.contains("危") || it.contains("感染") }
                         uiModeManager.settleMode(hasThreats = hasThreats, isSafeZone = isSafe)
