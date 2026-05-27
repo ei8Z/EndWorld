@@ -20,27 +20,15 @@ class PromptBuilderStorytellerTest {
     }
 
     @Test
-    fun `STORYTELLER_SYSTEM_PROMPT contains complete V2_1 JSON contract`() {
+    fun `STORYTELLER_SYSTEM_PROMPT contains pre-filtered memory note`() {
         val p = PromptBuilder.STORYTELLER_SYSTEM_PROMPT
-        // V2.1 特有字段
-        assertTrue(p.contains("actionParsed"))
-        assertTrue(p.contains("primaryType"))
-        assertTrue(p.contains("riskHint"))
-        assertTrue(p.contains("timeHint"))
-        assertTrue(p.contains("customActionAvailable"))
-        assertTrue(p.contains("customActionHint"))
-        assertTrue(p.contains("completedPlotNode"))
-        // Inventory categories
-        assertTrue(p.contains("\"tools\""))
-        assertTrue(p.contains("\"medical\""))
-        // quantity constraint
-        assertTrue(p.contains("quantity\": 整数"))
+        assertTrue(p.contains("已由裁决Agent通过四步判决预先过滤"))
     }
 
     @Test
     fun `buildStorytellerUserMessage contains action label`() {
         val msg = PromptBuilder.buildStorytellerUserMessage(
-            "搜索药柜", minResult(), null, minSnapshot(), ""
+            "搜索药柜", minResult(), null, minSnapshot()
         )
         assertTrue(msg.contains("【玩家行动】：搜索药柜"))
     }
@@ -53,7 +41,7 @@ class PromptBuilderStorytellerTest {
             listOf("轻微擦伤"), emptyList(), "搜索药柜部分成功",
             EventCardRef("e1", "酸雨", "酸雨降临"), "n1", "军队伏笔"
         )
-        val msg = PromptBuilder.buildStorytellerUserMessage("搜索", ar, null, minSnapshot(), "")
+        val msg = PromptBuilder.buildStorytellerUserMessage("搜索", ar, null, minSnapshot())
 
         assertTrue(msg.contains("判定：部分成功"))
         assertTrue(msg.contains("DC：55"))
@@ -79,7 +67,7 @@ class PromptBuilderStorytellerTest {
             emptyList(), listOf("老李"), emptyList(),
             listOf("夜间行动风险增加", "恶劣天气")
         )
-        val msg = PromptBuilder.buildStorytellerUserMessage("前进", minResult(), null, ws, "")
+        val msg = PromptBuilder.buildStorytellerUserMessage("前进", minResult(), null, ws)
 
         assertTrue(msg.contains("HP: 75/100"))
         assertTrue(msg.contains("SP: 80/100"))
@@ -100,7 +88,7 @@ class PromptBuilderStorytellerTest {
             listOf("废墟描写"), listOf("超能力"),
             "文明崩塌后的世界", "军方残余"
         )
-        val msg = PromptBuilder.buildStorytellerUserMessage("前进", minResult(), pc, minSnapshot(), "")
+        val msg = PromptBuilder.buildStorytellerUserMessage("前进", minResult(), pc, minSnapshot())
 
         assertTrue(msg.contains("章节：降临"))
         assertTrue(msg.contains("节奏：快节奏的紧张叙事"))
@@ -111,25 +99,27 @@ class PromptBuilderStorytellerTest {
     }
 
     @Test
-    fun `buildStorytellerUserMessage contains memory when provided`() {
+    fun `buildStorytellerUserMessage contains memoryContextChecked when provided`() {
         val memory = "[事实记忆]:\n- 上次在废墟找到罐头\n[因果记忆]:\n- 战斗导致手臂受伤"
-        val msg = PromptBuilder.buildStorytellerUserMessage("搜索", minResult(), null, minSnapshot(), memory)
+        val ar = minResult(memoryContextChecked = memory)
+        val msg = PromptBuilder.buildStorytellerUserMessage("搜索", ar, null, minSnapshot())
 
         assertTrue(msg.contains("上次在废墟找到罐头"))
         assertTrue(msg.contains("战斗导致手臂受伤"))
+        assertTrue(msg.contains("已过滤"))
     }
 
     @Test
     fun `buildStorytellerUserMessage shows empty memory placeholder`() {
-        val msg = PromptBuilder.buildStorytellerUserMessage("观察", minResult(), null, minSnapshot(), "")
+        val msg = PromptBuilder.buildStorytellerUserMessage("观察", minResult(), null, minSnapshot())
         assertTrue(msg.contains("无相关历史记忆"))
     }
 
     // ---- helpers ----
 
-    private fun minResult() = ActionResult(
+    private fun minResult(memoryContextChecked: String? = null) = ActionResult(
         "成功", 30, 50, 50, "", emptyList(), emptyList(), emptyList(), "行动成功",
-        null, null, null
+        null, null, null, memoryContextChecked
     )
 
     private fun minSnapshot(isNight: Boolean = false) = WorldSnapshot(

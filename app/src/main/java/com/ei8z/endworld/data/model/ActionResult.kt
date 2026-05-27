@@ -19,7 +19,10 @@ data class ActionResult(
     val narrativeSummary: String,
     val eventTriggered: EventCardRef?,
     val plotNodeCompleted: String?,
-    val plotNodeHint: String?
+    val plotNodeHint: String?,
+    /** 裁决Agent 经过 MEMORY_CONTRACT_PROMPT 过滤后的记忆文本。
+     * 叙事Agent 直接消费此字段，无需二次过滤。 */
+    val memoryContextChecked: String? = null
 )
 
 /**

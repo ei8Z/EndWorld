@@ -119,6 +119,7 @@ $injuryList
 ## 9. 记忆参考规则
 > $MEMORY_CONTRACT_PROMPT
 - 历史记忆中的因果关系可作为裁决参考（+10%后果触发概率），不能推翻硬数据
+- 如果输入记忆全部不符合判决协议，请在 memoryContextChecked 中返回 null。
 
 # 输出格式
 你必须只返回以下JSON结构：
@@ -133,7 +134,8 @@ $injuryList
     "narrativeSummary": "一句话总结裁决结果和事件",
     "eventTriggered": {"id": "...", "name": "...", "narrativeHint": "..."} 或 null,
     "plotNodeCompleted": "节点ID" 或 null,
-    "plotNodeHint": "伏笔叙事提示" 或 null
+    "plotNodeHint": "伏笔叙事提示" 或 null,
+    "memoryContextChecked": "经过四步判决过滤后的有效记忆摘要 或 null"
   }
 }
 
@@ -270,13 +272,7 @@ $injuryList
             "希望曙光" -> "在黑暗中保留温暖和人性的闪光点，基调向上"
             else -> "保持冷静客观的中立叙述"
         }
-        val adultSection = if (strategy.adultMode) """
-## 成人内容处理
-- 成人模式已激活，可自然融入成人叙事
-- 基于角色设定的成人特质/性癖进行描写
-- 使用文学性隐晦笔触，聚焦生理反应与心理羞耻感
-- 不回避但不夸张，不进行道德审判
-""" else ""
+        val adultSection = adultSection(strategy)
 
         return """
 # Role
@@ -308,7 +304,7 @@ $adultSection
 - 禁止出现输入中标记为"禁止话题"的内容
 - 必须包含输入中标记为"需包含元素"的内容
 - 不得更改裁决结果中的成败、消耗、伤病数据
-> $MEMORY_CONTRACT_PROMPT
+- 【相关历史记忆】已由裁决Agent通过四步判决预先过滤，可直接引用，无需二次判定
 
 # 建议选项生成规则
 - 通常生成3个差异化选项，特殊情况下可减少但不少于1个，并在customActionAvailable中相应调整
@@ -404,6 +400,14 @@ $adultSection
         """.trimIndent()
     }
 
+    private fun adultSection(strategy: GmStrategy): String = if (strategy.adultMode) """
+    ## 成人内容处理
+    - 成人模式已激活，可自然融入成人叙事
+    - 基于角色设定的成人特质/性癖进行描写
+    - 使用文学性隐晦笔触，聚焦生理反应与心理羞耻感
+    - 不回避但不夸张，不进行道德审判
+    """ else ""
+
     /** @deprecated 使用 buildStorytellerSystemPrompt(strategy) 替代。 */
     @Deprecated("使用 buildStorytellerSystemPrompt(strategy)")
     val STORYTELLER_SYSTEM_PROMPT: String
@@ -416,18 +420,18 @@ $adultSection
      * - worldSnapshotAfterRuling 必须是裁决**后**快照（状态机已应用 ActionResult）
      * - actionResult 由裁决Agent返回，是叙事Agent必须严格遵循的事实
      * - actionLabel 是玩家选择的选项文本（SuggestionItem.label）
-     * - memoryList 由 MemOSAdapter.buildMemoryContext() 格式化后传入
+     * - 记忆文本来自 actionResult.memoryContextChecked（裁决Agent 已通过四步判决过滤）
      * - plotContext 由 PlotManager.generatePlotContext() 生成
      */
     fun buildStorytellerUserMessage(
         actionLabel: String,
         actionResult: ActionResult,
         plotContext: PlotContext?,
-        worldSnapshotAfterRuling: WorldSnapshot,
-        memoryList: String
+        worldSnapshotAfterRuling: WorldSnapshot
     ): String = buildString {
         val wp = worldSnapshotAfterRuling
         val ar = actionResult
+        val memoryText = ar.memoryContextChecked ?: ""
 
         append("【玩家行动】：$actionLabel\n\n")
 
@@ -483,11 +487,11 @@ $adultSection
         append("- 位置: ${wp.location} | ${wp.locationDescription}\n")
         append("- 天气: ${wp.weather} | 昼夜: ${if (wp.isNight) "夜间" else "白昼"}\n")
 
-        append("\n【相关历史记忆】：\n")
-        if (memoryList.isBlank()) {
+        append("\n【相关历史记忆（已过滤）】：\n")
+        if (memoryText.isBlank()) {
             append("- 无相关历史记忆。\n")
         } else {
-            append(memoryList)
+            append(memoryText)
         }
     }
 
@@ -502,7 +506,7 @@ $adultSection
         val toneHint = when (strategy.tone) {
             "压抑" -> "氛围沉重"; "希望曙光" -> "保留温暖"; else -> "冷静中立"
         }
-        val adultNote = if (strategy.adultMode) "可融入成人叙事。" else ""
+        val adultNote = adultSection(strategy)
         val richnessNote = when (strategy.descriptionRichness) {
             "简洁" -> "200-300字"; "丰富" -> "400-500字"; else -> "300-400字"
         }
@@ -522,6 +526,7 @@ $adultNote
 - 至少涉及2种感官描写
 - 不得改变玩家的HP、物资数量等硬数据
 - 不得触发新的事件或战斗
+> $MEMORY_CONTRACT_PROMPT
 
 # 输出格式
 你必须只返回以下JSON结构：

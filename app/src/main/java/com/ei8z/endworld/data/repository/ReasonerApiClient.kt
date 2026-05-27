@@ -92,7 +92,8 @@ class ReasonerApiClient(
                 narrativeSummary = arJson.optString("narrativeSummary", ""),
                 eventTriggered = parseEventTriggered(arJson),
                 plotNodeCompleted = arJson.optString("plotNodeCompleted", null),
-                plotNodeHint = arJson.optString("plotNodeHint", null)
+                plotNodeHint = arJson.optString("plotNodeHint", null),
+                memoryContextChecked = arJson.optString("memoryContextChecked", null)
             )
         } catch (e: Exception) {
             buildFallbackResult(json)
@@ -158,7 +159,8 @@ class ReasonerApiClient(
             narrativeSummary = "行动因不明原因中断。（API异常降级）",
             eventTriggered = null,
             plotNodeCompleted = null,
-            plotNodeHint = null
+            plotNodeHint = null,
+            memoryContextChecked = null
         )
     }
 }

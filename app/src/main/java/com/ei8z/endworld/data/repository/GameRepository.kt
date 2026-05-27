@@ -204,7 +204,7 @@ class GameRepository(
         // 5. 叙事Agent（流式）
         trySend(StreamEvent.PhaseChanged("story"))
         val storytellerMessage = PromptBuilder.buildStorytellerUserMessage(
-            actionLabel, actionResult, plotContext, postSnapshot, memoryContext
+            actionLabel, actionResult, plotContext, postSnapshot
         )
         saveJsonToDebugFile(storytellerMessage, "storyteller_user_msg")
 
@@ -297,7 +297,7 @@ class GameRepository(
             if (preSnapshot.inventory.isNotEmpty()) {
                 append("- 随身物品：${preSnapshot.inventory.joinToString("、") { "${it.name}×${it.quantity}" }}\n")
             }
-            append("\n【历史记忆】：\n${memoryContext.ifBlank { "无" }}")
+            append("\n【相关历史记忆】：\n${memoryContext.ifBlank { "无" }}")
         }
 
         saveJsonToDebugFile(branchPrompt, "branchPrompt")
