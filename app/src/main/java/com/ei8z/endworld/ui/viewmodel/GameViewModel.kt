@@ -116,41 +116,6 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
         }
     }
 
-    /** @deprecated V2.1 旧入口，保留兼容。新代码请用 initializeGameV22 */
-    @Deprecated("使用 initializeGameV22")
-    fun initializeGame(
-        name: String,
-        genderPhysique: String,
-        personality: String,
-        adultProfile: String,
-        doomType: String
-    ) {
-        viewModelScope.launch {
-            _isLoading.value = true
-            _error.value = null
-            try {
-                repository.initializeNewGame(name, genderPhysique, personality, adultProfile, doomType)
-                _suggestions.value = emptyList()
-                repository.saveSuggestions(emptyList())
-                // 初始行动须为主线：携带 ActionParsed 触发完整双Agent流程，
-                // 确保首轮即生成带 actionParsed 的 suggestions，后续点击才能继续主线。
-                val initialAction = ActionParsed(
-                    primaryType = "观察",
-                    subType = "环顾四周",
-                    target = "周围环境",
-                    location = "避难所",
-                    method = "仔细观察",
-                    riskLevel = "低",
-                    estimatedTimeMinutes = 5
-                )
-                sendAction("我环顾四周，开始在这场灾难中求生。", initialAction)
-            } catch (e: Exception) {
-                _error.value = "初始化失败: ${e.message}"
-                _isLoading.value = false
-            }
-        }
-    }
-
     fun updateGmStrategy(strategy: GmStrategy) {
         _gmStrategy.value = strategy
         repository.saveStrategy(strategy)

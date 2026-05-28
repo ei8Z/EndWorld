@@ -505,38 +505,6 @@ class GameRepository(
         historyDao.clearHistory()
     }
 
-    suspend fun initializeNewGame(
-        playerName: String,
-        genderPhysique: String,
-        personality: String,
-        adultProfile: String,
-        doomType: String
-    ) {
-        val initialPlayer = PlayerState(
-            userId = getOrCreateStableUserId(),
-            name = playerName,
-            genderPhysique = genderPhysique,
-            personality = personality,
-            adultProfile = adultProfile,
-            baseDescription = "一个${personality}的末日幸存者",
-            doomType = doomType,
-            mentalStateTags = listOf("健康"),
-            innerThought = "游戏开始了。",
-            equippedItems = emptyList()
-        )
-        val initialWorld = WorldInfo(
-            currentDate = "第1天",
-            currentTime = "清晨",
-            locationScene = "避难所",
-            macroSituation = "灾难爆发。",
-            knownPointsJson = "[]"
-        )
-        playerDao.updatePlayerState(initialPlayer)
-        worldDao.updateWorldInfo(initialWorld)
-        memoryDao.insertMemory(Memory(location = "系统", event = "降临世界", result = "初始"))
-        historyDao.clearHistory()
-    }
-
     /** V2.2: 带数值字段的初始化，供 OpeningModule 调用 */
     suspend fun initializeNewGameV22(
         playerName: String, genderPhysique: String, personality: String,

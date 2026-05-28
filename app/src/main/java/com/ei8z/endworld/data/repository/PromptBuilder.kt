@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.data.local.entity.PlayerState
 import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.model.ActionResult
 import com.ei8z.endworld.data.model.EventCard
@@ -30,7 +31,8 @@ object PromptBuilder {
         val dcMult = difficultyMultiplier(strategy.difficulty)
         val evtMult = eventFrequencyMultiplier(strategy.eventFrequency)
         val spCosts = VitalSystem.SP_COSTS
-        val passive = "饱食度-${VitalSystem.PASSIVE_HUNGER_PER_HOUR}/h, 口渴度-${VitalSystem.PASSIVE_THIRST_PER_HOUR}/h, 疲劳度+${VitalSystem.PASSIVE_FATIGUE_PER_HOUR}/h"
+        val passive =
+            "饱食度-${VitalSystem.PASSIVE_HUNGER_PER_HOUR}/h, 口渴度-${VitalSystem.PASSIVE_THIRST_PER_HOUR}/h, 疲劳度+${VitalSystem.PASSIVE_FATIGUE_PER_HOUR}/h"
         val fatigueTiers = VitalSystem.FATIGUE_PENALTY_TIERS.joinToString(", ") {
             "<${it.first}=x${it.second}"
         }
@@ -149,14 +151,10 @@ $injuryList
         """.trimIndent()
     }
 
-    /** @deprecated 使用 buildReasonerSystemPrompt(strategy) 替代。 */
-    @Deprecated("使用 buildReasonerSystemPrompt(strategy)", ReplaceWith("buildReasonerSystemPrompt()"))
-    val REASONER_SYSTEM_PROMPT: String
-        get() = buildReasonerSystemPrompt()
-
     private fun difficultyMultiplier(d: String) = when (d) {
         "简单" -> 0.8f; "困难" -> 1.2f; "地狱" -> 1.5f; else -> 1.0f
     }
+
     private fun eventFrequencyMultiplier(f: String) = when (f) {
         "低" -> 0.5f; "高" -> 1.5f; else -> 1.0f
     }
@@ -408,11 +406,6 @@ $adultSection
     - 不回避但不夸张，不进行道德审判
     """ else ""
 
-    /** @deprecated 使用 buildStorytellerSystemPrompt(strategy) 替代。 */
-    @Deprecated("使用 buildStorytellerSystemPrompt(strategy)")
-    val STORYTELLER_SYSTEM_PROMPT: String
-        get() = buildStorytellerSystemPrompt()
-
     /**
      * 构建叙事Agent的 user message（文档 4.2 输入结构）。
      *
@@ -549,11 +542,6 @@ $adultNote
         """.trimIndent()
     }
 
-    /** @deprecated 使用 buildStorytellerBranchSystemPrompt(strategy) 替代。 */
-    @Deprecated("使用 buildStorytellerBranchSystemPrompt(strategy)")
-    val STORYTELLER_BRANCH_SYSTEM_PROMPT: String
-        get() = buildStorytellerBranchSystemPrompt()
-
     // ======================== 共享协议（双Agent共用） ========================
 
     /**
@@ -584,14 +572,12 @@ $adultNote
                - 如果记忆描述的是**第三方**（如"候选人"、"面试者"、"虚构角色"、"案例数据"），**严禁**将其属性归因于用户。
 
             3. **强相关性检查 (Relevance Check)**：
-               - 记忆是否直接有助于回答当前的 `Original Query`？
+               - 记忆是否直接有助于回答当前的 `Original Query (当前输入)`？
                - 如果记忆仅仅是关键词匹配（如：都提到了"代码"）但语境完全不同，**必须忽略**。
 
             4. **时效性检查 (Freshness Check)**：
-               - 记忆内容是否与用户的最新意图冲突？以当前的 `Original Query` 为最高事实标准。
+               - 记忆内容是否与用户的最新意图冲突？以当前的 `Original Query (当前输入)` 为最高事实标准。
     """.trimIndent()
-
-    // ======================== V2.1 格式化辅助 ========================
 
     private fun formatInjuryTags(snapshot: WorldSnapshot): String {
         val tags = snapshot.activeTags
