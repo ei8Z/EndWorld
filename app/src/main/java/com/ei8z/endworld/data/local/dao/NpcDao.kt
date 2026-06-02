@@ -15,10 +15,42 @@ interface NpcDao {
     @Query("UPDATE npc_relations SET affinity = affinity + :delta, relation = :relation WHERE name = :name")
     suspend fun updateNpcStatus(name: String, relation: String, delta: Int)
 
+    /** V2.2: 更新NPC深度字段 */
+    @Query("""
+        UPDATE npc_relations SET
+        affinity = affinity + :delta,
+        relation = :relation,
+        personalityTags = :personalityTags,
+        currentNeed = COALESCE(:currentNeed, currentNeed),
+        lastInteractionSummary = COALESCE(:lastInteractionSummary, lastInteractionSummary),
+        interactionCount = interactionCount + 1
+        WHERE name = :name
+    """)
+    suspend fun updateNpcDepth(
+        name: String, relation: String, delta: Int,
+        personalityTags: List<String>, currentNeed: String?, lastInteractionSummary: String?
+    )
+
     @Transaction
     suspend fun upsertNpc(name: String, relation: String, delta: Int) {
         val rowId = insertIfNotExist(NpcRelation(name = name, relation = relation, affinity = 0))
-        // 如果是新插入的，affinity 就是 0，后面更新 delta。如果是已存在的，delta 会累加。
         updateNpcStatus(name, relation, delta)
+    }
+
+    /** V2.2: 带深度字段的NPC upsert */
+    @Transaction
+    suspend fun upsertNpcDepth(
+        name: String, relation: String, delta: Int,
+        personalityTags: List<String> = emptyList(),
+        currentNeed: String? = null,
+        lastInteractionSummary: String? = null
+    ) {
+        insertIfNotExist(NpcRelation(
+            name = name, relation = relation, affinity = 0,
+            personalityTags = personalityTags,
+            currentNeed = currentNeed,
+            lastInteractionSummary = lastInteractionSummary
+        ))
+        updateNpcDepth(name, relation, delta, personalityTags, currentNeed, lastInteractionSummary)
     }
 }

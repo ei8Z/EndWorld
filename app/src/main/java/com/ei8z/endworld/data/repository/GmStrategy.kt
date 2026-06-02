@@ -16,7 +16,7 @@ data class GmStrategy(
     val descriptionRichness: String = "标准",     // 描述丰富度
     val tone: String = "压抑",                    // 基调
     val adultMode: Boolean = true,              // 成人模式开关
-    val debugMode: Boolean = false                // 调试模式：开启后显示 GM 裁决过程
+    val debugMode: Boolean = true                // 调试模式：开启后显示 GM 裁决过程
 ) {
     companion object {
         val NARRATIVE_STYLES = listOf("硬核写实", "轻度生存", "剧情驱动")

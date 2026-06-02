@@ -6,6 +6,7 @@ import com.ei8z.endworld.BuildConfig
 import com.ei8z.endworld.data.local.AppDatabase
 import com.ei8z.endworld.data.local.entity.*
 import com.ei8z.endworld.data.model.ActionParsed
+import com.ei8z.endworld.data.model.InjuryProgress
 import com.ei8z.endworld.data.model.InventoryItemModel
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.model.WorldSnapshot
@@ -16,7 +17,6 @@ import com.ei8z.endworld.data.remote.MemOSAdapter
 import com.ei8z.endworld.data.remote.MemosAddMessageRequest
 import com.ei8z.endworld.data.remote.MemosApiService
 import com.ei8z.endworld.data.remote.MemosMessage
-import com.ei8z.endworld.data.remote.MemosSearchRequest
 import com.ei8z.endworld.data.remote.model.GameResponse
 import com.ei8z.endworld.data.remote.model.InventoryUpdate
 import com.ei8z.endworld.data.remote.model.MemoryUpdate
@@ -28,8 +28,8 @@ import com.ei8z.endworld.data.remote.model.WorldUpdate
 import com.ei8z.endworld.domain.state.BranchClassifier
 import com.ei8z.endworld.domain.state.ClientDiceRoller
 import com.ei8z.endworld.domain.state.SurvivalStateMachine
-import com.ei8z.endworld.util.JsonExtractor
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -176,12 +176,17 @@ class GameRepository(
         val preSnapshot = sm.generatePreRulingSnapshot()
 
         // 2. 并行获取上下文
-        val plotContext = sm.generatePlotContext()
+        val plotContext = sm.generatePlotContextWithWorldEvents()
         val memoryContext = memosAdapter.buildMemoryContext(
             actionParsed.primaryType, preSnapshot.location, preSnapshot.nearbyNpcs
         )
         val eventCandidates = sm.getEventCandidates()
         val rollValue = ClientDiceRoller.roll()
+
+        // V2.2: 构建技能、世界进程、NPC深度上下文
+        val skillEffects = sm.skillManager.getActiveEffects()
+        val worldProgress = buildWorldProgressString(preSnapshot)
+        val npcDepthContext = buildNpcDepthContext(player, preSnapshot.nearbyNpcs)
 
         Log.d(TAG, "Mainline: roll=$rollValue, events=${eventCandidates.size}, hp=${preSnapshot.hp}")
 
@@ -189,7 +194,10 @@ class GameRepository(
         trySend(StreamEvent.PhaseChanged("fate"))
         val currentStrategy = strategyManager.load()
         val reasonerMessage = PromptBuilder.buildReasonerUserMessage(
-            actionParsed, preSnapshot, memoryContext, plotContext, rollValue, eventCandidates
+            actionParsed, preSnapshot, memoryContext, plotContext, rollValue, eventCandidates,
+            skillEffects = skillEffects,
+            npcDepthContext = npcDepthContext,
+            worldProgress = worldProgress
         )
         saveJsonToDebugFile(reasonerMessage, "reasoner_user_msg")
         val actionResult = reasonerClient.reason(
@@ -203,8 +211,11 @@ class GameRepository(
 
         // 5. 叙事Agent（流式）
         trySend(StreamEvent.PhaseChanged("story"))
+        val activeGoals = buildActiveGoalsList(plotContext)
         val storytellerMessage = PromptBuilder.buildStorytellerUserMessage(
-            actionLabel, actionResult, plotContext, postSnapshot
+            actionLabel, actionResult, plotContext, postSnapshot,
+            activeGoals = activeGoals,
+            npcDepthContext = npcDepthContext
         )
         saveJsonToDebugFile(storytellerMessage, "storyteller_user_msg")
 
@@ -217,7 +228,7 @@ class GameRepository(
         if (finalGameResponse != null) {
             syncGameData(finalGameResponse, player, world, postSnapshot)
             trySend(StreamEvent.FinalResponse(finalGameResponse))
-            writebackToMemos(actionLabel, gson.toJson(finalGameResponse), player.userId)
+            writebackToMemos(actionLabel, finalGameResponse, player.userId)
         }
     }
 
@@ -338,6 +349,24 @@ class GameRepository(
         return finalResponse
     }
 
+    // ======================== V2.2 开场行动 ========================
+
+    /**
+     * 从当前章节 JSON 的 opening 配置生成开局首个行动。
+     * 替代 FateRevelationOpening.buildInitialAction 的硬编码。
+     */
+    suspend fun generateOpeningAction(doomLevel: Int): Pair<String, ActionParsed> {
+        val result = stateMachine.plotManager.generateOpeningAction(doomLevel)
+        val chapter = stateMachine.plotManager.currentChapter
+        if (chapter.knownResourcePoints.isNotEmpty()) {
+            val w = worldInfo.first()
+            if (w != null) worldDao.updateWorldInfo(w.copy(
+                knownPointsJson = gson.toJson(chapter.knownResourcePoints)
+            ))
+        }
+        return result
+    }
+
     // ======================== 状态机初始化 ========================
 
     /**
@@ -346,33 +375,44 @@ class GameRepository(
      */
     private suspend fun seedStateMachine(player: PlayerState, world: WorldInfo) {
         val sm = stateMachine
+        val triggeredIds = try {
+            gson.fromJson(world.triggeredWorldEventIdsJson, Array<String>::class.java).toList()
+        } catch (e: Exception) { emptyList<String>() }
+        val injuryStates: Map<String, InjuryProgress> = try {
+            val type = object : TypeToken<Map<String, InjuryProgress>>() {}.type
+            gson.fromJson(player.injuryStatesJson, type)
+        } catch (e: Exception) { emptyMap() }
         sm.seed(
             doomLevel = player.doomLevel,
             location = world.locationScene,
             locationType = "室内", // TODO: Phase 11 从 WorldInfo 增加 locationType 字段
             locationDescription = world.locationScene,
             injuryNames = player.mentalStateTags,
+            injuryStates = injuryStates,
             equippedWeapon = player.equippedItems.firstOrNull(),
             equippedTool = player.equippedItems.getOrNull(1),
             hp = player.hp, hpMax = player.hpMax,
             sp = player.sp, spMax = player.spMax,
-            hunger = player.hunger, thirst = player.thirst, fatigue = player.fatigue
+            hunger = player.hunger, thirst = player.thirst, fatigue = player.fatigue,
+            accumulatedPartialHours = player.accumulatedPartialHours,
+            // V2.2
+            skillIds = player.skillTags,
+            triggeredWorldEventIds = triggeredIds,
+            totalMinutes = world.totalGameMinutes
         )
 
-        // 背包从 Room DB 同步到状态机（仅在首次 seed 时执行，由 seeded 标志控制）
+        // 背包始终从 Room DB 同步（DB 是持久化权威来源）
+        sm.inventory.clear()
         val dbItems = inventoryDao.getAllItems().first()
-        if (dbItems.isNotEmpty() && sm.inventory.getAllItems().isEmpty()) {
-            sm.inventory.clear()
-            dbItems.forEach { item ->
-                val qty = item.quantity.toIntOrNull() ?: 1
-                sm.inventory.addItem(InventoryItemModel(
-                    id = item.id.toString(),
-                    name = item.name,
-                    category = mapDbCategory(item.category),
-                    quantity = qty,
-                    weight = 0.1f
-                ))
-            }
+        dbItems.forEach { item ->
+            val qty = item.quantity.toIntOrNull() ?: 1
+            sm.inventory.addItem(InventoryItemModel(
+                id = item.id.toString(),
+                name = item.name,
+                category = mapDbCategory(item.category),
+                quantity = qty,
+                weight = 0.1f
+            ))
         }
     }
 
@@ -412,6 +452,27 @@ class GameRepository(
             postSnapshot.equippedWeapon, postSnapshot.equippedTool
         ).filter { it.isNotBlank() }
 
+        // V2.2: 处理技能更新
+        val currentSkillTags = oldPlayer.skillTags.toMutableList()
+        update.skillUpdate?.let { skillUpd ->
+            skillUpd.newSkills.forEach { entry ->
+                if (entry.id !in currentSkillTags) currentSkillTags.add(entry.id)
+            }
+            // levelUpSkills: ID already in list, no structural change needed for List<String>
+        }
+
+        // Bug 9: 序列化伤病运行时进度
+        val injuryStatesJson = try {
+            gson.toJson(
+                stateMachine.health.activeTags.associate { tag ->
+                    tag.name to InjuryProgress(
+                        infectionRisk = tag.infectionRisk,
+                        naturalRecoveryHours = tag.naturalRecoveryHours
+                    )
+                }
+            )
+        } catch (e: Exception) { "{}" }
+
         playerDao.updatePlayerState(
             oldPlayer.copy(
                 mentalStateTags = authStateTags,
@@ -422,17 +483,24 @@ class GameRepository(
                 hp = postSnapshot.hp, hpMax = postSnapshot.hpMax,
                 sp = postSnapshot.sp, spMax = postSnapshot.spMax,
                 hunger = postSnapshot.hunger, thirst = postSnapshot.thirst,
-                fatigue = postSnapshot.fatigue
+                fatigue = postSnapshot.fatigue,
+                accumulatedPartialHours = stateMachine.vital.accumulatedPartialHours,
+                // V2.2: 技能持久化
+                skillTags = currentSkillTags,
+                injuryStatesJson = injuryStatesJson
             )
         )
 
         worldDao.updateWorldInfo(
             oldWorld.copy(
-                currentDate = data.header.date,
-                currentTime = data.header.time,
+                currentDate = "第${stateMachine.clock.currentDay}天",
+                currentTime = String.format("%02d:%02d", stateMachine.clock.currentHour, stateMachine.clock.currentMinute),
                 locationScene = data.header.location,
                 macroSituation = update.world.macroSituation,  // AI 生成，软数据
-                knownPointsJson = gson.toJson(update.resources.knownPoints)
+                knownPointsJson = gson.toJson(update.resources.knownPoints),
+                // V2.2: 世界进程持久化
+                triggeredWorldEventIdsJson = gson.toJson(stateMachine.worldEventManager.getTriggeredEventIds()),
+                totalGameMinutes = stateMachine.clock.elapsedMinutes
             )
         )
 
@@ -463,14 +531,45 @@ class GameRepository(
         }
 
         update.npcUpdate?.forEach { npc ->
-            npcDao.upsertNpc(npc.name ?: "", npc.relation ?: "", npc.affinityDelta ?: 0)
+            npcDao.upsertNpcDepth(
+                name = npc.name ?: "",
+                relation = npc.relation ?: "",
+                delta = npc.affinityDelta ?: 0,
+                personalityTags = npc.personalityTags ?: emptyList(),
+                currentNeed = npc.currentNeed,
+                lastInteractionSummary = npc.lastInteractionSummary
+            )
+        }
+
+        // V2.2: 目标待定队列验证（客户端权威，防止AI生成非法目标）
+        update.goalUpdate?.let { goalUpd ->
+            val existingGoalIds = stateMachine.goalTracker.getActiveIds()
+            val validatedNewGoals = goalUpd.newGoals
+                .filter { g -> g.id.isNotBlank() && g.name.isNotBlank() && g.type.isNotBlank() }
+                .filter { g -> g.id !in existingGoalIds }
+                .take(3) // 最多同时3个活跃目标
+            stateMachine.goalTracker.addGoals(validatedNewGoals)
+            goalUpd.completedGoals.forEach { stateMachine.goalTracker.completeGoal(it) }
+            stateMachine.goalTracker.updateProgress(goalUpd.progressUpdates)
+        }
+
+        // V2.2: 技能更新写入状态机
+        update.skillUpdate?.let { skillUpd ->
+            skillUpd.newSkills.forEach { stateMachine.skillManager.addOrUpgrade(it.id, it.newLevel) }
+            skillUpd.levelUpSkills.forEach { stateMachine.skillManager.addOrUpgrade(it.id, it.newLevel) }
         }
     }
 
     // ======================== MemOS 回写 ========================
 
-    private suspend fun writebackToMemos(userAction: String, assistantJson: String, uid: String) {
+    /**
+     * V2.2: NPC重要交互打标。检测关系转折、阈���突破等关键事件，
+     * 为 MemOS 查询提供筛选优先级。
+     */
+    private suspend fun writebackToMemos(userAction: String, finalResponse: GameResponse, uid: String) {
         try {
+            // 为重要NPC交互打标
+            tagNpcMilestones(finalResponse)
             kotlinx.coroutines.withContext(NonCancellable) {
                 memosApiService.addMessage(
                     memosAuthHeader,
@@ -479,13 +578,28 @@ class GameRepository(
                         conversationId = conversationId,
                         messages = listOf(
                             MemosMessage("user", userAction),
-                            MemosMessage("assistant", assistantJson)
+                            MemosMessage("assistant", finalResponse.story)
                         )
                     )
                 )
             }
         } catch (e: Exception) {
             Log.e(TAG, "MemOS Add Message Failed: ${e.message}")
+        }
+    }
+
+    /** 检测JSON中NPC好感度变化是否达到里程碑，自动打标 */
+    private fun tagNpcMilestones(finalResponse: GameResponse) {
+        val npcUpdates = finalResponse.statusUpdate.npcUpdate ?: return
+        val tags = mutableListOf<String>()
+        for (elem in npcUpdates) {
+            val name = elem.name
+            val delta = elem.affinityDelta ?: 0
+            when {
+                kotlin.math.abs(delta) >= 20 -> tags.add("[关系转折] $name 好感${if (delta > 0) "+" else ""}$delta")
+                delta >= 15 -> tags.add("[重要] $name 好感大幅提升+$delta")
+                delta <= -15 -> tags.add("[重要] $name 好感大幅下降$delta")
+            }
         }
     }
 
@@ -553,5 +667,58 @@ class GameRepository(
         val files = debugDir.listFiles { _, name -> name.startsWith(startWith) && name.endsWith(".json") }
             ?.sortedBy { it.lastModified() } ?: emptyList()
         if (files.size >= 10) files.first().delete()
+    }
+
+    // ======================== V2.2 上下文构建辅助 ========================
+
+    /** 构建世界进程文本（注入Reasoner user message） */
+    private fun buildWorldProgressString(snapshot: WorldSnapshot): String {
+        val sb = StringBuilder()
+        sb.append("- 存活天数：${snapshot.daysSurvived}\n")
+        sb.append("- 当前威胁等级：${snapshot.totalThreatLevel}\n")
+        sb.append("- 资源预估值：食物约${snapshot.foodHoursRemaining.toInt()}小时，水约${snapshot.waterHoursRemaining.toInt()}小时（基于当前消耗速率估算）\n")
+        if (snapshot.medicalEmergency) {
+            sb.append("- ⚠️ 医疗紧急！有需要立即处理的伤病\n")
+        }
+        val activeEvents = stateMachine.worldEventManager.getActiveWorldContext(snapshot.daysSurvived)
+        if (activeEvents.isNotBlank()) {
+            sb.append("- 已触发世界事件：$activeEvents\n")
+        }
+        return sb.toString()
+    }
+
+    /** 构建NPC深度上下文（注入Reasoner/Storyteller user message） */
+    private suspend fun buildNpcDepthContext(player: PlayerState, nearbyNpcs: List<String>): String {
+        if (nearbyNpcs.isEmpty()) return ""
+        val npcs = npcDao.getAllNpcs().first()
+        val relevant = npcs.filter { it.name in nearbyNpcs }
+        if (relevant.isEmpty()) return ""
+
+        return relevant.joinToString("\n\n") { npc ->
+            buildString {
+                append("【NPC - ${npc.name}】：\n")
+                append("- 关系：${npc.relation}（好感度 ${npc.affinity}%）\n")
+                if (npc.personalityTags.isNotEmpty()) {
+                    append("- 性格：${npc.personalityTags.joinToString("、")}\n")
+                }
+                if (!npc.currentNeed.isNullOrBlank()) {
+                    append("- 当前需求：${npc.currentNeed}\n")
+                }
+                if (!npc.lastInteractionSummary.isNullOrBlank()) {
+                    append("- 上次互动：${npc.lastInteractionSummary}\n")
+                }
+                if (npc.interactionCount > 0) {
+                    append("- 互动次数：第${npc.interactionCount}次见面\n")
+                }
+            }
+        }
+    }
+
+    /** 构建活跃目标列表（注入Storyteller user message） */
+    private fun buildActiveGoalsList(plotContext: com.ei8z.endworld.data.model.PlotContext): List<com.ei8z.endworld.data.model.PersonalGoal> {
+        val goals = mutableListOf<com.ei8z.endworld.data.model.PersonalGoal>()
+        plotContext.urgentGoal?.let { goals.add(it) }
+        goals.addAll(plotContext.suggestedGoals)
+        return goals.distinctBy { it.id }
     }
 }

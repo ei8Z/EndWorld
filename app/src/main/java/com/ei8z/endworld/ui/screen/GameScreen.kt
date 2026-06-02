@@ -34,6 +34,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ei8z.endworld.data.local.entity.*
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.remote.model.KnownPoint
+import com.ei8z.endworld.domain.state.SkillLibrary
 import com.ei8z.endworld.ui.mode.UIMode
 import com.ei8z.endworld.ui.viewmodel.GameViewModel
 import com.ei8z.endworld.ui.viewmodel.StoryEntry
@@ -65,6 +66,7 @@ fun GameScreen(viewModel: GameViewModel) {
     var showStatusDialog by remember { mutableStateOf(false) }
     var showGmDialog by remember { mutableStateOf(false) }
     var suggestionsExpanded by remember { mutableStateOf(true) }
+    var selectedSuggestion by remember { mutableStateOf<SuggestionItem?>(null) }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
@@ -144,7 +146,7 @@ fun GameScreen(viewModel: GameViewModel) {
                             ) {
                                 suggestions.forEach { suggestion ->
                                     OutlinedButton(
-                                        onClick = { viewModel.sendAction(suggestion.label, suggestion.actionParsed) },
+                                        onClick = { selectedSuggestion = suggestion },
                                         modifier = Modifier.padding(bottom = 4.dp)
                                     ) {
                                         Text(suggestion.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -251,6 +253,17 @@ fun GameScreen(viewModel: GameViewModel) {
 
     if (showStatusDialog) {
         StatusDialog(playerState, worldInfo, inventory, memories, npcs) { showStatusDialog = false }
+    }
+
+    selectedSuggestion?.let { suggestion ->
+        SuggestionConfirmDialog(
+            suggestion = suggestion,
+            onConfirm = {
+                viewModel.sendAction(suggestion.label, suggestion.actionParsed)
+                selectedSuggestion = null
+            },
+            onDismiss = { selectedSuggestion = null }
+        )
     }
 }
 
@@ -443,6 +456,31 @@ fun StatusTab(playerState: PlayerState?, worldInfo: WorldInfo?) {
 
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
+            // V2.2 技能标签展示
+            InfoSection("生存技能", Icons.Default.AutoGraph) {
+                val skillIds = playerState?.skillTags ?: emptyList()
+                if (skillIds.isEmpty()) {
+                    Text("尚未掌握任何技能", style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic)
+                } else {
+                    FlowRow(modifier = Modifier.fillMaxWidth()) {
+                        skillIds.forEach { skillId ->
+                            val skill = SkillLibrary.get(skillId)
+                            val label = skill?.let { "${it.name} Lv.1" } ?: skillId
+                            AssistChip(
+                                onClick = {},
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.padding(end = 4.dp, bottom = 4.dp),
+                                colors = AssistChipDefaults.assistChipColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
+
             InfoSection("随身装备", Icons.Default.Shield) {
                 val equipped = playerState?.equippedItems
                 if (equipped.isNullOrEmpty()) {
@@ -530,9 +568,40 @@ fun NpcTab(npcs: List<NpcRelation>) {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                         Text(npc.name, fontWeight = FontWeight.Bold); Text(npc.relation, style = MaterialTheme.typography.labelMedium)
                     }
+                    // V2.2 NPC性格标签
+                    if (npc.personalityTags.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            npc.personalityTags.forEach { tag ->
+                                AssistChip(
+                                    onClick = {},
+                                    label = { Text(tag, style = MaterialTheme.typography.labelSmall) },
+                                    modifier = Modifier.height(24.dp),
+                                    colors = AssistChipDefaults.assistChipColors(
+                                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                                    )
+                                )
+                            }
+                        }
+                    }
+                    // V2.2 NPC需求
+                    if (!npc.currentNeed.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("需求：${npc.currentNeed}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+                    }
+                    // V2.2 上次互动摘要
+                    if (!npc.lastInteractionSummary.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(npc.lastInteractionSummary, style = MaterialTheme.typography.bodySmall, fontStyle = FontStyle.Italic, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     LinearProgressIndicator(progress = { npc.affinity / 100f }, modifier = Modifier.fillMaxWidth())
-                    Text("好感度: ${npc.affinity}%", style = MaterialTheme.typography.labelSmall, modifier = Modifier.align(Alignment.End))
+                    Row(horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("好感度: ${npc.affinity}%", style = MaterialTheme.typography.labelSmall)
+                        if (npc.interactionCount > 0) {
+                            Text("互动${npc.interactionCount}次", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
                 }
             }
         }
@@ -606,17 +675,103 @@ fun UIModeOverlay(mode: UIMode) {
             ) {
                 CircularProgressIndicator(
                     modifier = Modifier.size(48.dp),
-                    color = Color(0xFF_CC_CC_CC),
+                    color = Color(0xFF_EFEFEF),
                     strokeWidth = 3.dp
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     "命运裁决中...",
-                    color = Color(0xFF_CC_CC_CC),
+                    color = Color(0xFF_EFEFEF),
                     style = MaterialTheme.typography.bodySmall
                 )
             }
         }
     }
+}
+
+/**
+ * Suggestion 确认弹窗。展示选中建议的完整行动信息，
+ * 用户确认后才提交，避免误触。
+ */
+@Composable
+private fun SuggestionConfirmDialog(
+    suggestion: SuggestionItem,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val ap = suggestion.actionParsed
+    val riskColor = when (ap.riskLevel) {
+        "低" -> Color(0xFF_4CAF50)
+        "中" -> Color(0xFFFFA000)
+        "高" -> Color(0xFF_E53935)
+        "极高" -> Color(0xFF_B71C1C)
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { Icon(Icons.Default.Info, contentDescription = null) },
+        title = { Text("确认行动", style = MaterialTheme.typography.titleMedium) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    suggestion.label,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold
+                )
+
+                HorizontalDivider()
+
+                InfoRow("行动类型", "${ap.primaryType} · ${ap.subType}")
+                InfoRow("目标", ap.target)
+                InfoRow("位置", ap.location)
+                InfoRow("方式", ap.method)
+
+                HorizontalDivider()
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("风险等级：", style = MaterialTheme.typography.bodyMedium)
+                    Surface(
+                        color = riskColor.copy(alpha = 0.15f),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            ap.riskLevel,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            color = riskColor,
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+                InfoRow("预估耗时", "${ap.estimatedTimeMinutes} 分钟")
+
+                if (!suggestion.riskHint.isNullOrBlank()) {
+                    Text(
+                        "⚠ ${suggestion.riskHint}",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (!suggestion.timeHint.isNullOrBlank()) {
+                    Text(
+                        suggestion.timeHint,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onConfirm) {
+                Text("确认执行")
+            }
+        },
+        dismissButton = {
+            OutlinedButton(onClick = onDismiss) {
+                Text("取消")
+            }
+        }
+    )
 }
 

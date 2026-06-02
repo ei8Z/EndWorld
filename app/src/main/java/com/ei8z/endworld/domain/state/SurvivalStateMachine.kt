@@ -3,26 +3,19 @@ package com.ei8z.endworld.domain.state
 import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.model.ActionResult
 import com.ei8z.endworld.data.model.EventCard
+import com.ei8z.endworld.data.model.InjuryProgress
 import com.ei8z.endworld.data.model.InventoryItemModel
 import com.ei8z.endworld.data.model.PlotContext
+import com.ei8z.endworld.data.model.WorldEvent
 import com.ei8z.endworld.data.model.WorldSnapshot
 import com.ei8z.endworld.data.plot.ChapterDataLoader
 import com.ei8z.endworld.data.plot.PlotManager
+import com.ei8z.endworld.data.plot.WorldEventManager
 
 /**
  * 生存状态机门面。协调所有子系统，对外暴露统一接口。
  *
- * 主流程调用时序（对应文档 5.1）：
- * 1. generatePreRulingSnapshot() — 裁决前快照（Step 2a）
- * 2. generatePlotContext()       — 剧情上下文（Step 2b）
- * 3. getEventCandidates()        — 获取候选事件池，传入裁决Agent
- * 4. [裁决Agent调用]              — 外部，非状态机职责
- * 5. applyActionResult()         — 应用裁决结果（Step 5）
- * 6. generatePostRulingSnapshot() — 裁决后快照（供叙事Agent使用）
- *
- * @param plotManager 剧情管理器。可传入外部加载好章节的实例，null 时使用降级首章。
- *
- * 已接入 GameRepository，作为客户端唯一数据权威源。
+ * V2.2: 新增 SkillManager、GoalTracker 集成、WorldEventManager。
  */
 class SurvivalStateMachine(
     plotManager: PlotManager? = null
@@ -34,96 +27,83 @@ class SurvivalStateMachine(
     val injuryLibrary = InjuryLibrary()
     val health = HealthSystem(injuryLibrary)
     val eventDeck = EventDeck()
+    val skillManager = SkillManager()
+    val worldEventManager = WorldEventManager()
+    val goalTracker = GoalTracker()
 
-    /** 是否已从持久层加载过初始状态（防止重复 seed 导致进度丢失） */
     private var seeded = false
 
-    /** 剧情管理器。若未提供则使用降级首章（不依赖 Android Context）。 */
     val plotManager: PlotManager = plotManager
         ?: PlotManager(listOf(ChapterDataLoader.buildFallbackChapter()))
 
-    /** 当前末日等级 1-5。由 seed() 从 Room DB 初始化，PlotManager 后续更新。 */
     var doomLevel: Int = 1
 
-    private val worldStateProvider = WorldStateProvider(clock, weather, vital, inventory, health)
+    private val worldStateProvider: WorldStateProvider
+        get() = WorldStateProvider(clock, weather, vital, inventory, health, skillManager, doomLevel)
 
     // ---- 快照 ----
 
-    /** 裁决前快照：当前状态机完整数据 */
     fun generatePreRulingSnapshot(): WorldSnapshot = worldStateProvider.generateSnapshot()
-
-    /** 裁决后快照：ActionResult 已应用到各子系统后的数据 */
     fun generatePostRulingSnapshot(): WorldSnapshot = worldStateProvider.generateSnapshot()
 
     // ---- 剧情 ----
 
-    /** 生成当前剧情上下文，供裁决Agent和叙事Agent使用。 */
     fun generatePlotContext(): PlotContext = plotManager.generatePlotContext()
 
-    /** 检查章节过渡条件，返回下一章 id（null=不满足） */
-    fun checkChapterTransition(): String? = plotManager.checkChapterTransition()
+    /** V2.2: 生成包含世界事件上下文的剧情上下文 */
+    fun generatePlotContextWithWorldEvents(): PlotContext {
+        val ctx = plotManager.generatePlotContext()
+        val daysSurvived = clock.currentDay
+        val worldContextExtra = worldEventManager.getActiveWorldContext(daysSurvived)
+        val mergedWorldContext = if (worldContextExtra.isNotBlank()) {
+            "${ctx.worldContext}\n【世界进程】：$worldContextExtra"
+        } else {
+            ctx.worldContext
+        }
+        return ctx.copy(worldContext = mergedWorldContext)
+    }
 
-    /** 推进到下一章 */
+    fun checkChapterTransition(): String? = plotManager.checkChapterTransition()
     fun advanceChapter(chapterId: String): Boolean = plotManager.advanceChapter(chapterId)
+
+    // ---- V2.2 世界事件 ----
+
+    /** 检查并触发当天世界事件 */
+    fun checkWorldEvents(): List<WorldEvent> {
+        return worldEventManager.checkAndTrigger(clock.currentDay, doomLevel)
+    }
 
     // ---- 事件卡 ----
 
-    /**
-     * 获取当前末日等级下的候选事件池（3-5个）。
-     * 在裁决Agent调用前获取，作为 user message 中【候选事件池】的内容。
-     */
     fun getEventCandidates(): List<EventCard> = eventDeck.getCandidates(doomLevel)
 
     // ---- 行动处理 ----
 
-    /**
-     * 主线：执行一轮完整行动的前半部分（裁决前处理）。
-     *
-     * @param estimatedMinutes 行动预估耗时（来自 ActionParsed.estimatedTimeMinutes）
-     * @param primaryType 行动类型（来自 ActionParsed.primaryType）
-     * @return 裁决前 WorldSnapshot
-     */
     fun processPreRuling(estimatedMinutes: Int, primaryType: String): WorldSnapshot {
         val hours = estimatedMinutes / 60f
-
         eventDeck.tickRound()
         clock.advance(estimatedMinutes)
         weather.tick(hours)
         vital.applyPassiveConsumption(hours)
         vital.applyActionCost(primaryType)
-
         repeat(hours.toInt()) { health.tickHourly() }
-
         return generatePreRulingSnapshot()
     }
 
-    /**
-     * 应用裁决Agent的 ActionResult 到状态机。
-     *
-     * 应用内容：
-     * - resourceChanges → VitalSystem + InventoryManager
-     * - injuriesApplied/recovered → HealthSystem
-     * - eventTriggered → EventDeck 标记 + stateChanges
-     * - plotNodeCompleted → PlotManager 标记节点完成
-     * - plotNodeHint → PlotManager 种植伏笔
-     */
     fun applyActionResult(result: ActionResult, actionParsed: ActionParsed? = null) {
-        // 资源变化
         for (change in result.resourceChanges) {
             when (change.category) {
                 "生命值", "体力值", "饱食度", "口渴度" -> vital.applyResourceChange(change)
-                "装备耐久" -> inventory.damageEquipment(change.itemId, -change.changeAmount)
-                "消耗品" -> inventory.consumeItem(change.itemId, -change.changeAmount)
-                else -> { /* 未知类别忽略 */ }
+                "装备耐久" -> applyItemChange(change, "装备耐久")
+                "消耗品" -> applyItemChange(change, "消耗品")
+                else -> applyItemChange(change, change.category)
             }
         }
 
-        // 伤病
         result.injuriesApplied.forEach { health.applyInjury(it) }
         result.injuriesRecovered.forEach { health.recoverInjury(it) }
         health.checkInfection()
 
-        // 事件卡
         val triggered = result.eventTriggered
         if (triggered != null) {
             eventDeck.markTriggered(triggered.id)
@@ -132,27 +112,50 @@ class SurvivalStateMachine(
                 for (change in card.stateChanges) {
                     when (change.category) {
                         "生命值", "体力值", "饱食度", "口渴度" -> vital.applyResourceChange(change)
-                        "装备耐久" -> inventory.damageEquipment(change.itemId, -change.changeAmount)
-                        "消耗品" -> inventory.consumeItem(change.itemId, -change.changeAmount)
-                        else -> { /* 未知类别忽略 */ }
+                        "装备耐久" -> applyItemChange(change, "装备耐久")
+                        "消耗品" -> applyItemChange(change, "消耗品")
+                        "末日等级" -> {
+                            doomLevel = (doomLevel + change.changeAmount).coerceIn(1, 5)
+                        }
+                        else -> applyItemChange(change, change.category)
                     }
                 }
             }
         }
 
-        // 剧情节点与伏笔
         if (actionParsed != null) {
             plotManager.markCompletedNodes(result, actionParsed)
         }
         plotManager.plantForeshadow(result.plotNodeHint)
         plotManager.payoffForeshadow(result.eventTriggered?.id)
+
+        // V2.2: 应用世界事件效果
+        val dayEvents = worldEventManager.checkAndTrigger(clock.currentDay, doomLevel)
+        for (event in dayEvents) {
+            for (effect in event.effects) {
+                when (effect.type) {
+                    "doom_level_change" -> {
+                        val delta = effect.value.toInt()
+                        doomLevel = (doomLevel + delta).coerceIn(1, 5)
+                    }
+                    else -> { /* other effects handled via prompt injection */ }
+                }
+            }
+        }
     }
 
-    // ---- 支线处理 ----
+    private fun applyItemChange(change: com.ei8z.endworld.data.model.ResourceChange, category: String) {
+        if (change.changeAmount > 0) {
+            inventory.addItem(InventoryItemModel(
+                id = change.itemId, name = change.itemName,
+                category = category, quantity = change.changeAmount,
+                weight = 0.1f
+            ))
+        } else if (change.changeAmount < 0) {
+            inventory.consumeItem(change.itemId, -change.changeAmount)
+        }
+    }
 
-    /**
-     * 支线：仅推进时间和被动消耗，不掷骰、不触伤、不触发事件。
-     */
     fun processBranchAction(minutes: Int) {
         val hours = minutes / 60f
         clock.advance(minutes)
@@ -163,29 +166,39 @@ class SurvivalStateMachine(
 
     // ---- 持久化种子 ----
 
-    /**
-     * V2.2: 从 Room DB 实体恢复状态机运行时状态（含数值字段）。
-     */
     fun seed(
         doomLevel: Int,
         location: String,
         locationType: String,
         locationDescription: String,
         injuryNames: List<String>,
+        injuryStates: Map<String, InjuryProgress> = emptyMap(),
         equippedWeapon: String?,
         equippedTool: String?,
         hp: Int = 100, hpMax: Int = 100,
         sp: Int = 100, spMax: Int = 100,
-        hunger: Int = 50, thirst: Int = 50, fatigue: Int = 0
+        hunger: Int = 50, thirst: Int = 50, fatigue: Int = 0,
+        accumulatedPartialHours: Float = 0f,
+        // V2.2
+        skillIds: List<String> = emptyList(),
+        triggeredWorldEventIds: List<String> = emptyList(),
+        totalMinutes: Int = 360
     ) {
+        clock.setTotalMinutes(totalMinutes)
+        clock.updateLocation(location, locationType, locationDescription)
+
         if (seeded) return
         seeded = true
 
         this.doomLevel = doomLevel.coerceIn(1, 5)
-        clock.updateLocation(location, locationType, locationDescription)
         injuryNames.forEach { name ->
             if (name.isNotBlank() && name != "健康") {
-                health.applyInjury(name)
+                val saved = injuryStates[name]
+                if (saved != null) {
+                    health.applyInjury(name, saved.infectionRisk, saved.naturalRecoveryHours)
+                } else {
+                    health.applyInjury(name)
+                }
             }
         }
         inventory.setEquipmentByName(equippedWeapon, equippedTool)
@@ -196,6 +209,11 @@ class SurvivalStateMachine(
         vital.hunger = hunger.coerceIn(0, 100)
         vital.thirst = thirst.coerceIn(0, 100)
         vital.fatigue = fatigue.coerceIn(0, 100)
+        vital.accumulatedPartialHours = accumulatedPartialHours
+
+        // V2.2 恢复技能和世界事件
+        skillManager.seed(skillIds)
+        worldEventManager.seed(triggeredWorldEventIds)
     }
 
     // ---- 初始化 ----

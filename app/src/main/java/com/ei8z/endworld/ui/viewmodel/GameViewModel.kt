@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.CreationExtras
+import com.ei8z.endworld.data.GameConfigLoader
 import com.ei8z.endworld.data.model.ActionParsed
+import com.ei8z.endworld.data.model.GameConfig
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.repository.GameRepository
 import com.ei8z.endworld.data.repository.GmStrategy
@@ -33,7 +35,10 @@ data class StoryEntry(
     val isStreaming: Boolean = false
 )
 
-class GameViewModel(private val repository: GameRepository) : ViewModel() {
+class GameViewModel(
+    private val repository: GameRepository,
+    private val gameConfig: GameConfig
+) : ViewModel() {
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
@@ -67,7 +72,7 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
     val suggestions: StateFlow<List<SuggestionItem>> = _suggestions.asStateFlow()
 
     // V2.2 开局模块（可替换为其他实现）
-    var openingModule: OpeningModule = FateRevelationOpening()
+    var openingModule: OpeningModule = FateRevelationOpening(gameConfig)
 
     // V2.1 UI 模式管理（探索/命运/阅读/危险/宁静）
     private val uiModeManager = UIModeManager()
@@ -104,11 +109,16 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
             _error.value = null
             try {
                 val params = OpeningParams(name, genderPhysique, personality, adultProfile, doomType, doomLevel)
-                val result = openingModule.prepare(repository, params)
+
+                // Phase 1: 掷骰 + DB 初始化
+                openingModule.prepare(repository, params)
+
+                // Phase 2: 从章节 JSON 生成开场行动
+                val (initialAction, initialActionParsed) = repository.generateOpeningAction(doomLevel)
 
                 _suggestions.value = emptyList()
                 repository.saveSuggestions(emptyList())
-                sendAction(result.initialAction, result.initialActionParsed)
+                sendAction(initialAction, initialActionParsed)
             } catch (e: Exception) {
                 _error.value = "初始化失败: ${e.message}"
                 _isLoading.value = false
@@ -266,7 +276,8 @@ class GameViewModel(private val repository: GameRepository) : ViewModel() {
             override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
                 val application = checkNotNull(extras[ViewModelProvider.AndroidViewModelFactory.APPLICATION_KEY])
                 val repository = DependencyContainer.getGameRepository(application)
-                return GameViewModel(repository) as T
+                val gameConfig = GameConfigLoader.load(application)
+                return GameViewModel(repository, gameConfig) as T
             }
         }
     }

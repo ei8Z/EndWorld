@@ -28,7 +28,7 @@ class PlotManager(chapters: List<ChapterConfig>) {
     private val chapterMap: Map<String, ChapterConfig> = chapters.associateBy { it.id }
 
     /** 当前章节 */
-    private var currentChapter: ChapterConfig = chapters.first()
+    internal var currentChapter: ChapterConfig = chapters.first()
 
     /** 已完成节点 id 集合 */
     private val completedNodes = mutableSetOf<String>()
@@ -56,7 +56,7 @@ class PlotManager(chapters: List<ChapterConfig>) {
             pacing = currentChapter.pacing,
             pacingHint = currentChapter.pacingHint,
             activeNodes = activeNodes,
-            nodeHints = activeNodes.map { "${it.title}：${it.triggerCondition}" },
+            nodeHints = activeNodes.map { "[${it.id}] ${it.title}：${it.triggerCondition}" },
             plantableForeshadows = plantable,
             payoffableForeshadows = payoffable,
             foreshadowHints = buildForeshadowHints(plantable, payoffable),
@@ -82,8 +82,12 @@ class PlotManager(chapters: List<ChapterConfig>) {
         val newlyCompleted = mutableListOf<String>()
 
         // 优先使用裁决Agent明确标记的节点
-        if (!result.plotNodeCompleted.isNullOrBlank()) {
-            val node = currentChapter.nodes.find { it.id == result.plotNodeCompleted }
+        if (!result.plotNodeCompleted.isNullOrBlank() && result.plotNodeCompleted != "null") {
+            var node = currentChapter.nodes.find { it.id == result.plotNodeCompleted }
+            if (node == null) {
+                // 回退：AI 可能返回标题而非 ID
+                node = currentChapter.nodes.find { it.title == result.plotNodeCompleted }
+            }
             if (node != null && node.id !in completedNodes) {
                 completedNodes.add(node.id)
                 newlyCompleted.add(node.id)
@@ -197,6 +201,28 @@ class PlotManager(chapters: List<ChapterConfig>) {
     val totalNodeCount: Int get() = currentChapter.nodes.size
     val plantedForeshadowCount: Int get() = plantedForeshadows.size
     val payedOffForeshadowCount: Int get() = payedOffForeshadows.size
+
+    // === V2.2 开场行动生成 ===
+
+    fun generateOpeningAction(doomLevel: Int): Pair<String, ActionParsed> {
+        val cfg = currentChapter.opening ?: return Pair("", ActionParsed.placeholder())
+        val tpl = cfg.initialAction ?: return Pair(cfg.narrative, ActionParsed.placeholder())
+
+        val risk = resolveThreshold(tpl.riskLevelThresholds, doomLevel, "高")
+        val time = resolveThreshold(tpl.estimatedTimeThresholds, doomLevel, 20)
+
+        return Pair(tpl.actionLabel, ActionParsed(
+            primaryType = tpl.primaryType, subType = tpl.subType,
+            target = tpl.target, location = tpl.location,
+            method = tpl.method, riskLevel = risk, estimatedTimeMinutes = time
+        ))
+    }
+
+    fun getDoomPressure(doomLevel: Int): DoomPressure? =
+        currentChapter.doomPressure[doomLevel.toString()]
+
+    private fun <T> resolveThreshold(thresholds: List<ThresholdMapping<T>>, doomLevel: Int, default: T): T =
+        thresholds.filter { doomLevel >= it.minDoom }.maxByOrNull { it.minDoom }?.value ?: default
 
     // ---- 辅助 ----
 

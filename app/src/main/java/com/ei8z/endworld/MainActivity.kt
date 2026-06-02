@@ -10,6 +10,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.ei8z.endworld.data.GameConfigLoader
 import com.ei8z.endworld.ui.screen.GameScreen
 import com.ei8z.endworld.ui.screen.InitializationScreen
 import com.ei8z.endworld.ui.viewmodel.GameViewModel
@@ -17,6 +18,7 @@ import com.ei8z.endworld.ui.viewmodel.GameViewModel
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val gameConfig = GameConfigLoader.load(this)
         setContent {
             MaterialTheme {
                 Surface(
@@ -28,6 +30,7 @@ class MainActivity : ComponentActivity() {
 
                     if (playerState == null) {
                         InitializationScreen(
+                            gameConfig = gameConfig,
                             onStartGame = { name, gender, personality, adultProfile, doomType, doomLevel ->
                                 viewModel.initializeGameV22(
                                     name, gender, personality, adultProfile, doomType, doomLevel

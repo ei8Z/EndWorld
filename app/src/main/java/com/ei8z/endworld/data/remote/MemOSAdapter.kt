@@ -6,17 +6,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.supervisorScope
 
 /**
- * MemOS 记忆系统适配器。封装三类多维度查询（事实/关系/因果），
+ * MemOS 记忆系统适配器。封装多维度查询（事实/关系/因果/NPC深度），
  * 将 MemOS API 返回的原始记忆格式化为 PromptBuilder 所需文本。
  *
- * 查询维度（对应文档 5.1 Step 2c）：
- * - 事实查询：actionType + location → 检索相关事件记忆
- * - 关系查询：nearbyNpcs → 检索与周边 NPC 的互动记忆
- * - 因果查询：actionType → 检索类似行动的因果链记忆
- *
- * 每个查询独立失败降级（返回空字符串），不影响其他查询。
- *
- * TODO: Phase 8 评估是否需要缓存常见查询结果以减少 API 调用。
+ * V2.2: 新增NPC深度查询，优先筛选 [重要]/[关系转折] 标签记忆。
  */
 class MemOSAdapter(
     private val apiService: MemosApiService,
@@ -83,6 +76,22 @@ class MemOSAdapter(
         if (actionType.isBlank()) return ""
         val query = "${actionType}的后果"
         return executeQuery(query, "[因果记忆]")
+    }
+
+    /**
+     * V2.2 NPC深度查询：检索与指定NPC的重大互动历史。
+     * 优先级：优先返回含 [关系转折]/[重要] 标签的记忆。
+     */
+    suspend fun queryNpcDepth(npcName: String): String {
+        if (npcName.isBlank()) return ""
+        // 双查询策略：先查重要标记，再查一般互动
+        val importantQuery = "[关系转折] $npcName OR [重要] $npcName"
+        val importantResult = executeQuery(importantQuery, "[NPC重要记忆]")
+        val generalQuery = "$npcName 互动历史 性格"
+        val generalResult = executeQuery(generalQuery, "[NPC互动]")
+
+        val parts = listOf(importantResult, generalResult).filter { it.isNotBlank() }
+        return parts.joinToString("\n")
     }
 
     // ---- 内部 ----

@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.remote.model
 
+import com.ei8z.endworld.data.model.PersonalGoal
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.google.gson.annotations.SerializedName
 
@@ -35,7 +36,10 @@ data class StatusUpdate(
     @SerializedName("resources") val resources: ResourceUpdate,
     @SerializedName("memoryUpdate") val memoryUpdate: MemoryUpdate,
     @SerializedName("npcUpdate") val npcUpdate: List<NpcUpdate>? = emptyList(),
-    @SerializedName("completedPlotNode") val completedPlotNode: String? = null // V2.1 新增
+    @SerializedName("completedPlotNode") val completedPlotNode: String? = null, // V2.1 新增
+    // V2.2 新增
+    @SerializedName("goalUpdate") val goalUpdate: GoalUpdate? = null,
+    @SerializedName("skillUpdate") val skillUpdate: SkillUpdate? = null
 )
 
 data class PlayerUpdate(
@@ -83,5 +87,30 @@ data class MemoryUpdate(
 data class NpcUpdate(
     @SerializedName("name") val name: String?,
     @SerializedName("relation") val relation: String?,
-    @SerializedName("affinityDelta") val affinityDelta: Int?
+    @SerializedName("affinityDelta") val affinityDelta: Int?,
+    // V2.2 NPC深度
+    @SerializedName("personalityTags") val personalityTags: List<String>? = null,
+    @SerializedName("currentNeed") val currentNeed: String? = null,
+    @SerializedName("lastInteractionSummary") val lastInteractionSummary: String? = null
+)
+
+// ======================== V2.2 新增类型 ========================
+
+/** V2.2 目标更新 */
+data class GoalUpdate(
+    @SerializedName("completedGoals") val completedGoals: List<String> = emptyList(),
+    @SerializedName("newGoals") val newGoals: List<PersonalGoal> = emptyList(),
+    @SerializedName("progressUpdates") val progressUpdates: Map<String, Float> = emptyMap()
+)
+
+/** V2.2 技能更新 */
+data class SkillUpdate(
+    @SerializedName("newSkills") val newSkills: List<SkillUpdateEntry> = emptyList(),
+    @SerializedName("levelUpSkills") val levelUpSkills: List<SkillUpdateEntry> = emptyList()
+)
+
+data class SkillUpdateEntry(
+    @SerializedName("id") val id: String,
+    @SerializedName("name") val name: String = "",
+    @SerializedName("newLevel") val newLevel: Int = 1
 )

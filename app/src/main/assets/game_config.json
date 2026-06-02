@@ -1,0 +1,30 @@
+{
+  "personalities": [
+    { "id": "calm",      "label": "冷静", "hpMod": 0,  "spMod": 0,  "hint": "" },
+    { "id": "brave",     "label": "勇敢", "hpMod": 0,  "spMod": 0,  "hint": "" },
+    { "id": "cautious",  "label": "谨慎", "hpMod": 0,  "spMod": 0,  "hint": "" },
+    { "id": "cunning",   "label": "狡猾", "hpMod": 0,  "spMod": 0,  "hint": "" },
+    { "id": "irritable", "label": "暴躁", "hpMod": 0,  "spMod": 0,  "hint": "" },
+    { "id": "strong",    "label": "强壮", "hpMod": 10, "spMod": 0,  "hint": "(HP+10)" },
+    { "id": "agile",     "label": "敏捷", "hpMod": 0,  "spMod": 10, "hint": "(SP+10)" },
+    { "id": "tough",     "label": "坚韧", "hpMod": 5,  "spMod": 5,  "hint": "(HP+5 SP+5)" }
+  ],
+  "doomLevels": [
+    { "id": 1, "label": "生存微光",  "description": "DC基础倍率 0.8x，事件触发率极低",                    "dcMultiplier": 0.8, "eventFrequency": "极低" },
+    { "id": 2, "label": "暗流涌动",  "description": "DC基础倍率 1.0x，标准末日体验",                       "dcMultiplier": 1.0, "eventFrequency": "低" },
+    { "id": 3, "label": "末日降临",  "description": "DC基础倍率 1.2x，事件频繁，生存困难",                  "dcMultiplier": 1.2, "eventFrequency": "中" },
+    { "id": 4, "label": "绝地求生",  "description": "DC基础倍率 1.4x，夜间/恶劣天气修正叠加",              "dcMultiplier": 1.4, "eventFrequency": "高" },
+    { "id": 5, "label": "灭绝倒计时","description": "DC基础倍率 1.5x，致命事件频繁，随时可能死亡",         "dcMultiplier": 1.5, "eventFrequency": "极高" }
+  ],
+  "doomTypes": ["丧尸危机", "核冬天", "极度严寒", "智械危机"],
+  "genders": ["成年男性", "成年女性", "青少年男性", "青少年女性"],
+  "initialStats": {
+    "hungerDefault": 50,
+    "thirstDefault": 50,
+    "fatigueDefault": 0,
+    "statCoerceMin": 50,
+    "statCoerceMax": 120,
+    "doomLevelMin": 1,
+    "doomLevelMax": 5
+  }
+}

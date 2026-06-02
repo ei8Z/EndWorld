@@ -113,15 +113,43 @@ $injuryList
   4. 大成功/大失败：强制触发选中事件（忽略概率）
   5. 决定触发则输出 id/name/narrativeHint，否则 eventTriggered=null
   6. 候选池为空时 eventTriggered=null
+- 事件卡（EventCard）的 stateChanges 可能包含末日等级变更：
+  * category="末日等级"，changeAmount 为**增量值**（如 +1 或 -1），非绝对值
+  * 客户端执行 doomLevel = (doomLevel + delta).coerceIn(1, 5)
+  * 末日等级变化持续影响后续事件触发概率和候选池筛选
+  * 仅有重大事件（辐射风暴、希望事件等）才应触发等级变化
 
 ## 8. 剧情节点规则
 - 若当前行动满足输入的 activeNodes 中某个节点的触发条件，标记 plotNodeCompleted
+- **关键**：plotNodeCompleted 必须输出节点的 **id**（【相关节点】中方括号内的值，如 `find_shelter`），不得输出标题
+- 若行动未满足任何节点的触发条件，output `null`（JSON null，非字符串"null"）
 - 若行动涉及输入的 plantableForeshadows 中的伏笔，标记 plotNodeHint
 
 ## 9. 记忆参考规则
 > $MEMORY_CONTRACT_PROMPT
 - 历史记忆中的因果关系可作为裁决参考（+10%后果触发概率），不能推翻硬数据
 - 如果输入记忆全部不符合判决协议，请在 memoryContextChecked 中返回 null。
+
+## 10. 技能影响规则（V2.2新增）
+- 输入的【当前技能】中列出玩家已掌握的技能及其效果（modifier 为百分比浮动值）
+- 技能效果分三种类型，叠加方式不同：
+  **A. dc_modifier（DC修正）**：匹配当前行动时，直接乘入 DC 公式。技能修正值为**负数**（如-0.10=降DC 10%），与其他修正**连乘**：
+    最终DC = 基础DC × (1+NIGHT) × (1+WEATHER) × (1+WEIGHT) × $dcMult × (1+技能修正)
+    示例：基础DC=50, 夜间(×1.3), 医疗常识Lv.1(-0.10) → 50×1.3×0.9 = 58.5 → DC=59
+  **B. resource_bonus（物资加成）**：不改变DC，成功时物资收益额外 ×(1+|modifier|)
+    示例：原本找到2件物资，拾荒者Lv.1(+0.10) → 额外+0.2件 → 向上取整3件
+    必须在 narrativeSummary 中明确说明"因技能X额外获得Y"
+  **C. narrative_perk（叙事特权）**：无数值影响，仅在 narrativeSummary 中自然提及
+- 多个技能匹配同一行动时，dc_modifier 累乘（×0.9×0.85=×0.765），resource_bonus 累加
+- 技能等级越高 modifier 绝对值越大（Lv.1=±0.10 → Lv.5=±0.50）
+- 技能修正**不改变掷骰结果**，仅影响 DC 门槛或物资数量
+
+## 11. NPC深度规则（V2.2新增）
+- 检查输入的【NPC深度记忆】，了解该NPC的性格和需求
+- 性格标签影响社交DC：友善性格-10%，多疑+10%，敌意+20%
+- NPC的需求会影响对话走向：满足其需求可大幅提升好感度（+10~20 affinityDelta）
+- 重复互动应体现关系演变：好感度变化应合理，避免每次固定+5
+- NPC可能隐瞒真实意图，需结合记忆判断其行为
 
 # 输出格式
 你必须只返回以下JSON结构：
@@ -130,7 +158,7 @@ $injuryList
   "actionResult": {
     "result": "成功|部分成功|失败|大成功|大失败",
     "dcValue": 数字, "rollValue": 数字, "totalValue": 数字,
-    "modifiersBreakdown": "修正明细说明",
+    "modifiersBreakdown": "必须详列计算过程，格式: '基础DC(X) × 夜间(1.Y) × 天气(1.Z) × 技能修正(0.W) = 最终DC(A); 掷骰(R) + 伤病修正(S) = 总计(T); T >= A → 判定结果'",
     "resourceChanges": [{"itemId": "...", "itemName": "...", "category": "...", "changeAmount": -1, "newValue": 1, "narrativeHint": "..."}],
     "injuriesApplied": ["伤病名称1"], "injuriesRecovered": ["恢复的伤病名称1"],
     "narrativeSummary": "一句话总结裁决结果和事件",
@@ -162,12 +190,7 @@ $injuryList
     /**
      * 构建裁决Agent的 user message（文档 3.2 输入结构）。
      *
-     * 参数对齐规则（严格遵循）：
-     * - worldSnapshot 必须是裁决**前**快照（状态机尚未应用 ActionResult）
-     * - clientRollValue 仅由客户端生成（Random.nextInt(1, 101)），不做任何修正
-     * - eventCandidates 由 EventDeck.getCandidates() 筛选后传入
-     * - memoryList 由 MemOSAdapter.buildMemoryContext() 格式化后传入
-     * - plotContext 由 PlotManager.generatePlotContext() 生成
+     * V2.2: 新增 skillEffects/npcDepthContext/worldProgress 参数。
      */
     fun buildReasonerUserMessage(
         actionParsed: ActionParsed,
@@ -175,7 +198,11 @@ $injuryList
         memoryList: String,
         plotContext: PlotContext?,
         clientRollValue: Int,
-        eventCandidates: List<EventCard>
+        eventCandidates: List<EventCard>,
+        // V2.2 新增
+        skillEffects: Map<String, Float> = emptyMap(),
+        npcDepthContext: String = "",
+        worldProgress: String = ""
     ): String = buildString {
         val wp = worldSnapshot
 
@@ -246,6 +273,31 @@ $injuryList
         } else {
             append(memoryList)
         }
+
+        // ===== V2.2 新增段落 =====
+
+        append("\n【当前技能】：\n")
+        if (skillEffects.isEmpty()) {
+            append("- 尚未掌握任何技能。\n")
+        } else {
+            skillEffects.forEach { (applyTo, modifier) ->
+                val pct = (modifier * 100).toInt()
+                val label = if (modifier < 0) "DC${pct}%" else "+${pct}%效果"
+                append("- ${applyTo}：${label}\n")
+            }
+        }
+
+        append("\n【世界进程】：\n")
+        if (worldProgress.isBlank()) {
+            append("- 暂无特殊世界进程。\n")
+        } else {
+            append(worldProgress)
+        }
+
+        if (npcDepthContext.isNotBlank()) {
+            append("\n【NPC深度记忆】：\n")
+            append(npcDepthContext)
+        }
     }
 
     // ======================== V2.1 叙事Agent ========================
@@ -304,6 +356,27 @@ $adultSection
 - 不得更改裁决结果中的成败、消耗、伤病数据
 - 【相关历史记忆】已由裁决Agent通过四步判决预先过滤，可直接引用，无需二次判定
 
+## 技能体现规则（V2.2新增）
+- 若玩家拥有与当前行动相关的技能，在叙事中自然体现
+- Lv.1-2：轻微体现（"我凭着上次的经验..."）
+- Lv.3-4：明显体现（"这已经是我第五次处理伤口了，手法远比最初利落"）
+- Lv.5：角色标志性能力（"在这种废墟中找到有用的东西，对我来说已经是本能"）
+- 新增技能时，在叙事中突出角色的成长感
+
+## 目标引导规则（V2.2新增）
+- 检查输入的【活跃目标】，在叙事中自然地引导玩家向目标前进
+- 不要生硬地"布置任务"，而是通过角色内心独白暗示
+- 目标达成时，在叙事中给予明确的成就感（"我终于..."）
+- 新目标出现时，用环境线索或NPC对话引入
+- 在 suggestions 中至少有一个选项与推进当前目标相关
+
+## NPC深度规则（V2.2新增）
+- NPC应有独立的说话风格，与其性格标签一致
+- NPC有自己的目标，不一定迎合玩家
+- 重复见面的NPC应展现关系演变
+- NPC也会受伤、恐惧、撒谎、背叛
+- 通过肢体语言和环境细节暗示NPC的真实情绪
+
 # 建议选项生成规则
 - 通常生成3个差异化选项，特殊情况下可减少但不少于1个，并在customActionAvailable中相应调整
 - 1个保守/安全选项（低风险）
@@ -322,8 +395,8 @@ $adultSection
 
 {
   "header": {
-    "date": "第N天",
-    "time": "HH:MM",
+    "date": "第N天（使用输入的【当前时间（必须使用）】中的日期，不可自行推测）",
+    "time": "HH:MM（使用输入的【当前时间（必须使用）】中的时间，不可自行推测）",
     "location": "场景描述"
   },
   "story": "第一人称叙事文本（字数≥1000字）",
@@ -409,18 +482,16 @@ $adultSection
     /**
      * 构建叙事Agent的 user message（文档 4.2 输入结构）。
      *
-     * 参数对齐规则（严格遵循）：
-     * - worldSnapshotAfterRuling 必须是裁决**后**快照（状态机已应用 ActionResult）
-     * - actionResult 由裁决Agent返回，是叙事Agent必须严格遵循的事实
-     * - actionLabel 是玩家选择的选项文本（SuggestionItem.label）
-     * - 记忆文本来自 actionResult.memoryContextChecked（裁决Agent 已通过四步判决过滤）
-     * - plotContext 由 PlotManager.generatePlotContext() 生成
+     * V2.2: 新增 activeGoals/npcDepthContext 参数。
      */
     fun buildStorytellerUserMessage(
         actionLabel: String,
         actionResult: ActionResult,
         plotContext: PlotContext?,
-        worldSnapshotAfterRuling: WorldSnapshot
+        worldSnapshotAfterRuling: WorldSnapshot,
+        // V2.2 新增
+        activeGoals: List<com.ei8z.endworld.data.model.PersonalGoal> = emptyList(),
+        npcDepthContext: String = ""
     ): String = buildString {
         val wp = worldSnapshotAfterRuling
         val ar = actionResult
@@ -479,6 +550,28 @@ $adultSection
         }
         append("- 位置: ${wp.location} | ${wp.locationDescription}\n")
         append("- 天气: ${wp.weather} | 昼夜: ${if (wp.isNight) "夜间" else "白昼"}\n")
+
+        append("\n【当前时间（必须使用）】：\n")
+        append("- 精确时间：${wp.currentDateTime}\n")
+        append("- 以上时间由游戏时钟权威计算，header.date/time 必须严格使用此值，不得自行推测。\n")
+
+        // ===== V2.2 新增段落 =====
+
+        if (activeGoals.isNotEmpty()) {
+            append("\n【活跃目标】：\n")
+            activeGoals.forEach { goal ->
+                val pct = (goal.progress * 100).toInt()
+                append("- ${goal.name}（进度 ${pct}%）：${goal.description}\n")
+                if (goal.narrativeHook.isNotBlank()) {
+                    append("  叙事提示：${goal.narrativeHook}\n")
+                }
+            }
+        }
+
+        if (npcDepthContext.isNotBlank()) {
+            append("\n【NPC深度记忆】：\n")
+            append(npcDepthContext)
+        }
 
         append("\n【相关历史记忆（已过滤）】：\n")
         if (memoryText.isBlank()) {

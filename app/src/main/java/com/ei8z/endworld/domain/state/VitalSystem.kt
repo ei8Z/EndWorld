@@ -43,6 +43,9 @@ class VitalSystem {
     /** 疲劳度 0-100，100=极度疲劳 */
     var fatigue: Int = 0
 
+    /** 不足1小时的被动消耗累计器。解决短时间片(≤19分钟)截断为0的问题。 */
+    var accumulatedPartialHours: Float = 0f
+
     // ---- 约束方法 ----
 
     private fun clamp(value: Int, min: Int, max: Int) = value.coerceIn(min, max)
@@ -76,12 +79,20 @@ class VitalSystem {
 
     /**
      * 每小时被动消耗。无论主线/支线，时间推进即触发。
+     * 使用累计器解决短时间片(<0.333小时)截断为0的问题：
+     * 累计到整小时时统一结算，保留余数。
      * 被动消耗率：饱食度-3/小时，口渴度-4/小时，疲劳度+2/小时。
      */
     fun applyPassiveConsumption(hours: Float) {
-        hunger = (hunger - (PASSIVE_HUNGER_PER_HOUR * hours).toInt()).coerceAtLeast(0)
-        thirst = (thirst - (PASSIVE_THIRST_PER_HOUR * hours).toInt()).coerceAtLeast(0)
-        fatigue = (fatigue + (PASSIVE_FATIGUE_PER_HOUR * hours).toInt()).coerceAtMost(100)
+        if (hours <= 0f) return
+        accumulatedPartialHours += hours
+        val wholeHours = accumulatedPartialHours.toInt()
+        if (wholeHours >= 1) {
+            accumulatedPartialHours -= wholeHours
+            hunger = (hunger - PASSIVE_HUNGER_PER_HOUR * wholeHours).coerceAtLeast(0)
+            thirst = (thirst - PASSIVE_THIRST_PER_HOUR * wholeHours).coerceAtLeast(0)
+            fatigue = (fatigue + PASSIVE_FATIGUE_PER_HOUR * wholeHours).coerceAtMost(100)
+        }
         clampAll()
     }
 
@@ -91,16 +102,9 @@ class VitalSystem {
      */
     fun applyActionCost(primaryType: String) {
         val baseCost = SP_COSTS[primaryType] ?: 0
-
         val fatigueMultiplier = if (fatigue >= 80) 1.5f else 1.0f
         val actualCost = (baseCost * fatigueMultiplier).toInt()
         sp = (sp + actualCost).coerceIn(0, spMax)
-
-        // 休息时的附加恢复
-        if (primaryType == "休息") {
-            hunger = minOf(100, hunger - 5)  // 休息时饥饿加速（如有食物则另算）
-        }
-
         clampAll()
     }
 

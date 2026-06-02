@@ -39,6 +39,21 @@ class HealthSystem(private val injuryLibrary: InjuryLibrary) {
     }
 
     /**
+     * 应用伤病（带恢复进度）。用于跨重启恢复伤病状态。
+     * @param infectionRisk 已累计的感染概率（0-1），覆盖 InjuryLibrary 默认值
+     * @param naturalRecoveryHours 剩余自然恢复小时数，覆盖 InjuryLibrary 默认值
+     */
+    fun applyInjury(injuryName: String, infectionRisk: Float, naturalRecoveryHours: Int) {
+        val tag = injuryLibrary.get(injuryName)
+        if (tag != null) {
+            _activeTags.add(tag.copy(
+                infectionRisk = infectionRisk.coerceIn(0f, 1f),
+                naturalRecoveryHours = naturalRecoveryHours.coerceAtLeast(0)
+            ))
+        }
+    }
+
+    /**
      * 移除指定名称的伤病标签。
      */
     fun recoverInjury(injuryName: String) {

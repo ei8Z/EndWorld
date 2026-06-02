@@ -4,6 +4,73 @@
   "description": "灾难爆发后的最初时刻，幸存者必须找到立足之地。",
   "pacing": "紧张",
   "pacingHint": "环境充满未知威胁，每一处阴影都可能藏着危险。保持警觉，短句快节奏描写。",
+
+  "opening": {
+    "narrative": "灾难突然降临，文明在一夕之间崩塌。你从避难所的角落里站起，铁门外的世界已彻底改变。",
+    "initialAction": {
+      "actionLabel": "你深吸一口气，推开避难所的厚重铁门，试图弄清外面发生了什么。",
+      "primaryType": "移动",
+      "subType": "开局突围",
+      "target": "安全地带",
+      "location": "避难所出口",
+      "method": "冲出避难所，评估局势，寻找生路",
+      "riskLevelThresholds": [
+        { "minDoom": 1, "value": "高" },
+        { "minDoom": 4, "value": "极高" }
+      ],
+      "estimatedTimeThresholds": [
+        { "minDoom": 1, "value": 20 },
+        { "minDoom": 4, "value": 30 }
+      ]
+    }
+  },
+
+  "doomPressure": {
+    "1": { "description": "灾难尚在初期，零散的警笛声从远处传来，局势尚可控制。", "urgency": "低" },
+    "2": { "description": "混乱开始蔓延，街道上人群四散奔逃，黄金逃生窗口正在缩小。", "urgency": "中" },
+    "3": { "description": "末日降临加速，爆炸声从远处传来，浓烟遮蔽了半边天空。", "urgency": "高" },
+    "4": { "description": "文明全面崩塌，整栋建筑都在震动，危险无处不在。", "urgency": "极高" },
+    "5": { "description": "大地裂开，火光冲天，这是人类文明的最后时刻。", "urgency": "终极" }
+  },
+
+  "initialSkills": ["survival_basics"],
+
+  "initialGoals": [
+    {
+      "id": "find_safe_haven",
+      "name": "寻找安全据点",
+      "type": "生存",
+      "description": "在这个崩溃的世界中找到一个可以暂时安身的地方。",
+      "narrativeHook": "避难所的铁门之外，危险与机遇并存。你必须向前走，找到一个更安全的落脚点。"
+    }
+  ],
+
+  "npcTemplates": [
+    {
+      "name": "流浪幸存者",
+      "relation": "中立",
+      "personalityTags": ["谨慎", "疲惫"],
+      "currentNeed": "食物和水"
+    }
+  ],
+
+  "knownResourcePoints": [
+    {
+      "name": "倒塌的便利店",
+      "location": "避难所附近街道",
+      "resourceType": "食物",
+      "description": "一家半倒塌的便利店，货架上可能还残存一些应急食品和饮用水。"
+    },
+    {
+      "name": "废弃药店",
+      "location": "街角转角处",
+      "resourceType": "医疗",
+      "description": "一家大门被砸开的药店，混乱中似乎没来得及被洗劫一空。"
+    }
+  ],
+
+  "startingResources": [],
+
   "nodes": [
     {
       "id": "find_shelter",
@@ -24,6 +91,7 @@
       "narrativeContent": "在废墟中找到了维生的必需品。每一口食物都在提醒自己还活着。"
     }
   ],
+
   "foreshadows": [
     {
       "id": "military_presence",
@@ -42,6 +110,7 @@
       "isPayedOff": false
     }
   ],
+
   "requiredElements": ["废墟环境描写", "资源短缺感", "至少两种感官细节"],
   "forbiddenTopics": ["外星人", "时间旅行", "超能力"],
   "worldContext": "灾难突然降临，文明在一夕之间崩塌。幸存者们各自为战，信任成了一种奢侈品。",

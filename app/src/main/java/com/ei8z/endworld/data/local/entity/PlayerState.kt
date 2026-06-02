@@ -26,7 +26,12 @@ data class PlayerState(
     val hunger: Int = 50,
     val thirst: Int = 50,
     val fatigue: Int = 0,
+    val accumulatedPartialHours: Float = 0f,
     val mentalStateTags: List<String>,
     val innerThought: String,
-    val equippedItems: List<String>
+    val equippedItems: List<String>,
+    // V2.2 技能标签系统：存储技能ID列表，完整数据由SkillLibrary提供
+    val skillTags: List<String> = emptyList(),
+    // Bug 9: 伤病运行时进度 JSON（Map<伤病名, InjuryProgress>），用于跨重启恢复感染/恢复进度
+    val injuryStatesJson: String = "{}"
 )

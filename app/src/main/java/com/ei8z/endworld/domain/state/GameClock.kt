@@ -65,4 +65,15 @@ class GameClock {
         this.locationType = type
         this.locationDescription = description
     }
+
+    /**
+     * 从 Room DB 恢复时直接设置累计分钟数。
+     */
+    fun setTotalMinutes(minutes: Int) {
+        require(minutes >= 0) { "游戏分钟数不能为负: $minutes" }
+        totalMinutes = minutes
+    }
+
+    /** 获取经过的总分钟数（用于持久化） */
+    val elapsedMinutes: Int get() = totalMinutes
 }

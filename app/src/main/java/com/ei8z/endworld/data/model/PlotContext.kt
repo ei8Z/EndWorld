@@ -18,7 +18,11 @@ data class PlotContext(
     val requiredElements: List<String>,
     val forbiddenTopics: List<String>,
     val worldContext: String,
-    val factionInfo: String
+    val factionInfo: String,
+
+    // V2.2 动态目标系统
+    val suggestedGoals: List<PersonalGoal> = emptyList(),
+    val urgentGoal: PersonalGoal? = null
 )
 
 /**

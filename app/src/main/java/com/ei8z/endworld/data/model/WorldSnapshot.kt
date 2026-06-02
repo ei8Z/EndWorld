@@ -46,7 +46,19 @@ data class WorldSnapshot(
     val nearbyResources: List<String>,
 
     // 警告（WorldStateProvider 自动生成，如 HP<20% → "生命垂危"）
-    val dangerWarnings: List<String>
+    val dangerWarnings: List<String>,
+
+    // ===== V2.2 新增字段 =====
+
+    // 技能：当前生效的技能效果汇总（key=applyTo，value=累计modifier）
+    val activeSkillEffects: Map<String, Float> = emptyMap(),
+
+    // 资源压力指标
+    val foodHoursRemaining: Float = 0f,  // 当前食物够吃几小时
+    val waterHoursRemaining: Float = 0f, // 当前水够喝几小时
+    val medicalEmergency: Boolean = false, // 是否有需要紧急处理的伤病
+    val totalThreatLevel: String = "警惕", // "安全"|"警惕"|"危险"|"绝境"
+    val daysSurvived: Int = 1           // 已存活天数
 )
 
 /**
@@ -81,4 +93,13 @@ data class InjuryTag(
     val naturalRecoveryHours: Int = 0,
     val requiredTreatment: String? = null,
     val narrativeHint: String = ""
+)
+
+/**
+ * 伤病进度状态。存储 tickHourly() 累计的运行期可变数据，
+ * 与 InjuryLibrary 的预设默认值区分，用于跨重启恢复。
+ */
+data class InjuryProgress(
+    val infectionRisk: Float,
+    val naturalRecoveryHours: Int
 )
