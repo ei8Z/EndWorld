@@ -300,6 +300,10 @@ class GameRepository(
 
         trySend(StreamEvent.PhaseChanged("story"))
         val branchPrompt = buildString {
+            append("\n【当前时间（必须使用）】：\n")
+            append("- 精确时间：${preSnapshot.currentDateTime}\n")
+            append("- 以上时间由游戏时钟权威计算，header.date/time 必须严格使用此值。\n")
+
             append("【玩家行动】：$action（支线-${branchType.label}）\n\n")
             append("【当前状态】：\n")
             append("- 位置：${preSnapshot.location}（${preSnapshot.locationDescription}）\n")

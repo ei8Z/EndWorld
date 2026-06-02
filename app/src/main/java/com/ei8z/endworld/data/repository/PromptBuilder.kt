@@ -393,73 +393,7 @@ $adultSection
 # 输出格式（V2.1 完整 JSON 契约）
 你必须只返回以下JSON结构，不要添加任何其他文本：
 
-{
-  "header": {
-    "date": "第N天（使用输入的【当前时间（必须使用）】中的日期，不可自行推测）",
-    "time": "HH:MM（使用输入的【当前时间（必须使用）】中的时间，不可自行推测）",
-    "location": "场景描述"
-  },
-  "story": "第一人称叙事文本（字数≥1000字）",
-  "suggestions": [
-    {
-      "label": "选项显示文本",
-      "actionParsed": {
-        "primaryType": "移动|搜索|战斗|潜行|社交|制作|医疗|休息|使用物品|观察",
-        "subType": "细分描述",
-        "target": "目标对象",
-        "location": "行动位置",
-        "method": "行动方式",
-        "riskLevel": "低|中|高|极高",
-        "estimatedTimeMinutes": 数字,
-        "requiredItems": ["物品名"]
-      },
-      "riskHint": "风险提示（可为空字符串）",
-      "timeHint": "约需N分钟"
-    }
-  ],
-  "customActionAvailable": true或false,
-  "customActionHint": "自由输入提示文本",
-  "statusUpdate": {
-    "player": {
-      "stateTags": ["伤病或状态标签"],
-      "innerThought": "角色内心独白",
-      "equipment": ["装备物品名称"]
-    },
-    "world": {
-      "doomLevel": 1到5的整数,
-      "macroSituation": "宏观局势描述"
-    },
-    "resources": {
-      "knownPoints": [
-        {
-          "location": "地点名",
-          "possibleItems": "可能存在的物资",
-          "risk": "风险等级"
-        }
-      ],
-      "inventory": {
-        "food": [{"name": "物品名", "quantity": 整数}],
-        "drinks": [{"name": "物品名", "quantity": 整数}],
-        "weapons": [{"name": "物品名", "quantity": 整数}],
-        "tools": [{"name": "物品名", "quantity": 整数}],
-        "medical": [{"name": "物品名", "quantity": 整数}],
-        "special": [{"name": "物品名", "quantity": 整数}]
-      }
-    },
-    "memoryUpdate": {
-      "newTempMemory": "临时记忆摘要 或 null",
-      "newPermanentPlot": "永久剧情记忆 或 null"
-    },
-    "npcUpdate": [
-      {
-        "name": "NPC名称",
-        "relation": "关系描述（友好/中立/敌对/未知）",
-        "affinityDelta": 好感度变化值（正数增加，负数减少）
-      }
-    ],
-    "completedPlotNode": "完成的剧情节点ID 或 null"
-  }
-}
+$JSON_CONSTRAINT
 
 # 字段约束
 - story: 字数≥1000，第一人称，五感描写≥3种
@@ -617,26 +551,81 @@ $adultNote
 # 输出格式
 你必须只返回以下JSON结构：
 
-{
-  "header": {"date": "日期", "time": "时间", "location": "位置"},
-  "story": "第一人称叙事文本",
-  "suggestions": [],
-  "customActionAvailable": true,
-  "customActionHint": "输入你的行动...",
-  "statusUpdate": {
-    "player": {"stateTags": [], "innerThought": "角色内心独白", "equipment": []},
-    "world": {"doomLevel": 1, "macroSituation": ""},
-    "resources": {"knownPoints": [], "inventory": {"food":[],"drinks":[],"weapons":[],"tools":[],"medical":[],"special":[]}},
-    "memoryUpdate": {"newTempMemory": null, "newPermanentPlot": null},
-    "npcUpdate": [],
-    "completedPlotNode": null
-  }
-}
+$JSON_CONSTRAINT
         """.trimIndent()
     }
 
     // ======================== 共享协议（双Agent共用） ========================
 
+    private val JSON_CONSTRAINT = """
+        {
+  "header": {
+    "date": "第N天（使用输入的【当前时间（必须使用）】中的日期，不可自行推测）",
+    "time": "HH:MM（使用输入的【当前时间（必须使用）】中的时间，不可自行推测）",
+    "location": "场景描述"
+  },
+  "story": "第一人称叙事文本（字数≥1000字）",
+  "suggestions": [
+    {
+      "label": "选项显示文本",
+      "actionParsed": {
+        "primaryType": "移动|搜索|战斗|潜行|社交|制作|医疗|休息|使用物品|观察",
+        "subType": "细分描述",
+        "target": "目标对象",
+        "location": "行动位置",
+        "method": "行动方式",
+        "riskLevel": "低|中|高|极高",
+        "estimatedTimeMinutes": 数字,
+        "requiredItems": ["物品名"]
+      },
+      "riskHint": "风险提示（可为空字符串）",
+      "timeHint": "约需N分钟"
+    }
+  ],
+  "customActionAvailable": true或false,
+  "customActionHint": "自由输入提示文本",
+  "statusUpdate": {
+    "player": {
+      "stateTags": ["伤病或状态标签"],
+      "innerThought": "角色内心独白",
+      "equipment": ["装备物品名称"]
+    },
+    "world": {
+      "doomLevel": 1到5的整数,
+      "macroSituation": "宏观局势描述"
+    },
+    "resources": {
+      "knownPoints": [
+        {
+          "location": "地点名",
+          "possibleItems": "可能存在的物资",
+          "risk": "风险等级"
+        }
+      ],
+      "inventory": {
+        "food": [{"name": "物品名", "quantity": 整数}],
+        "drinks": [{"name": "物品名", "quantity": 整数}],
+        "weapons": [{"name": "物品名", "quantity": 整数}],
+        "tools": [{"name": "物品名", "quantity": 整数}],
+        "medical": [{"name": "物品名", "quantity": 整数}],
+        "special": [{"name": "物品名", "quantity": 整数}]
+      }
+    },
+    "memoryUpdate": {
+      "newTempMemory": "临时记忆摘要 或 null",
+      "newPermanentPlot": "永久剧情记忆 或 null"
+    },
+    "npcUpdate": [
+      {
+        "name": "NPC名称",
+        "relation": "关系描述（友好/中立/敌对/未知）",
+        "affinityDelta": 好感度变化值（正数增加，负数减少）
+      }
+    ],
+    "completedPlotNode": "完成的剧情节点ID 或 null"
+  }
+}
+    """.trimIndent()
     /**
      * 记忆安全协议。用户明确要求保留不变。
      * Phase 8 评估后确认：四步判决对裁决Agent和叙事Agent均适用。
