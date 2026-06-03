@@ -80,12 +80,47 @@ object PromptBuilder {
      - totalValue < 最终DC × ${rc.GREAT_FAILURE_RATIO} → "大失败"
      - 其余为"失败"
 
-## 4. 物资校验规则
+## 4. 物资校验与精确计量规则（V2.3升级）
+
+### 4.1 物品识别
+- 输入的【随身物资】中，每件物品都带有 itemId、measureType、currentMeasure、totalMeasure
 - resourceChanges 中的 itemId 来源：已有物品从"随身物资"方括号中复制（如 `[water_bottle]`）；**新物品**使用英文单词或拼音（如 bandage、canned_food），同一物品多轮保持一致
 - itemName 来源：已有物品从库存中复制；新物品使用中文描述
-- 消耗任何物品前，必须确认 inventory 中存在该物品
-- **物品计量约定**：每个物品有 quantity（数量）和 unit（单位，如"瓶""份""口""条""个"）。裁决消耗量 changeAmount 以该物品的 unit 为单位（如 unit="口"、changeAmount=-2 表示喝掉2口水）。默认单位"份"表示以使用次数计量。
-- 装备耐久消耗：武器攻击-3~-8耐久（视武器类型），工具使用-2~-5耐久，归零则"损坏"
+- 消耗任何物品前，必须确认该 itemId 存在且 currentMeasure 足够
+
+### 4.2 消耗量判定（按计量类型）
+- **count类型**（饼干、罐头、绷带）：每次消耗 changeAmount = -1.0，newValue = 0.0（直接用完一个）
+- **volume类型**（水、酒精、胶水、药剂）：
+  * 根据行动描述判定消耗量
+  * 小口/少量：30-50ml
+  * 一口/正常：80-120ml
+  * 大口/大量：150-200ml
+  * 喝饱/用完：全部剩余量
+  * 判定后输出精确的 changeAmount（如-150.0），newValue = currentMeasure + changeAmount
+- **weight类型**（面粉、糖、药品粉末）：
+  * 少量：10-20g
+  * 正常：30-60g
+  * 大量：80-150g
+- **durability类型**（武器、工具）：
+  * 轻度使用：-3%~-5%
+  * 正常使用：-5%~-10%
+  * 粗暴使用：-10%~-20%
+  * newValue = currentMeasure + changeAmount
+- **ammo类型**（子弹、箭矢）：
+  * 根据战斗描述判定消耗发数
+  * 单发：-1.0
+  * 短点射：-3.0
+  * 持续射击：-5.0~-10.0
+  * changeAmount 统一用 Float（-1.0、-3.0）
+
+### 4.3 消耗后处理
+- 若 newValue <= 0，物品耗尽，标记为"消耗完毕"
+- 若 newValue > 0，物品保留，currentMeasure更新为newValue
+- 必须在 narrativeHint 中描述消耗后的余量状态（如"瓶子里大概还有一半"）
+
+### 4.4 多实例选择
+- 若玩家有多个同物品的volume实例（如两瓶水），优先消耗 currentMeasure 较少的实例（先喝完一瓶再开另一瓶）
+- 在 resourceChanges 中明确引用消耗的 itemId
 
 ## 5. 客户端自动执行的消耗（你无需在 resourceChanges 中重复计入）
 以下消耗由客户端 SurvivalStateMachine 自动执行，你只需在 narrativeSummary 中描述效果，无需在 resourceChanges 中重复添加：
@@ -161,7 +196,7 @@ $injuryList
     "result": "成功|部分成功|失败|大成功|大失败",
     "dcValue": 数字, "rollValue": 数字, "totalValue": 数字,
     "modifiersBreakdown": "必须详列计算过程，格式: '基础DC(X) × 夜间(1.Y) × 天气(1.Z) × 技能修正(0.W) = 最终DC(A); 掷骰(R) + 伤病修正(S) = 总计(T); T >= A → 判定结果'",
-    "resourceChanges": [{"itemId": "库存方括号中的ID（新物品用英文/拼音）", "itemName": "库存中的名称（新物品用中文）", "category": "...", "changeAmount": -1（以物品unit为单位）, "newValue": 1, "narrativeHint": "..."}],
+    "resourceChanges": [{"itemId": "库存方括号中的ID（新物品用英文/拼音）", "itemName": "库存中的名称（新物品用中文）", "category": "...", "measureType": "count|volume|weight|durability|ammo", "measureUnit": "单位", "changeAmount": -1.0, "newValue": 0.0, "maxValue": 1.0, "narrativeHint": "..."}],
     "injuriesApplied": ["伤病名称1"], "injuriesRecovered": ["恢复的伤病名称1"],
     "narrativeSummary": "一句话总结裁决结果和事件",
     "eventTriggered": {"id": "...", "name": "...", "narrativeHint": "..."} 或 null,
@@ -227,7 +262,7 @@ $injuryList
         append("- 口渴度: ${wp.thirst}\n")
         append("- 疲劳度: ${wp.fatigue}\n")
         append("- 状态标签: ${formatInjuryTags(wp)}\n")
-        append("- 随身物资: ${formatInventory(wp)}\n")
+        append("- 随身物资 — 精确计量: ${formatInventory(wp)}\n")
         append("- 装备: ${wp.equippedWeapon ?: "无"}, ${wp.equippedTool ?: "无"}\n")
         if (wp.damagedItems.isNotEmpty()) {
             append("- 损坏物品: ${wp.damagedItems.joinToString("、")}\n")
@@ -358,6 +393,40 @@ $adultSection
 - 不得更改裁决结果中的成败、消耗、伤病数据
 - 【相关历史记忆】已由裁决Agent通过四步判决预先过滤，可直接引用，无需二次判定
 
+## 消耗描述边界规则（V2.3新增 — 严格遵守）
+
+### 核心原则
+- 裁决结果中已经列出本轮行动的所有物资变化（resourceChanges），这是你描述消耗的唯一依据。
+- 你只能描述裁决结果中已列出的消耗。裁决结果未列出的物品，不得描述其被使用或消耗。
+
+### 允许的例外（不可量化的微小动作，不视为消耗）
+以下微小动作可在叙事中自由使用，不计入实际消耗：
+- "抿了抿干裂的嘴唇"、"舔了舔嘴角的水渍"
+- "握紧了匕首的刀柄"（未实际使用）
+- "瞥了一眼背包里的罐头"（未取出）
+- "擦了擦额头上的汗"
+- "深吸了一口气"
+
+### 严禁的越权描述
+以下描述在裁决结果未列出对应消耗时，属于越权，不得出现：
+- "吃掉了半包饼干"、"啃了一口干粮" — 若裁决未列出食物消耗
+- "子弹打空了"、"射出了三发子弹" — 若裁决未列出弹药消耗
+- "用胶水修补了背包" — 若裁决未列出胶水消耗
+- "喝光了最后一口水" — 若裁决未列出饮水消耗
+- "绷带被血浸透了，不得不换一条" — 若裁决未列出绷带消耗
+
+### 不确定时的处理
+- 若你不确定某个动作是否构成"消耗"，倾向于不描述该动作，或将其描述为"未遂的意图"
+- 示例："我想打开那包饼干，但还是忍住了"（未消耗，安全）
+- 示例："手指摩挲着水壶的盖子"（未消耗，安全）
+
+### 消耗后余量的描述
+- 若裁决结果中某物品的 newValue 表明已耗尽（newValue <= 0），可在叙事中明确提及"空了"、"吃完了"、"用光了"
+- 若 newValue 仍大于0，描述余量时应与裁决结果一致：
+  * newValue ≈ 50% totalMeasure → "大概还有半瓶"
+  * newValue ≈ 25% totalMeasure → "只剩下一个底儿了"
+  * newValue ≈ 10% totalMeasure → "几乎见底了"
+
 ## 技能体现规则（V2.2新增）
 - 若玩家拥有与当前行动相关的技能，在叙事中自然体现
 - Lv.1-2：轻微体现（"我凭着上次的经验..."）
@@ -440,7 +509,9 @@ $JSON_CONSTRAINT
         if (ar.resourceChanges.isNotEmpty()) {
             append("- 物资变化：\n")
             ar.resourceChanges.forEach { rc ->
-                append("  · ${rc.itemName}: ${if (rc.changeAmount > 0) "+" else ""}${rc.changeAmount} → ${rc.newValue}（${rc.narrativeHint}）\n")
+                val amtStr = if (rc.changeAmount == rc.changeAmount.toInt().toFloat()) rc.changeAmount.toInt().toString() else String.format("%.1f", rc.changeAmount)
+                val newStr = if (rc.newValue == rc.newValue.toInt().toFloat()) rc.newValue.toInt().toString() else String.format("%.1f", rc.newValue)
+                append("  · ${rc.itemName}: ${if (rc.changeAmount > 0) "+" else ""}$amtStr → $newStr${rc.measureUnit}（${rc.narrativeHint}）\n")
             }
         }
         if (ar.injuriesApplied.isNotEmpty()) {
@@ -672,8 +743,21 @@ $JSON_CONSTRAINT
         val items = snapshot.inventory
         if (items.isEmpty()) return "无"
         return items.joinToString("、") { item ->
-            val dur = if (item.durability != null) "耐久${item.durability}%" else ""
-            "[${item.id}] ${item.name}×${item.quantity}${item.unit}$dur"
+            when (item.measureType) {
+                "volume", "weight" -> {
+                    val remain = if (item.currentMeasure == item.currentMeasure.toInt().toFloat())
+                        item.currentMeasure.toInt().toString() else String.format("%.1f", item.currentMeasure)
+                    val total = if (item.totalMeasure == item.totalMeasure.toInt().toFloat())
+                        item.totalMeasure.toInt().toString() else String.format("%.1f", item.totalMeasure)
+                    "[${item.id}] ${item.name} $remain/$total${item.measureUnit} (${item.measureType})"
+                }
+                "durability" -> {
+                    val remain = item.currentMeasure.toInt()
+                    "[${item.id}] ${item.name} $remain/${item.totalMeasure.toInt()}% (durability)"
+                }
+                "ammo" -> "[${item.id}] ${item.name} ×${item.currentMeasure.toInt()}${item.measureUnit} (ammo${if (item.isStackable) ", 可合并" else ""})"
+                else -> "[${item.id}] ${item.name} ×${item.quantity}${item.unit} (count)"
+            }
         }
     }
 }

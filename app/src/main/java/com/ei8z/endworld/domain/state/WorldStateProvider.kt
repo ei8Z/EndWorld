@@ -7,6 +7,7 @@ import com.ei8z.endworld.data.model.WorldSnapshot
  * 生成不可变的 WorldSnapshot 供裁决Agent、叙事Agent和客户端使用。
  *
  * V2.2: 新增资源压力指标、技能效果汇总、威胁等级评估。
+ * V2.3: 新增物品合并检测、nearbyNpcs 支持、suggestedActions。
  */
 class WorldStateProvider(
     private val clock: GameClock,
@@ -15,7 +16,8 @@ class WorldStateProvider(
     private val inventory: InventoryManager,
     private val health: HealthSystem,
     private val skillManager: SkillManager = SkillManager(),
-    private val doomLevel: Int = 1
+    private val doomLevel: Int = 1,
+    private val nearbyNpcNames: List<String> = emptyList()
 ) {
     fun generateSnapshot(): WorldSnapshot {
         return WorldSnapshot(
@@ -49,7 +51,7 @@ class WorldStateProvider(
             locationType = clock.locationType,
 
             nearbyThreats = emptyList(),
-            nearbyNpcs = emptyList(),
+            nearbyNpcs = nearbyNpcNames,
             nearbyResources = emptyList(),
 
             dangerWarnings = generateDangerWarnings(),
@@ -60,34 +62,62 @@ class WorldStateProvider(
             waterHoursRemaining = calculateWaterHours(),
             medicalEmergency = hasMedicalEmergency(),
             totalThreatLevel = calculateThreatLevel(),
-            daysSurvived = clock.currentDay
+            daysSurvived = clock.currentDay,
+
+            // V2.3 新增
+            suggestedActions = generateSuggestedActions()
         )
+    }
+
+    // ======================== V2.3 物品合并检测 ========================
+
+    /** 检测可合并的同名volume物品，生成合并建议 */
+    private fun generateSuggestedActions(): List<String> {
+        val actions = mutableListOf<String>()
+        val items = inventory.getAllItems()
+
+        // 物品合并检测：同名、同 category、volume 类型、isStackable
+        val mergeGroups = items
+            .filter { it.measureType == "volume" && it.isStackable }
+            .groupBy { it.name }
+            .filter { it.value.size >= 2 }
+
+        for ((name, instances) in mergeGroups) {
+            val totalVol = instances.sumOf { it.currentMeasure.toDouble() }.toFloat()
+            val unit = instances.first().measureUnit
+            val displayVol = if (totalVol == totalVol.toInt().toFloat()) totalVol.toInt().toString() else String.format("%.1f", totalVol)
+            actions.add("你可以将${instances.size}份${name}合并（共$displayVol$unit）")
+        }
+
+        return actions
     }
 
     // ======================== V2.2 资源压力计算 ========================
 
     /**
-     * 计算食物够吃几小时。
-     * 统计所有食物类物品的 nutrition 总和，除以每小时消耗速率（3点/小时）。
+     * V2.3 计算食物够吃几小时。
+     * 使用 unitNutrition × currentMeasure（连续量）或 unitNutrition × quantity（count类型）。
+     * 每小时消耗速率 3 点。
      */
     private fun calculateFoodHours(): Float {
         val totalNutrition = inventory.getAllItems()
-            .filter { it.category == "食物" }
-            .sumOf { (it.nutrition ?: 0) * it.quantity }
+            .filter { it.category == "食物" && it.unitNutrition > 0f }
+            .sumOf { (it.unitNutrition * it.currentMeasure).toDouble() }
         if (totalNutrition <= 0) return 0f
-        return totalNutrition / VitalSystem.PASSIVE_HUNGER_PER_HOUR.toFloat()
+        return (totalNutrition / VitalSystem.PASSIVE_HUNGER_PER_HOUR).toFloat()
     }
 
     /**
-     * 计算水够喝几小时。
-     * 统计所有饮品类的 hydration 总和，除以每小时消耗速率（4点/小时）。
+     * V2.3 计算水够喝几小时。
+     * 使用 unitHydration × currentMeasure。
+     * 每小时消耗速率 4 点。
      */
     private fun calculateWaterHours(): Float {
         val totalHydration = inventory.getAllItems()
-            .filter { it.category == "饮品" }
-            .sumOf { (it.hydration ?: 0) * it.quantity }
+            .filter { it.category == "饮品" && it.unitHydration > 0f }
+            .sumOf { (it.unitHydration * it.currentMeasure).toDouble() }
         if (totalHydration <= 0) return 0f
-        return totalHydration / VitalSystem.PASSIVE_THIRST_PER_HOUR.toFloat()
+        return (totalHydration / VitalSystem.PASSIVE_THIRST_PER_HOUR).toFloat()
     }
 
     /** 是否有需要紧急处理的伤病（感染或严重伤病） */

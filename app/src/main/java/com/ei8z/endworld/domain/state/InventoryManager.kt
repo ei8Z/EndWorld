@@ -43,29 +43,77 @@ class InventoryManager {
     // ---- 修改 ----
 
     /**
-     * 添加物品。若已存在同 id 物品，叠加数量。
+     * 添加物品。匹配策略按计量类型区分：
+     * - volume/weight/durability：仅按 id 精确匹配（保留独立实例，不自动合并）
+     * - count/ammo：按 id 匹配，回退按 name+category 匹配（兼容 DB 持久化后 id 变化），叠加 quantity
      */
     fun addItem(item: InventoryItemModel) {
-        var existing = items.indexOfFirst { it.id == item.id }
-        if (existing < 0) {
-            // 回退：按 name+category 匹配（DB 恢复后 id 已变为 autoGenerate Long）
-            existing = items.indexOfFirst { it.name == item.name && it.category == item.category }
-        }
-        if (existing >= 0) {
-            val old = items[existing]
-            items[existing] = old.copy(quantity = old.quantity + item.quantity)
+        val isContinuous = item.measureType in listOf("volume", "weight", "durability")
+
+        val existing = if (isContinuous) {
+            // 连续量物品按 id 精确匹配，同名物品保持独立实例（供后续手动合并）
+            items.indexOfFirst { it.id == item.id }
         } else {
-            items.add(item)
+            // count/ammo：按 id 匹配，回退按 name+category
+            var idx = items.indexOfFirst { it.id == item.id }
+            if (idx < 0) {
+                idx = items.indexOfFirst { it.name == item.name && it.category == item.category }
+            }
+            idx
+        }
+
+        when {
+            isContinuous && existing >= 0 -> {
+                // 同 id 连续量物品：覆盖更新（防止幽灵重复实例）
+                items[existing] = item
+            }
+            !isContinuous && existing >= 0 -> {
+                // count/ammo：叠加 quantity
+                val old = items[existing]
+                items[existing] = old.copy(quantity = old.quantity + item.quantity)
+            }
+            else -> {
+                items.add(item)
+            }
         }
     }
 
     /**
-     * 消耗指定数量的物品。数量不足时消耗全部并移除。
+     * V2.3 消耗指定连续量的物品（Float版本，用于volume/weight/durability类型）。
+     * 余量不足时消耗全部并移除。
+     * @return 实际消耗的量
+     */
+    fun consumeItemMeasure(itemId: String, amount: Float): Float {
+        // 按 id 精确匹配
+        var idx = items.indexOfFirst { it.id == itemId }
+
+        // 回退：按名称匹配，优先消耗余量最少的实例（裁决Agent Rule 4.4）
+        if (idx < 0) {
+            idx = items.indices
+                .filter { items[it].name == itemId && items[it].currentMeasure > 0f }
+                .minByOrNull { items[it].currentMeasure }
+                ?: -1
+        }
+        if (idx < 0) {
+            Log.w("Inventory", "consumeItemMeasure: 未找到物品 id/name='$itemId'")
+            return 0f
+        }
+
+        val item = items[idx]
+        val consumed = minOf(amount, item.currentMeasure)
+        val remaining = item.currentMeasure - consumed
+
+        if (remaining <= 0f) {
+            items.removeAt(idx)
+        } else {
+            items[idx] = item.copy(currentMeasure = remaining)
+        }
+        return consumed
+    }
+
+    /**
+     * 消耗指定数量的物品（Int版本，用于count/ammo类型）。数量不足时消耗全部并移除。
      * @return 实际消耗的数量
-     *
-     * TODO: Phase 8 — Int amount 无法表示部分消耗。
-     *       当前以"份/次"为最小单位，由裁决Agent量化。
-     *       评估改为 consumeItem(itemId, ratio: Float) 或 Int+unit 方案。
      */
     fun consumeItem(itemId: String, amount: Int): Int {
         var idx = items.indexOfFirst { it.id == itemId }
@@ -115,6 +163,30 @@ class InventoryManager {
      */
     fun removeItem(itemId: String) {
         items.removeAll { it.id == itemId }
+    }
+
+    /**
+     * V2.3 合并同名 volume 物品实例。客户端直接处理，不调用AI。
+     * @param itemName 要合并的物品名称
+     * @return 合并后的总容量，-1f 表示无物品可合并
+     */
+    fun mergeItems(itemName: String): Float {
+        val matches = items.filter { it.name == itemName && it.measureType == "volume" && it.isStackable }
+        if (matches.size < 2) return -1f
+
+        val total = matches.sumOf { it.currentMeasure.toDouble() }.toFloat()
+        val first = matches.first()
+
+        // 移除所有匹配实例
+        items.removeAll { it.name == itemName && it.measureType == "volume" && it.isStackable }
+
+        // 添加合并后的单个实例
+        items.add(first.copy(
+            id = "item_${java.util.UUID.randomUUID().toString().take(8)}",
+            currentMeasure = total,
+            quantity = 1
+        ))
+        return total
     }
 
     /**

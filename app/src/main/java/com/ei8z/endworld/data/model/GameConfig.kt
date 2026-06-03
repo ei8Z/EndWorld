@@ -9,7 +9,8 @@ data class GameConfig(
     val doomLevels: List<DoomLevelEntry>,
     val doomTypes: List<String>,
     val genders: List<String>,
-    val initialStats: InitialStats
+    val initialStats: InitialStats,
+    val items: List<ItemTemplate> = emptyList()  // V2.3 新增
 )
 
 data class PersonalityEntry(

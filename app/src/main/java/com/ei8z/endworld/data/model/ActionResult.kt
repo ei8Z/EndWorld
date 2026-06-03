@@ -26,16 +26,19 @@ data class ActionResult(
 )
 
 /**
- * 资源变化条目。changeAmount 负数=减少，正数=增加。
+ * V2.3 资源变化条目。changeAmount 负数=减少，正数=增加。
+ * changeAmount/newValue 从 Int 改为 Float，支持连续量（-150.0ml）和离散量（-1.0包）。
  */
 data class ResourceChange(
     val itemId: String,
     val itemName: String,
     val category: String,
-    val changeAmount: Int,
-    val newValue: Int,
-    val maxValue: Int? = null,
-    val narrativeHint: String = ""
+    val changeAmount: Float,
+    val newValue: Float,
+    val maxValue: Float? = null,
+    val narrativeHint: String = "",
+    val measureType: String = "count",
+    val measureUnit: String = "份"
 )
 
 /**

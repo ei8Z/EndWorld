@@ -7,13 +7,13 @@ import org.junit.Test
 class PromptBuilderReasonerTest {
 
     @Test
-    fun `REASONER_SYSTEM_PROMPT is non-empty and contains key sections`() {
-        val prompt = PromptBuilder.REASONER_SYSTEM_PROMPT
+    fun `buildReasonerSystemPrompt is non-empty and contains key sections`() {
+        val prompt = PromptBuilder.buildReasonerSystemPrompt()
         assertTrue(prompt.isNotBlank())
         assertTrue(prompt.contains("世界时钟规则"))
         assertTrue(prompt.contains("基础DC选取规则"))
         assertTrue(prompt.contains("掷骰结果判定规则"))
-        assertTrue(prompt.contains("物资校验规则"))
+        assertTrue(prompt.contains("物资校验与精确计量规则"))
         assertTrue(prompt.contains("伤病判定规则"))
         assertTrue(prompt.contains("事件触发规则"))
         assertTrue(prompt.contains("剧情节点规则"))

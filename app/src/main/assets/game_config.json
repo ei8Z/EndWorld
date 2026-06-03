@@ -26,5 +26,23 @@
     "statCoerceMax": 120,
     "doomLevelMin": 1,
     "doomLevelMax": 5
-  }
+  },
+  "items": [
+    { "id": "bottled_water",   "name": "瓶装水",   "category": "饮品", "measureType": "volume",     "measureUnit": "毫升", "totalMeasure": 500.0, "unitNutrition": 0.0, "unitHydration": 1.0,  "weight": 0.5, "typicalUseAmount": 150.0, "minUseAmount": 10.0,  "isStackable": true },
+    { "id": "dirty_water",     "name": "脏水",     "category": "饮品", "measureType": "volume",     "measureUnit": "毫升", "totalMeasure": 300.0, "unitNutrition": 0.0, "unitHydration": 0.5,  "weight": 0.3, "typicalUseAmount": 100.0, "minUseAmount": 10.0,  "isStackable": true },
+    { "id": "alcohol",         "name": "酒精",     "category": "医疗", "measureType": "volume",     "measureUnit": "毫升", "totalMeasure": 200.0, "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.2, "typicalUseAmount": 20.0,  "minUseAmount": 5.0,   "isStackable": true },
+    { "id": "glue",            "name": "胶水",     "category": "工具", "measureType": "volume",     "measureUnit": "毫升", "totalMeasure": 50.0,  "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.1, "typicalUseAmount": 10.0,  "minUseAmount": 2.0,   "isStackable": true },
+    { "id": "compressed_biscuit","name": "压缩饼干","category": "食物", "measureType": "count",      "measureUnit": "包",   "totalMeasure": 1.0,   "unitNutrition": 10.0,"unitHydration": 0.0,  "weight": 0.2 },
+    { "id": "canned_food",     "name": "罐头",     "category": "食物", "measureType": "count",      "measureUnit": "盒",   "totalMeasure": 1.0,   "unitNutrition": 15.0,"unitHydration": 0.0,  "weight": 0.4 },
+    { "id": "bandage",         "name": "绷带",     "category": "医疗", "measureType": "count",      "measureUnit": "条",   "totalMeasure": 1.0,   "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.05 },
+    { "id": "painkiller",      "name": "止痛药",   "category": "医疗", "measureType": "count",      "measureUnit": "片",   "totalMeasure": 1.0,   "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.01 },
+    { "id": "baseball_bat",    "name": "棒球棍",   "category": "武器", "measureType": "durability", "measureUnit": "%",    "totalMeasure": 100.0, "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 1.5, "typicalUseAmount": 5.0,   "minUseAmount": 2.0 },
+    { "id": "kitchen_knife",   "name": "厨刀",     "category": "武器", "measureType": "durability", "measureUnit": "%",    "totalMeasure": 100.0, "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.3, "typicalUseAmount": 3.0,   "minUseAmount": 1.0 },
+    { "id": "pistol_9mm",      "name": "9mm手枪",  "category": "武器", "measureType": "ammo",       "measureUnit": "发",   "totalMeasure": 15.0,  "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.8, "isStackable": false },
+    { "id": "bullet_9mm",      "name": "9mm子弹",  "category": "武器", "measureType": "ammo",       "measureUnit": "发",   "totalMeasure": 1.0,   "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.01,"isStackable": true },
+    { "id": "flour",           "name": "面粉",     "category": "食物", "measureType": "weight",     "measureUnit": "克",   "totalMeasure": 500.0, "unitNutrition": 0.03,"unitHydration":0.0,  "weight": 0.5, "typicalUseAmount": 50.0,  "minUseAmount": 10.0,  "isStackable": true },
+    { "id": "rope",            "name": "绳索",     "category": "工具", "measureType": "durability", "measureUnit": "%",    "totalMeasure": 100.0, "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.5, "typicalUseAmount": 5.0,   "minUseAmount": 2.0 },
+    { "id": "flashlight",      "name": "手电筒",   "category": "工具", "measureType": "durability", "measureUnit": "%",    "totalMeasure": 100.0, "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.3, "typicalUseAmount": 3.0,   "minUseAmount": 1.0 },
+    { "id": "backpack",        "name": "背包",     "category": "特殊", "measureType": "durability", "measureUnit": "%",    "totalMeasure": 100.0, "unitNutrition": 0.0, "unitHydration": 0.0,  "weight": 0.8, "typicalUseAmount": 2.0,   "minUseAmount": 1.0 }
+  ]
 }

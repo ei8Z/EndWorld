@@ -111,7 +111,7 @@ fun buildPresetCards(): List<EventCard> = listOf(
         cooldownRounds = 4,
         affectsState = true,
         stateChanges = listOf(
-            com.ei8z.endworld.data.model.ResourceChange("", "", "生命值", -5, 0, 100, "酸雨灼伤皮肤")
+            com.ei8z.endworld.data.model.ResourceChange("", "", "生命值", -5f, 0f, 100f, "酸雨灼伤皮肤")
         )
     ),
     EventCard(
@@ -127,7 +127,7 @@ fun buildPresetCards(): List<EventCard> = listOf(
         cooldownRounds = 6,
         affectsState = true,
         stateChanges = listOf(
-            com.ei8z.endworld.data.model.ResourceChange("", "", "生命值", -10, 0, 100, "辐射风暴灼伤")
+            com.ei8z.endworld.data.model.ResourceChange("", "", "生命值", -10f, 0f, 100f, "辐射风暴灼伤")
         )
     ),
     EventCard(

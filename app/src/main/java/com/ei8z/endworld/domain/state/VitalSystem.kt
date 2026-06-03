@@ -1,6 +1,7 @@
 package com.ei8z.endworld.domain.state
 
 import com.ei8z.endworld.data.model.ResourceChange
+import kotlin.math.roundToInt
 
 /**
  * 生存数值系统。管理 HP/SP/饱食度/口渴度/疲劳度 五项核心数值。
@@ -68,10 +69,10 @@ class VitalSystem {
      */
     fun applyResourceChange(change: ResourceChange) {
         when (change.category) {
-            "生命值" -> hp = (hp + change.changeAmount).coerceIn(0, hpMax)
-            "体力值" -> sp = (sp + change.changeAmount).coerceIn(0, spMax)
-            "饱食度" -> hunger = (hunger + change.changeAmount).coerceIn(0, 100)
-            "口渴度" -> thirst = (thirst + change.changeAmount).coerceIn(0, 100)
+            "生命值" -> hp = (hp + change.changeAmount.roundToInt()).coerceIn(0, hpMax)
+            "体力值" -> sp = (sp + change.changeAmount.roundToInt()).coerceIn(0, spMax)
+            "饱食度" -> hunger = (hunger + change.changeAmount.roundToInt()).coerceIn(0, 100)
+            "口渴度" -> thirst = (thirst + change.changeAmount.roundToInt()).coerceIn(0, 100)
             else -> { /* 装备耐久、消耗品等由 InventoryManager 处理 */ }
         }
         clampAll()

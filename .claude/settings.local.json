@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew compileDebugKotlin)",
+      "Bash(where java *)",
+      "Read(//c/Program Files/Android/Android Studio/jbr/bin/**)",
+      "Read(//c/Program Files/**)",
+      "Bash(export JAVA_HOME=\"D:/Android/AS/jbr\")",
+      "Bash(./gradlew testDebugUnitTest)",
+      "Bash(./gradlew testDebugUnitTest --tests \"*VitalSystemTest*\" --tests \"*InventoryManagerTest*\" --tests \"*SurvivalStateMachineTest*\" --tests \"*IntegrationTest*\")",
+      "Bash(./gradlew testDebugUnitTest --tests \"com.ei8z.endworld.domain.state.VitalSystemTest\" --info)",
+      "Bash(./gradlew testDebugUnitTest --tests \"com.ei8z.endworld.domain.state.VitalSystemTest\")",
+      "Read(//tmp/**)",
+      "Bash(./gradlew compileDebugKotlin compileDebugUnitTestKotlin)"
+    ]
+  }
+}

@@ -260,6 +260,40 @@ class GameRepository(
 
         val preSnapshot = sm.generatePreRulingSnapshot()
 
+        // V2.3: 物品合并检测（客户端直接处理）
+        val mergeKeywords = listOf("合并", "倒在一起", "装到一起")
+        if (mergeKeywords.any { action.contains(it) }) {
+            val mergedItems = mutableListOf<String>()
+            val totalMerged = mutableListOf<Float>()
+            val allItems = sm.inventory.getAllItems()
+            for (item in allItems) {
+                if (item.measureType == "volume" && item.isStackable && action.contains(item.name)) {
+                    val result = sm.inventory.mergeItems(item.name)
+                    if (result > 0f) {
+                        mergedItems.add(item.name)
+                        totalMerged.add(result)
+                    }
+                }
+            }
+            if (mergedItems.isNotEmpty()) {
+                val msg = mergedItems.joinToString("、") + "已合并"
+                val directResponse = GameResponse(
+                    header = ResponseHeader(date = "第${sm.clock.currentDay}天", time = String.format("%02d:%02d", sm.clock.currentHour, sm.clock.currentMinute), location = preSnapshot.location),
+                    story = "你将${msg}。（${minutes}分钟）",
+                    suggestions = emptyList(), customActionAvailable = true, customActionHint = "输入你的行动...",
+                    statusUpdate = StatusUpdate(
+                        player = PlayerUpdate(stateTags = preSnapshot.activeTags.map { it.name }, innerThought = "", equipment = listOfNotNull(preSnapshot.equippedWeapon, preSnapshot.equippedTool)),
+                        world = WorldUpdate(sm.doomLevel, world.macroSituation),
+                        resources = ResourceUpdate(emptyList(), InventoryUpdate()),
+                        memoryUpdate = MemoryUpdate(null, null)
+                    )
+                )
+                syncGameData(directResponse, player, world, preSnapshot)
+                trySend(StreamEvent.FinalResponse(directResponse))
+                return
+            }
+        }
+
         // 小操作和等待：客户端直接执行，跳过叙事Agent
         if (!branchType.needsStoryteller) {
             val systemMessage = when (branchType) {
@@ -415,7 +449,15 @@ class GameRepository(
                 category = mapDbCategory(item.category),
                 quantity = item.quantity,
                 unit = item.unit,
-                weight = 0.1f
+                weight = 0.1f,
+                // V2.3 计量字段从 DB 恢复
+                measureType = item.measureType,
+                measureUnit = item.measureUnit,
+                totalMeasure = item.totalMeasure,
+                currentMeasure = item.currentMeasure,
+                isStackable = item.isStackable,
+                unitNutrition = item.unitNutrition,
+                unitHydration = item.unitHydration
             ))
         }
     }
@@ -523,7 +565,15 @@ class GameRepository(
                 category = roomCat,
                 name = item.name,
                 quantity = sanitizeQty(item.quantity),
-                unit = item.unit
+                unit = item.unit,
+                // V2.3 计量字段持久化
+                measureType = item.measureType,
+                measureUnit = item.measureUnit,
+                totalMeasure = item.totalMeasure,
+                currentMeasure = item.currentMeasure,
+                isStackable = item.isStackable,
+                unitNutrition = item.unitNutrition,
+                unitHydration = item.unitHydration
             ))
         }
         inventoryDao.syncInventory(allNewItems)

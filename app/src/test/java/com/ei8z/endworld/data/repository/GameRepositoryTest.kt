@@ -105,7 +105,7 @@ class GameRepositoryTest {
         coEvery { historyDao.clearHistory() } just Runs
 
         val repo = createRepo()
-        repo.initializeNewGame("幸存者A", "成年男性", "勇敢", "", "核冬天")
+        repo.initializeNewGameV22("幸存者A", "成年男性", "勇敢", "", "核冬天", 1, 100, 100, 100, 100, 50, 50, 0)
 
         coVerify { historyDao.clearHistory() }
         coVerify { memoryDao.insertMemory(any()) }

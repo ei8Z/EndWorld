@@ -7,11 +7,13 @@ import com.ei8z.endworld.data.model.EventCard
 import com.ei8z.endworld.data.model.InjuryProgress
 import com.ei8z.endworld.data.model.InventoryItemModel
 import com.ei8z.endworld.data.model.PlotContext
+import com.ei8z.endworld.data.model.ResourceChange
 import com.ei8z.endworld.data.model.WorldEvent
 import com.ei8z.endworld.data.model.WorldSnapshot
 import com.ei8z.endworld.data.plot.ChapterDataLoader
 import com.ei8z.endworld.data.plot.PlotManager
 import com.ei8z.endworld.data.plot.WorldEventManager
+import kotlin.math.roundToInt
 
 /**
  * 生存状态机门面。协调所有子系统，对外暴露统一接口。
@@ -39,8 +41,10 @@ class SurvivalStateMachine(
 
     var doomLevel: Int = 1
 
+    var nearbyNpcNames: List<String> = emptyList()
+
     private val worldStateProvider: WorldStateProvider
-        get() = WorldStateProvider(clock, weather, vital, inventory, health, skillManager, doomLevel)
+        get() = WorldStateProvider(clock, weather, vital, inventory, health, skillManager, doomLevel, nearbyNpcNames)
 
     // ---- 快照 ----
 
@@ -116,7 +120,7 @@ class SurvivalStateMachine(
                         "装备耐久" -> applyItemChange(change, "装备耐久")
                         "消耗品" -> applyItemChange(change, "消耗品")
                         "末日等级" -> {
-                            doomLevel = (doomLevel + change.changeAmount).coerceIn(1, 5)
+                            doomLevel = (doomLevel + change.changeAmount.roundToInt()).coerceIn(1, 5)
                         }
                         else -> applyItemChange(change, change.category)
                     }
@@ -145,17 +149,45 @@ class SurvivalStateMachine(
         }
     }
 
-    private fun applyItemChange(change: com.ei8z.endworld.data.model.ResourceChange, category: String) {
-        if (change.changeAmount > 0) {
+    private fun applyItemChange(change: ResourceChange, category: String) {
+        if (change.changeAmount > 0f) {
+            // V2.3: 计量类型决定 quantity 语义
+            // - count/ammo: quantity = 变化量（如+1包饼干 → quantity=1, currentMeasure=1.0）
+            // - volume/weight/durability: quantity = 1（单件物品），currentMeasure 记录实际量
+            val isContinuous = change.measureType in listOf("volume", "weight", "durability")
+            val qty = if (isContinuous) 1 else change.changeAmount.roundToInt().coerceAtLeast(1)
+            // 硬约束：newValue 不得超出 maxValue（防止 AI 幻觉创建超容物品）
+            val safeMax = change.maxValue ?: change.newValue
+            val curMeasure = if (isContinuous) {
+                change.newValue.coerceIn(0f, safeMax)
+            } else 1f
+            val totalM = if (isContinuous) safeMax else change.maxValue ?: 1f
+
             inventory.addItem(InventoryItemModel(
                 id = change.itemId, name = change.itemName,
-                category = category, quantity = change.changeAmount,
-                unit = "份", weight = 0.1f
+                category = category, quantity = qty,
+                unit = change.measureUnit,
+                weight = 0.1f,
+                measureType = change.measureType,
+                measureUnit = change.measureUnit,
+                totalMeasure = totalM,
+                currentMeasure = curMeasure
             ))
-        } else if (change.changeAmount < 0) {
-            val consumed = inventory.consumeItem(change.itemId, -change.changeAmount)
-            if (consumed == 0) {
-                Log.w("SM", "applyItemChange: 消耗失败 itemId='${change.itemId}' name='${change.itemName}' amount=${change.changeAmount}")
+        } else if (change.changeAmount < 0f) {
+            when (change.measureType) {
+                "volume", "weight", "durability" -> {
+                    val consumed = inventory.consumeItemMeasure(change.itemId, -change.changeAmount)
+                    if (consumed <= 0f) {
+                        Log.w("SM", "applyItemChange: 消耗失败 itemId='${change.itemId}' name='${change.itemName}' amount=${change.changeAmount}")
+                    }
+                }
+                else -> {
+                    // count / ammo 类型：取整消耗
+                    val consumed = inventory.consumeItem(change.itemId, (-change.changeAmount).roundToInt())
+                    if (consumed == 0) {
+                        Log.w("SM", "applyItemChange: 消耗失败 itemId='${change.itemId}' name='${change.itemName}' amount=${change.changeAmount}")
+                    }
+                }
             }
         }
     }

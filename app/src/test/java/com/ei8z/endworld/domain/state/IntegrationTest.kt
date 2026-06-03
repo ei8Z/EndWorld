@@ -19,7 +19,7 @@ class IntegrationTest {
         sm.processPreRuling(estimatedMinutes = 30, primaryType = "战斗")
         sm.applyActionResult(ActionResult(
             "部分成功", 55, 30, 28, "夜间+30%",
-            listOf(ResourceChange("", "", "生命值", -15, 85, 100, "被击伤")),
+            listOf(ResourceChange("", "", "生命值", -15f, 85f, 100f, "被击伤")),
             listOf("中度割伤"), emptyList(), "战斗部分成功", null, null, null
         ), ActionParsed("战斗", "", "敌人", "", "", "高", 30))
 
@@ -30,7 +30,7 @@ class IntegrationTest {
         sm.processPreRuling(estimatedMinutes = 30, primaryType = "搜索")
         sm.applyActionResult(ActionResult(
             "失败", 60, 25, 20, "伤病-5",
-            listOf(ResourceChange("", "", "生命值", -5, 80, 100, "摔倒")),
+            listOf(ResourceChange("", "", "生命值", -5f, 80f, 100f, "摔倒")),
             listOf("轻微擦伤"), emptyList(), "搜索失败", null, null, null
         ), ActionParsed("搜索", "", "", "", "", "中", 30))
 
@@ -41,7 +41,7 @@ class IntegrationTest {
         sm.processPreRuling(estimatedMinutes = 60, primaryType = "休息")
         sm.applyActionResult(ActionResult(
             "成功", 5, 50, 50, "",
-            listOf(ResourceChange("", "", "体力值", 15, 100, 100, "恢复体力")),
+            listOf(ResourceChange("", "", "体力值", 15f, 100f, 100f, "恢复体力")),
             emptyList(), emptyList(), "休息恢复", null, null, null
         ), ActionParsed("休息", "", "", "", "", "低", 60))
 
@@ -225,7 +225,7 @@ class IntegrationTest {
         val sm = SurvivalStateMachine()
         sm.applyActionResult(ActionResult(
             "大失败", 80, 5, 5, "",
-            listOf(ResourceChange("", "", "生命值", -200, -100, 100, "")),
+            listOf(ResourceChange("", "", "生命值", -200f, -100f, 100f, "")),
             listOf("深度撕裂伤"), emptyList(), "重伤", null, null, null
         ), ActionParsed("战斗", "", "", "", "", "极高", 30))
 

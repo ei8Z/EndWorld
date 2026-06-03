@@ -20,21 +20,21 @@ class VitalSystemTest {
     @Test
     fun `applyResourceChange for HP`() {
         val vital = VitalSystem()
-        vital.applyResourceChange(ResourceChange("", "", "生命值", -10, 90))
+        vital.applyResourceChange(ResourceChange("", "", "生命值", -10f, 90f))
         assertEquals(90, vital.hp)
     }
 
     @Test
     fun `HP clamped to zero`() {
         val vital = VitalSystem()
-        vital.applyResourceChange(ResourceChange("", "", "生命值", -200, -100))
+        vital.applyResourceChange(ResourceChange("", "", "生命值", -200f, -100f))
         assertEquals(0, vital.hp)
     }
 
     @Test
     fun `HP clamped to max`() {
         val vital = VitalSystem()
-        vital.applyResourceChange(ResourceChange("", "", "生命值", 50, 150))
+        vital.applyResourceChange(ResourceChange("", "", "生命值", 50f, 150f))
         assertEquals(100, vital.hp)
     }
 
@@ -106,7 +106,7 @@ class VitalSystemTest {
     @Test
     fun `isDead true when hp zero`() {
         val vital = VitalSystem()
-        vital.applyResourceChange(ResourceChange("", "", "生命值", -100, 0))
+        vital.applyResourceChange(ResourceChange("", "", "生命值", -100f, 0f))
         assertTrue(vital.isDead)
     }
 }

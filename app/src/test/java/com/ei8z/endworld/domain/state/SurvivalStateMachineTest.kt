@@ -36,7 +36,7 @@ class SurvivalStateMachineTest {
             totalValue = 50,
             modifiersBreakdown = "",
             resourceChanges = listOf(
-                ResourceChange("", "", "生命值", -5, preSnapshot.hp - 5, 100, "")
+                ResourceChange("", "", "生命值", -5f, (preSnapshot.hp - 5).toFloat(), 100f, "")
             ),
             injuriesApplied = listOf("轻微擦伤"),
             injuriesRecovered = emptyList(),
@@ -82,7 +82,7 @@ class SurvivalStateMachineTest {
     fun `danger warnings appear for low HP`() {
         // Set HP to 10% of max
         machine.vital.applyResourceChange(
-            ResourceChange("", "", "生命值", -90, 10, 100, "")
+            ResourceChange("", "", "生命值", -90f, 10f, 100f, "")
         )
         val snapshot = machine.generatePreRulingSnapshot()
         assertTrue(snapshot.dangerWarnings.contains("生命垂危"))

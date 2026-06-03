@@ -58,25 +58,41 @@ data class WorldSnapshot(
     val waterHoursRemaining: Float = 0f, // 当前水够喝几小时
     val medicalEmergency: Boolean = false, // 是否有需要紧急处理的伤病
     val totalThreatLevel: String = "警惕", // "安全"|"警惕"|"危险"|"绝境"
-    val daysSurvived: Int = 1           // 已存活天数
+    val daysSurvived: Int = 1,          // 已存活天数
+
+    // ===== V2.3 新增字段 =====
+
+    /** 系统建议的行动提示（如物品合并、装备修理等），客户端直接展示为快捷操作 */
+    val suggestedActions: List<String> = emptyList()
 )
 
 /**
  * V2.1 物资物品模型。与 Room 实体 InventoryItem 不同，此模型使用强类型数值字段。
  * InventoryManager 使用此模型，syncGameData 负责向 Room 实体转换。
+ *
+ * V2.3: 新增计量类型字段（measureType/measureUnit/totalMeasure/currentMeasure/isStackable），
+ * 支持连续量物品（水体积、食物重量、装备耐久）的精确追踪。
  */
 data class InventoryItemModel(
     val id: String,
     val name: String,
     val category: String,             // "食物"|"饮品"|"武器"|"工具"|"医疗"|"特殊"
     val quantity: Int,
-    val durability: Int? = null,      // null for consumables
-    val nutrition: Int? = null,
-    val hydration: Int? = null,
+    val durability: Int? = null,      // null for consumables, @Deprecated 迁移至 currentMeasure
+    val nutrition: Int? = null,       // @Deprecated V2.3: 迁移至 unitNutrition × currentMeasure
+    val hydration: Int? = null,       // @Deprecated V2.3: 迁移至 unitHydration × currentMeasure
     val healingValue: Int? = null,
     val weight: Float,
     val unit: String = "份",
-    val tags: List<String> = emptyList()
+    val tags: List<String> = emptyList(),
+    // V2.3 计量字段
+    val measureType: String = "count",
+    val measureUnit: String = "份",
+    val totalMeasure: Float = 1f,
+    val currentMeasure: Float = 1f,
+    val isStackable: Boolean = false,
+    val unitNutrition: Float = 0f,    // 每单位饱食度（替代旧 nutrition: Int?）
+    val unitHydration: Float = 0f     // 每单位水分（替代旧 hydration: Int?）
 )
 
 /**

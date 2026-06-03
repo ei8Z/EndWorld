@@ -110,10 +110,12 @@ class ReasonerApiClient(
                     itemId = obj.optString("itemId", ""),
                     itemName = obj.optString("itemName", ""),
                     category = obj.optString("category", ""),
-                    changeAmount = obj.optInt("changeAmount", 0),
-                    newValue = obj.optInt("newValue", 0),
-                    maxValue = if (obj.has("maxValue") && !obj.isNull("maxValue")) obj.optInt("maxValue") else null,
-                    narrativeHint = obj.optString("narrativeHint", "")
+                    changeAmount = obj.optDouble("changeAmount", 0.0).toFloat(),
+                    newValue = obj.optDouble("newValue", 0.0).toFloat(),
+                    maxValue = if (obj.has("maxValue") && !obj.isNull("maxValue")) obj.optDouble("maxValue").toFloat() else null,
+                    narrativeHint = obj.optString("narrativeHint", ""),
+                    measureType = obj.optString("measureType", "count"),
+                    measureUnit = obj.optString("measureUnit", "份")
                 ))
             } catch (e: Exception) { /* skip broken entry */ }
         }

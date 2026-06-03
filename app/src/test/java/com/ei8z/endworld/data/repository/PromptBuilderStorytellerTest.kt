@@ -7,8 +7,8 @@ import org.junit.Test
 class PromptBuilderStorytellerTest {
 
     @Test
-    fun `STORYTELLER_SYSTEM_PROMPT contains all key sections`() {
-        val p = PromptBuilder.STORYTELLER_SYSTEM_PROMPT
+    fun `buildStorytellerSystemPrompt contains all key sections`() {
+        val p = PromptBuilder.buildStorytellerSystemPrompt()
         assertTrue(p.contains("# Role"))
         assertTrue(p.contains("叙事Agent"))
         assertTrue(p.contains("五感描写"))
@@ -20,8 +20,8 @@ class PromptBuilderStorytellerTest {
     }
 
     @Test
-    fun `STORYTELLER_SYSTEM_PROMPT contains pre-filtered memory note`() {
-        val p = PromptBuilder.STORYTELLER_SYSTEM_PROMPT
+    fun `buildStorytellerSystemPrompt contains pre-filtered memory note`() {
+        val p = PromptBuilder.buildStorytellerSystemPrompt()
         assertTrue(p.contains("已由裁决Agent通过四步判决预先过滤"))
     }
 
@@ -37,7 +37,7 @@ class PromptBuilderStorytellerTest {
     fun `buildStorytellerUserMessage contains ruling result fields`() {
         val ar = ActionResult(
             "部分成功", 55, 30, 28, "修正: 夜间+30%",
-            listOf(ResourceChange("b1", "绷带", "消耗品", -1, 1, null, "包扎用了一条")),
+            listOf(ResourceChange("b1", "绷带", "消耗品", -1f, 1f, null, "包扎用了一条")),
             listOf("轻微擦伤"), emptyList(), "搜索药柜部分成功",
             EventCardRef("e1", "酸雨", "酸雨降临"), "n1", "军队伏笔"
         )
