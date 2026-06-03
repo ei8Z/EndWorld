@@ -1,5 +1,6 @@
 package com.ei8z.endworld.domain.state
 
+import android.util.Log
 import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.model.ActionResult
 import com.ei8z.endworld.data.model.EventCard
@@ -149,10 +150,13 @@ class SurvivalStateMachine(
             inventory.addItem(InventoryItemModel(
                 id = change.itemId, name = change.itemName,
                 category = category, quantity = change.changeAmount,
-                weight = 0.1f
+                unit = "份", weight = 0.1f
             ))
         } else if (change.changeAmount < 0) {
-            inventory.consumeItem(change.itemId, -change.changeAmount)
+            val consumed = inventory.consumeItem(change.itemId, -change.changeAmount)
+            if (consumed == 0) {
+                Log.w("SM", "applyItemChange: 消耗失败 itemId='${change.itemId}' name='${change.itemName}' amount=${change.changeAmount}")
+            }
         }
     }
 

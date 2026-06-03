@@ -69,15 +69,13 @@ data class InventoryItemModel(
     val id: String,
     val name: String,
     val category: String,             // "食物"|"饮品"|"武器"|"工具"|"医疗"|"特殊"
-    // TODO: Phase 8 — Int 无法表示部分消耗（如"一瓶水喝了两口"）。
-    //       当前以"份/次"为最小单位（一瓶水=4份），由裁决Agent自行量化。
-    //       评估改为 Int+unit 方案（如 quantity=3, unit="口"）。
     val quantity: Int,
     val durability: Int? = null,      // null for consumables
     val nutrition: Int? = null,
     val hydration: Int? = null,
     val healingValue: Int? = null,
     val weight: Float,
+    val unit: String = "份",
     val tags: List<String> = emptyList()
 )
 

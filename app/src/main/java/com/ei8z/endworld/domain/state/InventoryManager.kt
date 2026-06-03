@@ -1,5 +1,6 @@
 package com.ei8z.endworld.domain.state
 
+import android.util.Log
 import com.ei8z.endworld.data.model.InventoryItemModel
 
 /**
@@ -45,7 +46,11 @@ class InventoryManager {
      * 添加物品。若已存在同 id 物品，叠加数量。
      */
     fun addItem(item: InventoryItemModel) {
-        val existing = items.indexOfFirst { it.id == item.id }
+        var existing = items.indexOfFirst { it.id == item.id }
+        if (existing < 0) {
+            // 回退：按 name+category 匹配（DB 恢复后 id 已变为 autoGenerate Long）
+            existing = items.indexOfFirst { it.name == item.name && it.category == item.category }
+        }
         if (existing >= 0) {
             val old = items[existing]
             items[existing] = old.copy(quantity = old.quantity + item.quantity)
@@ -63,8 +68,15 @@ class InventoryManager {
      *       评估改为 consumeItem(itemId, ratio: Float) 或 Int+unit 方案。
      */
     fun consumeItem(itemId: String, amount: Int): Int {
-        val idx = items.indexOfFirst { it.id == itemId }
-        if (idx < 0) return 0
+        var idx = items.indexOfFirst { it.id == itemId }
+        if (idx < 0) {
+            // 回退：itemId 可能因 DB 持久化而改变，按名称匹配
+            idx = items.indexOfFirst { it.name == itemId }
+        }
+        if (idx < 0) {
+            Log.w("Inventory", "consumeItem: 未找到物品 id/name='$itemId'，库存: ${items.map { "${it.id}/${it.name}" }}")
+            return 0
+        }
 
         val item = items[idx]
         val consumed = minOf(amount, item.quantity)

@@ -310,7 +310,7 @@ class GameRepository(
             append("- HP: ${preSnapshot.hp}/${preSnapshot.hpMax} | SP: ${preSnapshot.sp}/${preSnapshot.spMax}\n")
             append("- 天气：${preSnapshot.weather} | 昼夜：${if (preSnapshot.isNight) "夜间" else "白昼"}\n")
             if (preSnapshot.inventory.isNotEmpty()) {
-                append("- 随身物品：${preSnapshot.inventory.joinToString("、") { "${it.name}×${it.quantity}" }}\n")
+                append("- 随身物品：${preSnapshot.inventory.joinToString("、") { "${it.name}×${it.quantity}${it.unit}" }}\n")
             }
             append("\n【相关历史记忆】：\n${memoryContext.ifBlank { "无" }}")
         }
@@ -409,12 +409,12 @@ class GameRepository(
         sm.inventory.clear()
         val dbItems = inventoryDao.getAllItems().first()
         dbItems.forEach { item ->
-            val qty = item.quantity.toIntOrNull() ?: 1
             sm.inventory.addItem(InventoryItemModel(
-                id = item.id.toString(),
+                id = item.itemId,
                 name = item.name,
                 category = mapDbCategory(item.category),
-                quantity = qty,
+                quantity = item.quantity,
+                unit = item.unit,
                 weight = 0.1f
             ))
         }
@@ -519,9 +519,11 @@ class GameRepository(
             if (item.name.isBlank()) continue
             val roomCat = catMap[item.category] ?: item.category
             allNewItems.add(InventoryItem(
+                itemId = item.id,
                 category = roomCat,
                 name = item.name,
-                quantity = sanitizeQty(item.quantity).toString()
+                quantity = sanitizeQty(item.quantity),
+                unit = item.unit
             ))
         }
         inventoryDao.syncInventory(allNewItems)

@@ -529,7 +529,7 @@ fun InventoryTab(inventory: List<InventoryItem>) {
                     item { Text(cat, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(vertical = 8.dp)) }
                     items(items) { item ->
                         Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(item.name); Text(item.quantity, color = MaterialTheme.colorScheme.secondary)
+                            Text(item.name); Text("${item.quantity}${item.unit}", color = MaterialTheme.colorScheme.secondary)
                         }
                     }
                     item { HorizontalDivider(modifier = Modifier.padding(top = 4.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)) }

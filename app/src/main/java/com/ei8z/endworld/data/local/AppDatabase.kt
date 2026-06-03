@@ -17,7 +17,7 @@ import com.ei8z.endworld.data.local.entity.*
         WorldInfo::class,
         StoryHistory::class
     ],
-    version = 5,
+    version = 7,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

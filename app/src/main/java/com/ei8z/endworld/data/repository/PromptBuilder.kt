@@ -81,8 +81,10 @@ object PromptBuilder {
      - 其余为"失败"
 
 ## 4. 物资校验规则
+- resourceChanges 中的 itemId 来源：已有物品从"随身物资"方括号中复制（如 `[water_bottle]`）；**新物品**使用英文单词或拼音（如 bandage、canned_food），同一物品多轮保持一致
+- itemName 来源：已有物品从库存中复制；新物品使用中文描述
 - 消耗任何物品前，必须确认 inventory 中存在该物品
-- **物品计量约定**：所有物品 quantity 以"使用次数/份"为最小单位（整数）。裁决时消耗量必须为整数份。
+- **物品计量约定**：每个物品有 quantity（数量）和 unit（单位，如"瓶""份""口""条""个"）。裁决消耗量 changeAmount 以该物品的 unit 为单位（如 unit="口"、changeAmount=-2 表示喝掉2口水）。默认单位"份"表示以使用次数计量。
 - 装备耐久消耗：武器攻击-3~-8耐久（视武器类型），工具使用-2~-5耐久，归零则"损坏"
 
 ## 5. 客户端自动执行的消耗（你无需在 resourceChanges 中重复计入）
@@ -159,7 +161,7 @@ $injuryList
     "result": "成功|部分成功|失败|大成功|大失败",
     "dcValue": 数字, "rollValue": 数字, "totalValue": 数字,
     "modifiersBreakdown": "必须详列计算过程，格式: '基础DC(X) × 夜间(1.Y) × 天气(1.Z) × 技能修正(0.W) = 最终DC(A); 掷骰(R) + 伤病修正(S) = 总计(T); T >= A → 判定结果'",
-    "resourceChanges": [{"itemId": "...", "itemName": "...", "category": "...", "changeAmount": -1, "newValue": 1, "narrativeHint": "..."}],
+    "resourceChanges": [{"itemId": "库存方括号中的ID（新物品用英文/拼音）", "itemName": "库存中的名称（新物品用中文）", "category": "...", "changeAmount": -1（以物品unit为单位）, "newValue": 1, "narrativeHint": "..."}],
     "injuriesApplied": ["伤病名称1"], "injuriesRecovered": ["恢复的伤病名称1"],
     "narrativeSummary": "一句话总结裁决结果和事件",
     "eventTriggered": {"id": "...", "name": "...", "narrativeHint": "..."} 或 null,
@@ -398,8 +400,7 @@ $JSON_CONSTRAINT
 # 字段约束
 - story: 字数≥1000，第一人称，五感描写≥3种
 - suggestions: 每个选项必须携带完整 actionParsed，primaryType 必须来自上述枚举值
-- inventory: quantity 必须是整数（以"份/次"为最小单位）；不能是字符串；categories 必须包含 food/drinks/weapons/tools/medical/special 六类
-  TODO: Phase 8 — Int 无法表示部分消耗（如"半瓶水"），评估 Int+unit 方案
+- inventory: quantity 必须是整数；不能是字符串；categories 必须包含 food/drinks/weapons/tools/medical/special 六类
 - newTempMemory: 格式为"第N天@地点 事件摘要"，长度≤100字
 - affinityDelta: 整数，范围建议-20到+20
         """.trimIndent()
@@ -672,7 +673,7 @@ $JSON_CONSTRAINT
         if (items.isEmpty()) return "无"
         return items.joinToString("、") { item ->
             val dur = if (item.durability != null) "耐久${item.durability}%" else ""
-            "${item.name}×${item.quantity}$dur"
+            "[${item.id}] ${item.name}×${item.quantity}${item.unit}$dur"
         }
     }
 }
