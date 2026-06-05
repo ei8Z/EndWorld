@@ -147,7 +147,7 @@ class PromptBuilderReasonerTest {
         ),
         tagEffects = mapOf("轻微擦伤" to "擦伤提示"),
         inventory = listOf(
-            InventoryItemModel("inv1", "罐头", "食物", 2, null, 30, null, null, 0.3f)
+            InventoryItemModel("inv1", "罐头", "食物", 2, weight = 0.3f, unitNutrition = 30f)
         ),
         totalWeight = 5f, maxWeight = 60f, isOverEncumbered = false,
         equippedWeapon = "棒球棍", equippedTool = null, damagedItems = emptyList(),

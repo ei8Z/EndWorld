@@ -139,26 +139,6 @@ class InventoryManager {
     }
 
     /**
-     * 装备耐久减少。耐久归零时物品标记为损坏。
-     * @param itemId 物品 id
-     * @param damage 耐久减少量
-     */
-    fun damageEquipment(itemId: String, damage: Int) {
-        val idx = items.indexOfFirst { it.id == itemId }
-        if (idx < 0) return
-
-        val item = items[idx]
-        val currentDur = item.durability ?: return // 消耗品无耐久
-
-        val newDur = (currentDur - damage).coerceAtLeast(0)
-        items[idx] = item.copy(durability = newDur)
-
-        if (newDur <= 0) {
-            damagedItems.add(item.name)
-        }
-    }
-
-    /**
      * 移除物品。
      */
     fun removeItem(itemId: String) {
@@ -174,7 +154,8 @@ class InventoryManager {
         val matches = items.filter { it.name == itemName && it.measureType == "volume" && it.isStackable }
         if (matches.size < 2) return -1f
 
-        val total = matches.sumOf { it.currentMeasure.toDouble() }.toFloat()
+        val totalCurrent = matches.sumOf { it.currentMeasure.toDouble() }.toFloat()
+        val totalCapacity = matches.sumOf { it.totalMeasure.toDouble() }.toFloat()
         val first = matches.first()
 
         // 移除所有匹配实例
@@ -183,10 +164,11 @@ class InventoryManager {
         // 添加合并后的单个实例
         items.add(first.copy(
             id = "item_${java.util.UUID.randomUUID().toString().take(8)}",
-            currentMeasure = total,
+            currentMeasure = totalCurrent,
+            totalMeasure = totalCapacity,
             quantity = 1
         ))
-        return total
+        return totalCurrent
     }
 
     /**

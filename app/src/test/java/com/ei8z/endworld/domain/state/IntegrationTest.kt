@@ -258,7 +258,7 @@ class IntegrationTest {
     fun `weight over encumbrance detected correctly`() {
         val sm = SurvivalStateMachine()
         sm.inventory.maxWeight = 10f
-        sm.inventory.addItem(InventoryItemModel("h1", "重物", "特殊", 1, null, null, null, null, 15f))
+        sm.inventory.addItem(InventoryItemModel("h1", "重物", "特殊", 1, weight = 15f))
 
         assertTrue(sm.inventory.isOverEncumbered())
         val snapshot = sm.generatePreRulingSnapshot()

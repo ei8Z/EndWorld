@@ -49,6 +49,23 @@ object PromptBuilder {
 
 # 核心裁决规则
 
+## 0. 角色认知
+- 输入的【角色信息】描述了玩家的性别/体格、性格和末日类型
+- 性格影响行动倾向和风险偏好：
+  * "谨慎"：DC可适度降低（-5~10），因角色会更小心；搜索时更仔细但耗时更长
+  * "勇敢"：战斗/救援DC可适度降低（-5~10），但受伤概率略增
+  * "狡猾"：潜行/社交DC降低（-5~10）；可能触发非传统解决方案
+  * "暴躁"：战斗DC降低但社交DC提升（+5~10）；大失败概率略增
+  * "冷静"：所有判定掷骰修正+5（心态稳定）；医疗/制作DC降低（-5~10）
+  * "强壮"：体力消耗-20%；移动/战斗DC降低5；负重上限+10kg
+  * "敏捷"：潜行/移动DC降低（-5~10）；SP消耗-10%
+  * "坚韧"：HP损失-1（min 1）；疲劳积累-20%；感染概率-10%
+- 末日类型影响环境判定和事件选择：
+  * "丧尸危机"：搜索风险+5DC，战斗多为近战，废墟中可能有感染者
+  * "核冬天"：极寒、缺少阳光，长期户外行动附加疲劳+1/h，植物/动物资源稀缺
+  * "极度严寒"：暴风雪覆盖，移动速度-20%，建筑结构因冰冻脆弱，需要持续热源
+  * "智械危机"：电子设备不可信任，无线电可能被监听，AI/机器人为主要威胁
+
 ## 1. 世界时钟规则
 - 行动耗时以输入的 estimatedTimeMinutes 为基准
 - 夜间行动（isNight=true）：所有基础DC×${1f + rc.NIGHT_DC_MULTIPLIER}
@@ -83,9 +100,10 @@ object PromptBuilder {
 ## 4. 物资校验与精确计量规则（V2.3升级）
 
 ### 4.1 物品识别
-- 输入的【随身物资】中，每件物品都带有 itemId、measureType、currentMeasure、totalMeasure
+- 输入的【随身物资】中，每件物品都带有 itemId、category、measureType、currentMeasure、totalMeasure
 - resourceChanges 中的 itemId 来源：已有物品从"随身物资"方括号中复制（如 `[water_bottle]`）；**新物品**使用英文单词或拼音（如 bandage、canned_food），同一物品多轮保持一致
 - itemName 来源：已有物品从库存中复制；新物品使用中文描述
+- category 来源：已有物品必须从库存括号中复制（如 `volume, 饮品` → category="饮品"）；新物品必须从以下6个类别中选择：食物、饮品、武器、工具、医疗、特殊。禁止使用"消耗品""装备耐久"等非标准类别
 - 消耗任何物品前，必须确认该 itemId 存在且 currentMeasure 足够
 
 ### 4.2 消耗量判定（按计量类型）
@@ -228,6 +246,7 @@ $injuryList
      * 构建裁决Agent的 user message（文档 3.2 输入结构）。
      *
      * V2.2: 新增 skillEffects/npcDepthContext/worldProgress 参数。
+     * V2.3: 新增 player 参数，注入角色信息（性格/体格/末日类型）。
      */
     fun buildReasonerUserMessage(
         actionParsed: ActionParsed,
@@ -239,7 +258,9 @@ $injuryList
         // V2.2 新增
         skillEffects: Map<String, Float> = emptyMap(),
         npcDepthContext: String = "",
-        worldProgress: String = ""
+        worldProgress: String = "",
+        // V2.3 新增
+        player: PlayerState? = null
     ): String = buildString {
         val wp = worldSnapshot
 
@@ -275,6 +296,14 @@ $injuryList
 
         if (wp.dangerWarnings.isNotEmpty()) {
             append("- 警告: ${wp.dangerWarnings.joinToString("、")}\n")
+        }
+
+        // V2.3: 角色信息（影响裁决的环境判定和性格修正）
+        if (player != null) {
+            append("\n【角色信息】：\n")
+            append("- 性别/体格：${player.genderPhysique}\n")
+            append("- 性格：${player.personality}\n")
+            append("- 末日类型：${player.doomType}\n")
         }
 
         append("\n【客户端掷骰】：\n")
@@ -374,6 +403,12 @@ $injuryList
 
 ## 视角
 - 始终使用第一人称"我"
+- 必须遵循输入的【角色信息】：
+  * NPC对你的称呼应体现你的性别/体格（如"小伙子"/"姑娘"/"这位小哥"）
+  * 你的心理活动和决策风格应体现性格（如"谨慎"型会反复权衡后再行动）
+  * 末日环境描写必须与末日类型一致（"核冬天"→低温灰暗，"丧尸危机"→腐烂气味和低吼声）
+  * 第一人称叙事中的身体感受应符合性别/体格设定
+  * 生理需求需要符合性格/成人设定的设定
 
 ## 五感描写
 - 优先描写感官细节：嗅觉（腐烂、消毒水、火药）、听觉（回声、脚步声、心跳）、触觉（冰冷金属、粗糙墙面）、视觉（昏暗光线、血色）、味觉（铁锈味、苦涩）
@@ -487,6 +522,7 @@ $JSON_CONSTRAINT
      * 构建叙事Agent的 user message（文档 4.2 输入结构）。
      *
      * V2.2: 新增 activeGoals/npcDepthContext 参数。
+     * V2.3: 新增 player 参数，注入完整角色信息驱动沉浸式叙事。
      */
     fun buildStorytellerUserMessage(
         actionLabel: String,
@@ -495,7 +531,9 @@ $JSON_CONSTRAINT
         worldSnapshotAfterRuling: WorldSnapshot,
         // V2.2 新增
         activeGoals: List<com.ei8z.endworld.data.model.PersonalGoal> = emptyList(),
-        npcDepthContext: String = ""
+        npcDepthContext: String = "",
+        // V2.3 新增
+        player: PlayerState? = null
     ): String = buildString {
         val wp = worldSnapshotAfterRuling
         val ar = actionResult
@@ -560,6 +598,23 @@ $JSON_CONSTRAINT
         append("\n【当前时间（必须使用）】：\n")
         append("- 精确时间：${wp.currentDateTime}\n")
         append("- 以上时间由游戏时钟权威计算，header.date/time 必须严格使用此值，不得自行推测。\n")
+
+        // V2.3: 完整角色信息（驱动第一人称叙事沉浸感）
+        if (player != null) {
+            append("\n【角色信息 — 必须遵循以下设定】：\n")
+            append("- 代号：${player.name}\n")
+            append("- 性别/体格：${player.genderPhysique}\n")
+            append("- 性格：${player.personality}\n")
+            append("- 背景：${player.baseDescription}\n")
+            if (player.adultProfile.isNotBlank()) {
+                append("- 成人设定：${player.adultProfile}\n")
+            }
+            append("- 末日类型：${player.doomType}\n")
+            val thought = player.innerThought
+            if (thought.isNotBlank() && thought != "灾难降临了……") {
+                append("- 上一轮内心独白：${thought}\n")
+            }
+        }
 
         // ===== V2.2 新增段落 =====
 
@@ -749,14 +804,14 @@ $JSON_CONSTRAINT
                         item.currentMeasure.toInt().toString() else String.format("%.1f", item.currentMeasure)
                     val total = if (item.totalMeasure == item.totalMeasure.toInt().toFloat())
                         item.totalMeasure.toInt().toString() else String.format("%.1f", item.totalMeasure)
-                    "[${item.id}] ${item.name} $remain/$total${item.measureUnit} (${item.measureType})"
+                    "[${item.id}] ${item.name} $remain/$total${item.measureUnit} (${item.measureType}, ${item.category})"
                 }
                 "durability" -> {
                     val remain = item.currentMeasure.toInt()
-                    "[${item.id}] ${item.name} $remain/${item.totalMeasure.toInt()}% (durability)"
+                    "[${item.id}] ${item.name} $remain/${item.totalMeasure.toInt()}% (durability, ${item.category})"
                 }
-                "ammo" -> "[${item.id}] ${item.name} ×${item.currentMeasure.toInt()}${item.measureUnit} (ammo${if (item.isStackable) ", 可合并" else ""})"
-                else -> "[${item.id}] ${item.name} ×${item.quantity}${item.unit} (count)"
+                "ammo" -> "[${item.id}] ${item.name} ×${item.currentMeasure.toInt()}${item.measureUnit} (ammo, ${item.category}${if (item.isStackable) ", 可合并" else ""})"
+                else -> "[${item.id}] ${item.name} ×${item.quantity}${item.measureUnit} (count, ${item.category})"
             }
         }
     }

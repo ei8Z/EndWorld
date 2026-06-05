@@ -10,6 +10,7 @@ import com.ei8z.endworld.data.model.InjuryProgress
 import com.ei8z.endworld.data.model.InventoryItemModel
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.model.WorldSnapshot
+import com.ei8z.endworld.data.GameConfigLoader
 import com.ei8z.endworld.data.plot.ChapterDataLoader
 import com.ei8z.endworld.data.plot.PlotManager
 import com.ei8z.endworld.data.remote.DeepSeekApiService
@@ -72,8 +73,11 @@ class GameRepository(
 
     /** 生存状态机（客户端唯一数据权威）。PlotManager 从 assets 加载章节。 */
     private val stateMachine: SurvivalStateMachine by lazy {
+        val gameConfig = GameConfigLoader.load(context)
+        val templates = gameConfig.items.associateBy { it.name }
         SurvivalStateMachine(
-            plotManager = PlotManager(ChapterDataLoader.loadChapters(context))
+            plotManager = PlotManager(ChapterDataLoader.loadChapters(context)),
+            itemTemplates = templates
         )
     }
 
@@ -177,8 +181,13 @@ class GameRepository(
 
         // 2. 并行获取上下文
         val plotContext = sm.generatePlotContextWithWorldEvents()
+        // V2.3: 传入更精细的行为参数
         val memoryContext = memosAdapter.buildMemoryContext(
-            actionParsed.primaryType, preSnapshot.location, preSnapshot.nearbyNpcs
+            primaryType = actionParsed.primaryType,
+            subType = actionParsed.subType,
+            target = actionParsed.target,
+            location = preSnapshot.location,
+            nearbyNpcs = preSnapshot.nearbyNpcs
         )
         val eventCandidates = sm.getEventCandidates()
         val rollValue = ClientDiceRoller.roll()
@@ -197,7 +206,8 @@ class GameRepository(
             actionParsed, preSnapshot, memoryContext, plotContext, rollValue, eventCandidates,
             skillEffects = skillEffects,
             npcDepthContext = npcDepthContext,
-            worldProgress = worldProgress
+            worldProgress = worldProgress,
+            player = player
         )
         saveJsonToDebugFile(reasonerMessage, "reasoner_user_msg")
         val actionResult = reasonerClient.reason(
@@ -215,7 +225,8 @@ class GameRepository(
         val storytellerMessage = PromptBuilder.buildStorytellerUserMessage(
             actionLabel, actionResult, plotContext, postSnapshot,
             activeGoals = activeGoals,
-            npcDepthContext = npcDepthContext
+            npcDepthContext = npcDepthContext,
+            player = player
         )
         saveJsonToDebugFile(storytellerMessage, "storyteller_user_msg")
 
@@ -329,7 +340,9 @@ class GameRepository(
 
         // 需要叙事的类型：调用支线叙事Agent
         val memoryContext = memosAdapter.buildMemoryContext(
-            branchType.label, preSnapshot.location, preSnapshot.nearbyNpcs
+            primaryType = branchType.label,
+            location = preSnapshot.location,
+            nearbyNpcs = preSnapshot.nearbyNpcs
         )
 
         trySend(StreamEvent.PhaseChanged("story"))
@@ -344,7 +357,7 @@ class GameRepository(
             append("- HP: ${preSnapshot.hp}/${preSnapshot.hpMax} | SP: ${preSnapshot.sp}/${preSnapshot.spMax}\n")
             append("- 天气：${preSnapshot.weather} | 昼夜：${if (preSnapshot.isNight) "夜间" else "白昼"}\n")
             if (preSnapshot.inventory.isNotEmpty()) {
-                append("- 随身物品：${preSnapshot.inventory.joinToString("、") { "${it.name}×${it.quantity}${it.unit}" }}\n")
+                append("- 随身物品：${preSnapshot.inventory.joinToString("、") { "${it.name}×${it.quantity}${it.measureUnit}" }}\n")
             }
             append("\n【相关历史记忆】：\n${memoryContext.ifBlank { "无" }}")
         }
@@ -448,8 +461,7 @@ class GameRepository(
                 name = item.name,
                 category = mapDbCategory(item.category),
                 quantity = item.quantity,
-                unit = item.unit,
-                weight = 0.1f,
+                weight = item.weight,
                 // V2.3 计量字段从 DB 恢复
                 measureType = item.measureType,
                 measureUnit = item.measureUnit,
@@ -465,6 +477,7 @@ class GameRepository(
     /** Room 实体类别 → 模型类别映射 */
     private fun mapDbCategory(dbCat: String): String = when (dbCat) {
         "饮水" -> "饮品"
+        "消耗品", "装备耐久" -> "特殊"
         else -> dbCat
     }
 
@@ -555,7 +568,8 @@ class GameRepository(
         fun sanitizeQty(q: Int) = if (q < 0) 0 else q
         val catMap = mapOf(
             "食物" to "食物", "饮品" to "饮水", "武器" to "武器",
-            "工具" to "工具", "医疗" to "医疗", "特殊" to "特殊"
+            "工具" to "工具", "医疗" to "医疗", "特殊" to "特殊",
+            "消耗品" to "特殊", "装备耐久" to "特殊"
         )
         for (item in postSnapshot.inventory) {
             if (item.name.isBlank()) continue
@@ -565,7 +579,7 @@ class GameRepository(
                 category = roomCat,
                 name = item.name,
                 quantity = sanitizeQty(item.quantity),
-                unit = item.unit,
+                weight = item.weight,
                 // V2.3 计量字段持久化
                 measureType = item.measureType,
                 measureUnit = item.measureUnit,
@@ -619,7 +633,7 @@ class GameRepository(
     // ======================== MemOS 回写 ========================
 
     /**
-     * V2.2: NPC重要交互打标。检测关系转折、阈���突破等关键事件，
+     * V2.2: NPC重要交互打标。检测关系转折、阈值突破等关键事件，
      * 为 MemOS 查询提供筛选优先级。
      */
     private suspend fun writebackToMemos(userAction: String, finalResponse: GameResponse, uid: String) {

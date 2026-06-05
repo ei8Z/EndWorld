@@ -11,7 +11,12 @@
       "Bash(./gradlew testDebugUnitTest --tests \"com.ei8z.endworld.domain.state.VitalSystemTest\" --info)",
       "Bash(./gradlew testDebugUnitTest --tests \"com.ei8z.endworld.domain.state.VitalSystemTest\")",
       "Read(//tmp/**)",
-      "Bash(./gradlew compileDebugKotlin compileDebugUnitTestKotlin)"
+      "Bash(./gradlew compileDebugKotlin compileDebugUnitTestKotlin)",
+      "Bash(./gradlew assembleDebug)",
+      "Bash(./gradlew :app:testDebugUnitTest --tests \"com.ei8z.endworld.data.repository.PromptBuilderReasonerTest\" --tests \"com.ei8z.endworld.data.repository.PromptBuilderStorytellerTest\" --tests \"com.ei8z.endworld.domain.state.InventoryManagerTest\" --tests \"com.ei8z.endworld.domain.state.IntegrationTest\")",
+      "Bash(./gradlew :app:testDebugUnitTest --tests \"com.ei8z.endworld.data.repository.PromptBuilderReasonerTest\" --tests \"com.ei8z.endworld.data.repository.PromptBuilderStorytellerTest\")",
+      "Bash(./gradlew :app:testDebugUnitTest --tests \"com.ei8z.endworld.domain.state.InventoryFlowSimulationTest\")",
+      "Bash(./gradlew :app:testDebugUnitTest --tests \"com.ei8z.endworld.domain.state.*\" --tests \"com.ei8z.endworld.data.repository.*\")"
     ]
   }
 }

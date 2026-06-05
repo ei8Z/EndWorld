@@ -3,13 +3,12 @@ package com.ei8z.endworld.data.remote
 import android.util.Log
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.supervisorScope
 
 /**
  * MemOS 记忆系统适配器。封装多维度查询（事实/关系/因果/NPC深度），
  * 将 MemOS API 返回的原始记忆格式化为 PromptBuilder 所需文本。
  *
- * V2.2: 新增NPC深度查询，优先筛选 [重要]/[关系转折] 标签记忆。
+ * V2.3: 重构检索逻辑，引入细粒度关键词（target/subType）避免宽泛枚举导致的搜索噪声。
  */
 class MemOSAdapter(
     private val apiService: MemosApiService,
@@ -23,19 +22,29 @@ class MemOSAdapter(
 
     /**
      * 执行三类并行查询并返回格式化记忆文本。
-     * 任一类查询失败时该类别返回空字符串，不阻塞其他查询。
+     * V2.3: 引入 subType 和 target 提升检索精度。
      *
      * @return 格式化记忆文本，可直接嵌入 PromptBuilder 的 user message。
-     *         无记忆时返回空字符串。
      */
     suspend fun buildMemoryContext(
-        actionType: String,
+        primaryType: String,
+        subType: String = "",
+        target: String = "",
         location: String,
         nearbyNpcs: List<String>
     ): String = coroutineScope {
-        val factsDeferred = async { runCatching { queryFacts(actionType, location) }.getOrDefault("") }
-        val relationsDeferred = async { runCatching { queryRelations(nearbyNpcs) }.getOrDefault("") }
-        val causalDeferred = async { runCatching { queryCausal(actionType) }.getOrDefault("") }
+        // 事实检索：优先查特定目标和行为
+        val factsDeferred = async {
+            runCatching { queryFacts(primaryType, subType, target, location) }.getOrDefault("")
+        }
+        // 关系检索：针对周边 NPC
+        val relationsDeferred = async {
+            runCatching { queryRelations(nearbyNpcs) }.getOrDefault("")
+        }
+        // 因果检索：查特定行为或目标的过往后果
+        val causalDeferred = async {
+            runCatching { queryCausal(primaryType, target) }.getOrDefault("")
+        }
 
         val facts = factsDeferred.await()
         val relations = relationsDeferred.await()
@@ -47,14 +56,22 @@ class MemOSAdapter(
     // ---- 三类查询 ----
 
     /**
-     * 事实查询：检索与当前行动类型和位置相关的历史事件。
+     * 事实查询：检索与当前行动具体目标、方式和位置相关的历史事件。
+     * V2.3: 关键词权重：target > subType > location > primaryType
      */
-    suspend fun queryFacts(actionType: String, location: String): String {
-        if (actionType.isBlank()) return ""
+    suspend fun queryFacts(primaryType: String, subType: String, target: String, location: String): String {
         val query = buildString {
-            append(actionType)
-            if (location.isNotBlank()) append(" $location")
-        }
+            if (target.isNotBlank()) append("$target ")
+            if (subType.isNotBlank()) append("$subType ")
+            if (location.isNotBlank()) append(location)
+            
+            // 如果上述都为空，才使用宽泛的 primaryType 兜底
+            if (this.isEmpty() && primaryType.isNotBlank()) {
+                append(primaryType)
+            }
+        }.trim()
+
+        if (query.isEmpty()) return ""
         return executeQuery(query, "[事实记忆]")
     }
 
@@ -69,22 +86,23 @@ class MemOSAdapter(
     }
 
     /**
-     * 因果查询：检索与当前行动类型相关的因果链。
-     * 例如："搜索" → 检索历史上搜索行动导致的后果。
+     * 因果查询：检索与当前行动目标或类型相关的因果链。
+     * V2.3: 优先检索特定目标的交互后果。
      */
-    suspend fun queryCausal(actionType: String): String {
-        if (actionType.isBlank()) return ""
-        val query = "${actionType}的后果"
+    suspend fun queryCausal(primaryType: String, target: String): String {
+        val query = when {
+            target.isNotBlank() -> "与${target}交互的后果"
+            primaryType.isNotBlank() -> "${primaryType}的风险与影响"
+            else -> return ""
+        }
         return executeQuery(query, "[因果记忆]")
     }
 
     /**
-     * V2.2 NPC深度查询：检索与指定NPC的重大互动历史。
-     * 优先级：优先返回含 [关系转折]/[重要] 标签的记忆。
+     * NPC深度查询：检索与指定NPC的重大互动历史。
      */
     suspend fun queryNpcDepth(npcName: String): String {
         if (npcName.isBlank()) return ""
-        // 双查询策略：先查重要标记，再查一般互动
         val importantQuery = "[关系转折] $npcName OR [重要] $npcName"
         val importantResult = executeQuery(importantQuery, "[NPC重要记忆]")
         val generalQuery = "$npcName 互动历史 性格"
@@ -96,10 +114,6 @@ class MemOSAdapter(
 
     // ---- 内部 ----
 
-    /**
-     * 执行单次 MemOS 搜索并格式化结果。
-     * 查询失败时记录日志并返回空字符串（降级策略）。
-     */
     private suspend fun executeQuery(query: String, label: String): String {
         return try {
             val response = apiService.searchMemory(
@@ -122,10 +136,6 @@ class MemOSAdapter(
         }
     }
 
-    /**
-     * 将三类查询结果拼接为最终的记忆文本。
-     * 若全部为空则返回空字符串。
-     */
     private fun buildFormattedMemory(facts: String, relations: String, causal: String): String {
         val parts = listOf(facts, relations, causal).filter { it.isNotBlank() }
         return parts.joinToString("\n\n")

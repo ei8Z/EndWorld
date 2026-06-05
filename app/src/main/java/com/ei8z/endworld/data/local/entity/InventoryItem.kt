@@ -13,7 +13,7 @@ data class InventoryItem(
     val category: String, // food, drinks, weapons, special
     val name: String,
     val quantity: Int = 0,
-    val unit: String = "份",
+    val weight: Float = 0.1f,
     // V2.3 计量字段
     val measureType: String = "count",
     val measureUnit: String = "份",

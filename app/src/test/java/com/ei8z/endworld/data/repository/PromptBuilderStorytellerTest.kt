@@ -60,7 +60,7 @@ class PromptBuilderStorytellerTest {
             75, 100, 80, 100, 35, 40, 50,
             listOf(InjuryTag("i1", "中度割伤", 1, 1.0f, 0.1f, 48, "绷带", "伤口需要包扎")),
             mapOf("中度割伤" to "伤口需要包扎"),
-            listOf(InventoryItemModel("inv1", "罐头", "食物", 2, null, 30, null, null, 0.3f)),
+            listOf(InventoryItemModel("inv1", "罐头", "食物", 2, weight = 0.3f, unitNutrition = 30f)),
             8f, 60f, false,
             "棒球棍", null, listOf("手电筒"),
             "废弃医院", "走廊昏暗，气味刺鼻", "废墟",

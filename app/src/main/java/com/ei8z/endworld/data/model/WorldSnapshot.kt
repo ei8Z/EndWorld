@@ -78,21 +78,15 @@ data class InventoryItemModel(
     val name: String,
     val category: String,             // "食物"|"饮品"|"武器"|"工具"|"医疗"|"特殊"
     val quantity: Int,
-    val durability: Int? = null,      // null for consumables, @Deprecated 迁移至 currentMeasure
-    val nutrition: Int? = null,       // @Deprecated V2.3: 迁移至 unitNutrition × currentMeasure
-    val hydration: Int? = null,       // @Deprecated V2.3: 迁移至 unitHydration × currentMeasure
-    val healingValue: Int? = null,
-    val weight: Float,
-    val unit: String = "份",
-    val tags: List<String> = emptyList(),
+    val weight: Float,                // 已知限制：硬编码 0.1f，待 ItemLibrary 提供真实重量
     // V2.3 计量字段
     val measureType: String = "count",
     val measureUnit: String = "份",
     val totalMeasure: Float = 1f,
     val currentMeasure: Float = 1f,
     val isStackable: Boolean = false,
-    val unitNutrition: Float = 0f,    // 每单位饱食度（替代旧 nutrition: Int?）
-    val unitHydration: Float = 0f     // 每单位水分（替代旧 hydration: Int?）
+    val unitNutrition: Float = 0f,    // 每单位饱食度
+    val unitHydration: Float = 0f     // 每单位水分
 )
 
 /**

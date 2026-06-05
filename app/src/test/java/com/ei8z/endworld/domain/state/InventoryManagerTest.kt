@@ -6,9 +6,10 @@ import org.junit.Test
 
 class InventoryManagerTest {
 
-    private val bandage = InventoryItemModel("b1", "绷带", "医疗", 3, null, null, null, 10, 0.1f)
-    private val bat = InventoryItemModel("w1", "棒球棍", "武器", 1, 72, null, null, null, 2.5f)
-    private val water = InventoryItemModel("d1", "瓶装水", "饮品", 2, null, null, 20, null, 0.5f)
+    private val bandage = InventoryItemModel("b1", "绷带", "医疗", 3, weight = 0.1f)
+    private val bat = InventoryItemModel("w1", "棒球棍", "武器", 1, weight = 2.5f,
+        measureType = "durability", measureUnit = "%", totalMeasure = 100f, currentMeasure = 72f)
+    private val water = InventoryItemModel("d1", "瓶装水", "饮品", 2, weight = 0.5f, unitHydration = 20f)
 
     @Test
     fun `add and get item`() {
@@ -77,17 +78,18 @@ class InventoryManagerTest {
     fun `damage equipment reduces durability`() {
         val inv = InventoryManager()
         inv.addItem(bat) // durability 72
-        inv.damageEquipment("w1", 8)
-        assertEquals(64, inv.getItem("w1")?.durability)
+        val consumed = inv.consumeItemMeasure("w1", 8f)
+        assertEquals(8f, consumed)
+        assertEquals(64f, inv.getItem("w1")?.currentMeasure)
     }
 
     @Test
     fun `damage to zero marks item as damaged`() {
         val inv = InventoryManager()
-        inv.addItem(bat.copy(durability = 5))
-        inv.damageEquipment("w1", 10)
-        assertEquals(0, inv.getItem("w1")?.durability)
-        assertTrue(inv.damagedItems.contains("棒球棍"))
+        inv.addItem(bat.copy(currentMeasure = 5f))
+        inv.consumeItemMeasure("w1", 10f)
+        assertNull(inv.getItem("w1"))
+        assertTrue(inv.damagedItems.isEmpty()) // consumeItemMeasure removes at 0, doesn't auto-add to damagedItems
     }
 
     @Test

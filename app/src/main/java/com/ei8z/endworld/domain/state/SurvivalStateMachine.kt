@@ -6,6 +6,7 @@ import com.ei8z.endworld.data.model.ActionResult
 import com.ei8z.endworld.data.model.EventCard
 import com.ei8z.endworld.data.model.InjuryProgress
 import com.ei8z.endworld.data.model.InventoryItemModel
+import com.ei8z.endworld.data.model.ItemTemplate
 import com.ei8z.endworld.data.model.PlotContext
 import com.ei8z.endworld.data.model.ResourceChange
 import com.ei8z.endworld.data.model.WorldEvent
@@ -21,7 +22,8 @@ import kotlin.math.roundToInt
  * V2.2: 新增 SkillManager、GoalTracker 集成、WorldEventManager。
  */
 class SurvivalStateMachine(
-    plotManager: PlotManager? = null
+    plotManager: PlotManager? = null,
+    private val itemTemplates: Map<String, ItemTemplate> = emptyMap()
 ) {
     val clock = GameClock()
     val weather = WeatherSystem()
@@ -163,15 +165,21 @@ class SurvivalStateMachine(
             } else 1f
             val totalM = if (isContinuous) safeMax else change.maxValue ?: 1f
 
+            // 从 ItemTemplate 库查找物品预设属性（name 精确匹配，失败回退到 id 匹配）
+            val tmpl = itemTemplates[change.itemName]
+                ?: itemTemplates[change.itemId]
+
             inventory.addItem(InventoryItemModel(
                 id = change.itemId, name = change.itemName,
-                category = category, quantity = qty,
-                unit = change.measureUnit,
-                weight = 0.1f,
+                category = tmpl?.category ?: category, quantity = qty,
+                weight = tmpl?.weight ?: 0.1f,
                 measureType = change.measureType,
                 measureUnit = change.measureUnit,
                 totalMeasure = totalM,
-                currentMeasure = curMeasure
+                currentMeasure = curMeasure,
+                isStackable = tmpl?.isStackable ?: (change.measureType == "volume"),
+                unitNutrition = tmpl?.unitNutrition ?: 0f,
+                unitHydration = tmpl?.unitHydration ?: 0f
             ))
         } else if (change.changeAmount < 0f) {
             when (change.measureType) {
