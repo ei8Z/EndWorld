@@ -16,9 +16,9 @@ import org.json.JSONObject
  *
  * API 参数（对应文档 3.5）：
  * - model: deepseek-v4-pro
- * - reasoningEffort: high（裁决需要高推理能力）
+ * - reasoningEffort: max（裁决需要最高推理能力）
  * - responseFormat: json_object
- * - maxTokens: 1024（裁决结果较短）
+ * - maxTokens: 8192（V2.3 升级后 ActionResult 包含精确计量等字段，需要更大输出空间）
  * - stream: false（裁决不需要流式）
  *
  * 解析 response.choices[0].message.content 中的 ActionResult JSON。
