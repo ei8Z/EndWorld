@@ -18,7 +18,13 @@
       "Bash(./gradlew :app:testDebugUnitTest --tests \"com.ei8z.endworld.domain.state.InventoryFlowSimulationTest\")",
       "Bash(./gradlew :app:testDebugUnitTest --tests \"com.ei8z.endworld.domain.state.*\" --tests \"com.ei8z.endworld.data.repository.*\")",
       "Bash(sed -n '145,152p' \"/Users/ei8z/MobileDevelopProject/AndroidProject/EndWorld/doc/v3/agent/V3.0 Agent 配置规范 V1.0.md\")",
-      "Bash(sed -n '278,284p' \"/Users/ei8z/MobileDevelopProject/AndroidProject/EndWorld/doc/v3/agent/V3.0 Agent 配置规范 V1.0.md\")"
+      "Bash(sed -n '278,284p' \"/Users/ei8z/MobileDevelopProject/AndroidProject/EndWorld/doc/v3/agent/V3.0 Agent 配置规范 V1.0.md\")",
+      "Bash(./gradlew :app:compileDebugKotlin)",
+      "Bash(./gradlew :app:testDebugUnitTest)",
+      "Bash(./gradlew :app:kspDebugKotlin)",
+      "Bash(./gradlew :app:compileDebugUnitTestKotlin)",
+      "Bash(./gradlew :app:compileDebugKotlin :app:compileDebugUnitTestKotlin)",
+      "Bash(./gradlew clean *)"
     ]
   }
 }

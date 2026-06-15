@@ -107,6 +107,10 @@ class GameRepository(
         MemOSAdapter(memosApiService, memosAuthHeader, userId, conversationId)
     }
 
+    // V3.0: 暴露内部组件给 GameRepositoryV3
+    fun getStateMachine() = stateMachine
+    fun getUserId() = userId
+
     // ---- Flow 属性 ----
 
     val playerState: Flow<PlayerState?> = playerDao.getPlayer()

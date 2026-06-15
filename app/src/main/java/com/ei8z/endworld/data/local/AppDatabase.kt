@@ -7,6 +7,7 @@ import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 import com.ei8z.endworld.data.local.dao.*
 import com.ei8z.endworld.data.local.entity.*
+import com.ei8z.endworld.domain.world.dao.*
 
 @Database(
     entities = [
@@ -15,9 +16,13 @@ import com.ei8z.endworld.data.local.entity.*
         Memory::class,
         NpcRelation::class,
         WorldInfo::class,
-        StoryHistory::class
+        StoryHistory::class,
+        FactionEntity::class,
+        RegionEntity::class,
+        GlobalEventEntity::class,
+        NpcStateEntity::class
     ],
-    version = 9,
+    version = 10,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -29,6 +34,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun npcDao(): NpcDao
     abstract fun worldDao(): WorldDao
     abstract fun historyDao(): HistoryDao
+    abstract fun factionDao(): FactionDao
+    abstract fun regionDao(): RegionDao
+    abstract fun globalEventDao(): GlobalEventDao
+    abstract fun npcStateDao(): NpcStateDao
 
     companion object {
         @Volatile

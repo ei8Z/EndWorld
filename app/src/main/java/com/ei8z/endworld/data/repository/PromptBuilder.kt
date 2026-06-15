@@ -815,4 +815,172 @@ $JSON_CONSTRAINT
             }
         }
     }
+
+    // ============================================================
+    // V3.0 扩展：世界叙事Agent、轻量AI评估、加速退出、死亡叙事
+    // ============================================================
+
+    /**
+     * 世界叙事Agent System Prompt（含双模式：正常总结 + 死亡报告）
+     * Agent 配置规范 §4.2
+     */
+    fun buildWorldStorytellerSystemPrompt(): String = """
+# Role
+你是末日世界的观察者。你的任务是将一段时间的流逝转化为一个简洁而有冲击力的叙事总结。
+
+# 模式判断
+根据 autoPilotReport 中的 playerSurvived 字段自动切换模式：
+- playerSurvived = true → 正常总结模式（默认）
+- playerSurvived = false → 死亡报告模式
+
+# 正常总结模式（playerSurvived = true）
+## 输出格式
+{
+  "mode": "summary",
+  "timeMarker": "第X天 14:00",
+  "summary": "加速总结叙事文本（≤300字）——完整的叙事段落，而非状态列表",
+  "notableChanges": [
+    {"type": "npc_death", "detail": "..."},
+    {"type": "npc_departure", "detail": "..."},
+    {"type": "npc_relation_change", "detail": "..."},
+    {"type": "faction_event", "detail": "..."},
+    {"type": "resource_crisis", "detail": "..."}
+  ],
+  "playerStatus": {"hp": 85, "hunger": 40, "thirst": 35, "consumedFactionResources": "...", "injuriesHealed": [], "injuriesSustained": []},
+  "final": true
+}
+## 风格：像日记或回忆录的一页，重大事件赋予细节和情感重量，平淡时期一笔带过
+
+# 死亡报告模式（playerSurvived = false）
+## 输出格式
+{
+  "mode": "death_report",
+  "timeMarker": "第X天 14:00",
+  "summary": "角色最后时刻的叙事（≤400字）",
+  "deathCause": "饥饿",
+  "deathGameTime": "第5天 03:00",
+  "finalMoments": "角色在饥饿中意识模糊的最后时刻描述（≤100字）",
+  "notableChanges": [],
+  "playerStatus": {"hp": 0, "hunger": 0, "thirst": 5, "consumedFactionResources": "...", "injuriesHealed": [], "injuriesSustained": [{"type": "starvation", "severity": "fatal"}]},
+  "final": true
+}
+## 风格：聚焦于"如何死去"，尊重残酷现实，不煽情不回避
+    """.trimIndent()
+
+    /**
+     * 世界叙事Agent User Message
+     */
+    fun buildWorldStorytellerUserMessage(
+        timeSpan: String,
+        localSummaryLog: List<String>,
+        actualChanges: List<String>,
+        autoPilotReport: String,
+        currentScene: String,
+        playerSurvived: Boolean = true,
+        deathCause: String? = null,
+        deathGameTime: String? = null,
+        finalVitals: String? = null
+    ): String = buildString {
+        appendLine("【时间跨度】：$timeSpan")
+        appendLine()
+        appendLine("【加速期间的本地摘要序列】：")
+        localSummaryLog.forEachIndexed { i, s -> appendLine("- [时间$i]：$s") }
+        appendLine()
+        appendLine("【批量追赶的实际结算结果】：")
+        actualChanges.forEach { appendLine("- $it") }
+        appendLine()
+        appendLine("【自动导航报告】：")
+        appendLine(autoPilotReport)
+        if (!playerSurvived) {
+            appendLine("死亡原因：$deathCause")
+            appendLine("死亡时间：$deathGameTime")
+            appendLine("最后状态：$finalVitals")
+        }
+        appendLine()
+        appendLine("【当前场景】：")
+        appendLine(currentScene)
+    }
+
+    /**
+     * 轻量AI评估统一 System Prompt
+     * Agent 配置规范 §5.3
+     */
+    fun buildLightweightEvalSystemPrompt(): String = """
+# Role
+你是末日世界局势的分析者。基于结构化数据推断局势演变，输出精确的 JSON 决策。
+
+# 原则
+1. 输入全部来自系统提供的结构化数据——不要编造输入中不存在的事实
+2. 输出必须是可以被代码直接执行的结构化 JSON——不要叙事文本
+3. 无法得出确定结论时，选择最保守的选项（维持现状 / 不触发重大变更）
+4. 每个输出字段有明确的 schema——严格遵守。场景1允许在 evaluation 对象中新增 rationale 和 suggestedNarrativeAngle 字段；场景2-7的 rationale 和 suggestedNarrativeAngle 位于 decision 外层。不得新增其他未定义字段。
+
+# 通用输出结构（场景2-7）
+{
+  "decision": { /* 场景特定的决策字段 */ },
+  "rationale": "一句话说明决策依据（≤50字）",
+  "suggestedNarrativeAngle": "一句话叙事建议（≤50字）"
+}
+    """.trimIndent()
+
+    /**
+     * 叙事Agent 加速退出模式 User Message
+     * Agent 配置规范 §3.3
+     */
+    fun buildStorytellerAccelExitUserMessage(
+        worldSummary: String,
+        playerStatus: String,
+        notableChanges: String,
+        worldSnapshot: String,
+        nearbyNpcs: String,
+        plotContext: String,
+        memoryContext: String
+    ): String = buildString {
+        appendLine("【加速总结】：$worldSummary")
+        appendLine()
+        appendLine("【角色状态】：$playerStatus")
+        appendLine()
+        if (notableChanges.isNotBlank()) {
+            appendLine("【期间显著变化】：$notableChanges")
+            appendLine()
+        }
+        appendLine("【当前世界状态】：$worldSnapshot")
+        appendLine()
+        appendLine("【附近NPC】：$nearbyNpcs")
+        appendLine()
+        appendLine("【剧情上下文】：$plotContext")
+        appendLine()
+        appendLine("【记忆上下文】：$memoryContext")
+        appendLine()
+        appendLine("请基于以上信息生成进入正常模式后的初始场景叙事和新的行动选项。")
+    }
+
+    /**
+     * 叙事Agent 死亡叙事模式 User Message
+     * Agent 配置规范 §3.3
+     */
+    fun buildStorytellerDeathUserMessage(
+        deathCause: String,
+        actionResult: String,
+        finalVitals: String,
+        worldSnapshot: String,
+        plotContext: String,
+        memoryContext: String
+    ): String = buildString {
+        appendLine("【模式】：死亡叙事")
+        appendLine()
+        appendLine("【死亡原因】：$deathCause")
+        appendLine()
+        appendLine("【致死行动结果】：$actionResult")
+        appendLine()
+        appendLine("【角色最后状态】：$finalVitals")
+        appendLine()
+        appendLine("【世界状态】：$worldSnapshot")
+        appendLine()
+        appendLine("【剧情上下文】：$plotContext")
+        appendLine()
+        appendLine("【记忆上下文】：$memoryContext")
+        appendLine()
+        appendLine("请以终结语气生成角色的最后时刻叙事（仅输出叙事文本，无需 suggestions 和 statusUpdate）。")
+    }
 }
