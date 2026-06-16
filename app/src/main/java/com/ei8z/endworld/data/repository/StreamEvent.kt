@@ -22,4 +22,10 @@ sealed class StreamEvent {
     /** V2.1 双Agent流程阶段切换："fate"=裁决中, "story"=叙事流式输出中 */
     data class PhaseChanged(val phase: String) : StreamEvent()
     data class Error(val message: String, val retryable: Boolean = true) : StreamEvent()
+    /** V3.0 加速模式：模板引擎每次生成的实时状态栏文本 */
+    data class AccelerationTick(val text: String) : StreamEvent()
+    /** V3.0 加速退出：世界叙事Agent完成后的最终摘要 */
+    data class AccelerationEnded(val summary: String) : StreamEvent()
+    /** V3.0 玩家死亡事件 */
+    data class PlayerDied(val cause: String, val narrative: String) : StreamEvent()
 }

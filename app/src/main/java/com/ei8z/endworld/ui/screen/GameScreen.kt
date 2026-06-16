@@ -9,6 +9,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ei8z.endworld.data.local.entity.*
+import com.ei8z.endworld.data.model.SpeedMode
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.remote.model.KnownPoint
 import com.ei8z.endworld.domain.state.SkillLibrary
@@ -62,6 +64,13 @@ fun GameScreen(viewModel: GameViewModel) {
     val gmStrategy by viewModel.gmStrategy.collectAsStateWithLifecycle()
     val uiMode by viewModel.uiMode.collectAsStateWithLifecycle()
 
+    // V3.0 加速/死亡状态
+    val speedMode by viewModel.speedMode.collectAsStateWithLifecycle()
+    val accelerationText by viewModel.accelerationStatusText.collectAsStateWithLifecycle()
+    val isDead by viewModel.isDead.collectAsStateWithLifecycle()
+    val deathNarrative by viewModel.deathNarrative.collectAsStateWithLifecycle()
+    val deathCause by viewModel.deathCause.collectAsStateWithLifecycle()
+
     var customAction by remember { mutableStateOf("") }
     var showStatusDialog by remember { mutableStateOf(false) }
     var showGmDialog by remember { mutableStateOf(false) }
@@ -91,6 +100,11 @@ fun GameScreen(viewModel: GameViewModel) {
                             text = "${worldInfo?.currentDate ?: ""} ${worldInfo?.currentTime ?: ""}",
                             style = MaterialTheme.typography.bodySmall
                         )
+                        // V3.0 三速切换器
+                        SpeedModeSwitcher(
+                            currentMode = speedMode,
+                            onModeSelected = { viewModel.setSpeedMode(it) }
+                        )
                     }
                 },
                 actions = {
@@ -112,8 +126,15 @@ fun GameScreen(viewModel: GameViewModel) {
                         .navigationBarsPadding()
                         .imePadding()
                 ) {
-                    // 可折叠的建议区域
-                    if (suggestions.isNotEmpty() && !isLoading) {
+                    // V3.0 加速模式时间流摘要面板
+                    if (speedMode == SpeedMode.ACCELERATION) {
+                        AccelerationPanel(
+                            statusText = accelerationText,
+                            onExitAcceleration = { viewModel.setSpeedMode(SpeedMode.NORMAL) }
+                        )
+                    }
+                    // 可折叠的建议区域（非加速模式）
+                    else if (suggestions.isNotEmpty() && !isLoading) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -240,6 +261,17 @@ fun GameScreen(viewModel: GameViewModel) {
                 LinearProgressIndicator(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
             }
         }
+    }
+
+    // V3.0 死亡覆盖层
+    if (isDead) {
+        DeathOverlay(
+            cause = deathCause,
+            narrative = deathNarrative,
+            onInherit = { viewModel.inheritWorld() },
+            onReload = { viewModel.reloadFromSave() },
+            onObserve = { viewModel.reloadFromSave() }
+        )
     }
 
     if (showGmDialog) {
@@ -664,6 +696,7 @@ fun UIModeOverlay(mode: UIMode) {
         UIMode.READING -> Color(0x15_FF_D7_00)  // 暖黄色滤镜
         UIMode.DANGER -> Color(0x20_FF_00_00)   // 红色边框感
         UIMode.SERENE -> Color(0x15_00_88_88)   // 蓝绿色调
+        UIMode.ACCELERATING -> Color(0x15_88_00_CC) // 淡紫色调
     }
 
     val alpha by animateFloatAsState(
@@ -785,3 +818,94 @@ private fun SuggestionConfirmDialog(
     )
 }
 
+// ======================== V3.0 Composable 组件 ========================
+
+/** 三速模式切换器 */
+@Composable
+fun SpeedModeSwitcher(currentMode: SpeedMode, onModeSelected: (SpeedMode) -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        SpeedMode.entries.forEach { mode ->
+            val label = when (mode) {
+                SpeedMode.DECELERATION -> "减速"
+                SpeedMode.NORMAL -> "正常"
+                SpeedMode.ACCELERATION -> "加速"
+            }
+            val selected = currentMode == mode
+            FilterChip(
+                selected = selected,
+                onClick = { onModeSelected(mode) },
+                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                modifier = Modifier.height(28.dp)
+            )
+        }
+    }
+}
+
+/** 加速模式时间流摘要面板 */
+@Composable
+fun AccelerationPanel(statusText: String, onExitAcceleration: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("⏩ 时间流逝中", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary)
+            if (statusText.isNotBlank()) {
+                Text(statusText, style = MaterialTheme.typography.bodyMedium, maxLines = 2,
+                    overflow = TextOverflow.Ellipsis)
+            } else {
+                Text("世界在加速运转……", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Spacer(modifier = Modifier.width(8.dp))
+        Button(onClick = onExitAcceleration, modifier = Modifier.height(36.dp)) {
+            Text("恢复正常", style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+/** 死亡覆盖层 */
+@Composable
+fun DeathOverlay(
+    cause: String, narrative: String,
+    onInherit: () -> Unit, onReload: () -> Unit, onObserve: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.92f))
+            .clickable(enabled = false) {},
+        contentAlignment = Alignment.Center
+    ) {
+        Card(
+            modifier = Modifier.padding(32.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1A1A2E))
+        ) {
+            Column(modifier = Modifier.padding(24.dp)) {
+                Text("你死了", style = MaterialTheme.typography.headlineMedium,
+                    color = Color(0xFFE0E0E0))
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("死因：$cause", style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFFB0B0B0))
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(narrative, style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFD0D0D0), maxLines = 8, overflow = TextOverflow.Ellipsis)
+                Spacer(modifier = Modifier.height(24.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onReload, modifier = Modifier.weight(1f)) {
+                        Text("读档")
+                    }
+                    OutlinedButton(onClick = onObserve, modifier = Modifier.weight(1f)) {
+                        Text("观察世界")
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Button(onClick = onInherit, modifier = Modifier.fillMaxWidth()) {
+                    Text("继承 —— 新角色踏入同一个世界")
+                }
+            }
+        }
+    }
+}

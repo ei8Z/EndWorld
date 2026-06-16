@@ -983,4 +983,68 @@ $JSON_CONSTRAINT
         appendLine()
         appendLine("请以终结语气生成角色的最后时刻叙事（仅输出叙事文本，无需 suggestions 和 statusUpdate）。")
     }
+
+    // ======================== V3.0 轻量AI场景 User Message ========================
+
+    fun buildScene1UserMessage(triggers: List<String>, factionInfo: String, regionInfo: String,
+                                season: String, doomLevel: Int, recentEvents: String): String = buildString {
+        appendLine("【触发事件】（可能多个同时触发，若仅1个触发事件则只列1条）：")
+        triggers.forEach { appendLine("- $it") }
+        appendLine()
+        appendLine("【当前世界状态】：$factionInfo")
+        appendLine("周边势力：$regionInfo")
+        appendLine("当前季节：$season | 末日等级：$doomLevel")
+        appendLine("近期相关事件：$recentEvents")
+        appendLine()
+        appendLine("【请评估】：综合所有触发事件，该势力/区域最可能做出的反应是什么？")
+    }
+
+    fun buildScene2UserMessage(npcName: String, npcIdentity: String, oldAffinity: Int, newAffinity: Int,
+                                boundary: String, needs: String, memories: String,
+                                timeline: String, memosFragments: String, playerLoc: String,
+                                oldStage: String, newStage: String): String = buildString {
+        appendLine("【触发事件】：$npcName（$npcIdentity）好感度从 $oldAffinity 变为 $newAffinity，跨过 $boundary")
+        appendLine("【NPC状态】：需求=$needs | 记忆=$memories | 时间线=$timeline | MemOS=$memosFragments")
+        appendLine("【玩家状态】：位置=$playerLoc | 关系阶段：$oldStage → $newStage")
+    }
+
+    fun buildScene3UserMessage(npcName: String, npcIdentity: String, battleName: String,
+                                affinity: Int, stage: String, registered: Boolean, hasUnfinishedNode: Boolean,
+                                factionA: String, factionB: String, casualtyA: String, casualtyB: String,
+                                combatRole: String, inNewInjuries: String): String = buildString {
+        appendLine("【触发事件】：关键NPC $npcName（$npcIdentity）在 $battleName 中被战斗伤亡随机抽中")
+        appendLine("好感度：$affinity($stage) | 剧情注册：$registered | 未完成节点：$hasUnfinishedNode")
+        appendLine("战斗：$factionA vs $factionB | 战损：A=$casualtyA B=$casualtyB | 角色：$combatRole | newInjuries：$inNewInjuries")
+        appendLine("请判定该关键NPC是否死亡。")
+    }
+
+    fun buildScene4UserMessage(npcName: String, mutationType: String, needs: String,
+                                location: String, memories: String, combatRole: String): String = buildString {
+        appendLine("【触发事件】：$npcName 发生生存状态突变：$mutationType")
+        appendLine("需求=$needs | 位置=$location | 记忆=$memories | 战斗角色=$combatRole")
+        appendLine("请评估该NPC行为模式应如何转变。")
+    }
+
+    fun buildScene5UserMessage(npcA: String, npcB: String, interactionType: String,
+                                aState: String, bState: String, background: String): String = buildString {
+        appendLine("【触发事件】：$npcA 与 $npcB 发生 $interactionType")
+        appendLine("A状态：$aState | B状态：$bState | 背景：$background")
+        appendLine("请评估这次互动的后果和叙事意义。")
+    }
+
+    fun buildScene6UserMessage(npcName: String, npcIdentity: String, expectedDays: Int,
+                                elapsedDays: Int, needDrive: String, startState: String,
+                                threatLevel: Int, activeEventsOnRoute: String): String = buildString {
+        appendLine("【触发事件】：$npcName（$npcIdentity）外出探索超时（预期${expectedDays}天，已过${elapsedDays}天）")
+        appendLine("需求驱动=$needDrive | 出发状态=$startState | 目标区域威胁=$threatLevel | 沿途事件=$activeEventsOnRoute")
+        appendLine("请判定该NPC的命运。")
+    }
+
+    fun buildScene7UserMessage(npcName: String, currentLoc: String, expectedLoc: String,
+                                anomalyType: String, triggerSource: String, durationDays: Int,
+                                npcState: String): String = buildString {
+        appendLine("【触发事件】：$npcName 出现在非预期位置 $currentLoc（应在 $expectedLoc）")
+        appendLine("异常类型=$anomalyType | 触发源=$triggerSource | 持续${durationDays}天 | NPC状态=$npcState")
+        appendLine("请评估导致此异常的具体原因和影响。")
+    }
 }

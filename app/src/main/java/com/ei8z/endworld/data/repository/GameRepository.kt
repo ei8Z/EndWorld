@@ -26,6 +26,7 @@ import com.ei8z.endworld.data.remote.model.ResourceUpdate
 import com.ei8z.endworld.data.remote.model.ResponseHeader
 import com.ei8z.endworld.data.remote.model.StatusUpdate
 import com.ei8z.endworld.data.remote.model.WorldUpdate
+import com.ei8z.endworld.domain.npc.model.toRelationshipStage
 import com.ei8z.endworld.domain.state.BranchClassifier
 import com.ei8z.endworld.domain.state.ClientDiceRoller
 import com.ei8z.endworld.domain.state.SurvivalStateMachine
@@ -41,6 +42,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlin.math.max
 import java.io.File
 import java.util.UUID
 
@@ -72,7 +76,7 @@ class GameRepository(
     // ======================== V2.1 双Agent组件 ========================
 
     /** 生存状态机（客户端唯一数据权威）。PlotManager 从 assets 加载章节。 */
-    private val stateMachine: SurvivalStateMachine by lazy {
+    val stateMachine: SurvivalStateMachine by lazy {
         val gameConfig = GameConfigLoader.load(context)
         val templates = gameConfig.items.associateBy { it.name }
         SurvivalStateMachine(
@@ -99,17 +103,13 @@ class GameRepository(
         return uid
     }
 
-    private val userId: String by lazy { getOrCreateStableUserId() }
+    val userId: String by lazy { getOrCreateStableUserId() }
     private val conversationId: String by lazy { "conv_$userId" }
 
     /** MemOS 记忆适配器（userId/conversationId 延迟初始化） */
     private val memosAdapter: MemOSAdapter by lazy {
         MemOSAdapter(memosApiService, memosAuthHeader, userId, conversationId)
     }
-
-    // V3.0: 暴露内部组件给 GameRepositoryV3
-    fun getStateMachine() = stateMachine
-    fun getUserId() = userId
 
     // ---- Flow 属性 ----
 
@@ -147,9 +147,18 @@ class GameRepository(
 
         // 初始化状态机（首次调用时从 Room DB 注入初始状态）
         seedStateMachine(currentPlayer, currentWorld)
+        // V3.0: 首次调用时初始化世界模拟
+        if (factions.isEmpty()) { initV3World() }
 
         val job = repositoryScope.launch {
             try {
+                // V3.0 元行动分支：速度切换、恢复正常速度等不经过AI
+                if (isMetaAction(action)) {
+                    handleMetaAction(action, currentPlayer, currentWorld)
+                    close()
+                    return@launch
+                }
+
                 if (actionParsed != null) {
                     processMainline(action, actionParsed, currentPlayer, currentWorld)
                 } else {
@@ -181,6 +190,14 @@ class GameRepository(
         val sm = stateMachine
         sm.doomLevel = player.doomLevel.coerceIn(1, 5)
         sm.processPreRuling(actionParsed.estimatedTimeMinutes, actionParsed.primaryType)
+
+        // V3.0: 午夜检测 → 每日结算
+        val prevDay = lastMidnightSettlementDay
+        if (sm.clock.currentDay > prevDay) {
+            repositoryScope.launch { v3Mutex.withLock { executeDailySettlement() } }
+            lastMidnightSettlementDay = sm.clock.currentDay
+        }
+
         val preSnapshot = sm.generatePreRulingSnapshot()
 
         // 2. 并行获取上下文
@@ -198,8 +215,9 @@ class GameRepository(
 
         // V2.2: 构建技能、世界进程、NPC深度上下文
         val skillEffects = sm.skillManager.getActiveEffects()
-        val worldProgress = buildWorldProgressString(preSnapshot)
-        val npcDepthContext = buildNpcDepthContext(player, preSnapshot.nearbyNpcs)
+        // V3.0: RulingContext 注入模拟层数据
+        val worldProgress = buildV3WorldProgressString(preSnapshot)
+        val npcDepthContext = buildV3NpcDepthContext(player, preSnapshot)
 
         Log.d(TAG, "Mainline: roll=$rollValue, events=${eventCandidates.size}, hp=${preSnapshot.hp}")
 
@@ -239,6 +257,8 @@ class GameRepository(
         )
 
         saveJsonToDebugFile(gson.toJson(finalGameResponse), "final_response")
+        // V3.0: NPC提取检查——满足条件时从背景NPC提升为接触NPC
+        tryV3NpcExtraction(actionResult, actionParsed, currentGameDay)
         // 6. 同步到 Room DB + 写回 MemOS
         if (finalGameResponse != null) {
             syncGameData(finalGameResponse, player, world, postSnapshot)
@@ -423,6 +443,58 @@ class GameRepository(
     }
 
     // ======================== 状态机初始化 ========================
+
+    // ======================== V3.0 元行动处理 ========================
+
+    /** V3.0 元行动——不消耗游戏时间，不经过裁决Agent */
+    private fun isMetaAction(action: String): Boolean {
+        val metaKeywords = listOf("加速", "减速", "恢复正常速度", "子弹时间", "暂停")
+        return metaKeywords.any { action.contains(it) }
+    }
+
+    private suspend fun ProducerScope<StreamEvent>.handleMetaAction(
+        action: String, player: PlayerState, world: WorldInfo
+    ) {
+        when {
+            action.contains("加速") -> {
+                trySend(StreamEvent.PhaseChanged("accelerating"))
+                trySend(StreamEvent.Content("你决定加快脚步，让时间快速流逝……"))
+                val metaResponse = GameResponse(
+                    header = ResponseHeader(
+                        date = world.currentDate, time = world.currentTime,
+                        location = world.locationScene
+                    ),
+                    story = "你决定加快脚步，让时间快速流逝……",
+                    suggestions = emptyList(),
+                    statusUpdate = StatusUpdate(
+                        player = PlayerUpdate(
+                            stateTags = emptyList(), innerThought = "", equipment = emptyList()
+                        ),
+                        world = WorldUpdate(
+                            doomLevel = player.doomLevel, macroSituation = ""
+                        ),
+                        resources = ResourceUpdate(
+                            knownPoints = emptyList(),
+                            inventory = InventoryUpdate()
+                        ),
+                        memoryUpdate = MemoryUpdate(
+                            newTempMemory = null, newPermanentPlot = null
+                        )
+                    )
+                )
+                trySend(StreamEvent.FinalResponse(metaResponse))
+            }
+            action.contains("恢复正常速度") -> {
+                trySend(StreamEvent.PhaseChanged("resuming"))
+                // 加速退出由GameViewModel直接调用GameRepositoryV3处理
+                trySend(StreamEvent.Content("你放慢了脚步，重新审视周围的世界。"))
+            }
+            action.contains("减速") || action.contains("子弹时间") -> {
+                trySend(StreamEvent.PhaseChanged("decelerating"))
+                trySend(StreamEvent.Content("时间仿佛凝滞，每一个细节都变得无比清晰……"))
+            }
+        }
+    }
 
     /**
      * 每轮行动前从 Room DB 同步状态到状态机。
@@ -615,6 +687,25 @@ class GameRepository(
             )
         }
 
+        // V3.0: 好感度变化触发NPC提取（文档 NPC§2.2 条件1）
+        update.npcUpdate?.forEach { npc ->
+            if (npc.name != null && npc.affinityDelta != null && kotlin.math.abs(npc.affinityDelta) >= 10) {
+                val npcId = "npc_${npc.name}_$currentGameDay"
+                if (!npcStates.containsKey(npcId)) {
+                    val loc = data.header.location
+                    val fid = regions[loc]?.controllingFactionId
+                    val n = npcEngine.initializeNewNpc(npcId, npc.name, "居民", loc, fid, 0)
+                    npcStates[npcId] = n
+                    npcNeeds[npcId] = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50)
+                    npcAffinities[npcId] = npcEngine.initializeAffinity(0, npc.affinityDelta)
+                    npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
+                    npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
+                        "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
+                        source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
+                }
+            }
+        }
+
         // V2.2: 目标待定队列验证（客户端权威，防止AI生成非法目标）
         update.goalUpdate?.let { goalUpd ->
             val existingGoalIds = stateMachine.goalTracker.getActiveIds()
@@ -632,6 +723,8 @@ class GameRepository(
             skillUpd.newSkills.forEach { stateMachine.skillManager.addOrUpgrade(it.id, it.newLevel) }
             skillUpd.levelUpSkills.forEach { stateMachine.skillManager.addOrUpgrade(it.id, it.newLevel) }
         }
+        // V3.0: 异步持久化模拟层状态
+        repositoryScope.launch(NonCancellable) { persistV3State() }
     }
 
     // ======================== MemOS 回写 ========================
@@ -675,6 +768,62 @@ class GameRepository(
                 delta <= -15 -> tags.add("[重要] $name 好感大幅下降$delta")
             }
         }
+    }
+
+    // ======================== V3.0 状态持久化 ========================
+
+    suspend fun persistV3State() {
+        try {
+            val fDao = database.factionDao()
+            val rDao = database.regionDao()
+            val eDao = database.globalEventDao()
+            val nDao = database.npcStateDao()
+            // 势力
+            factions.forEach { f ->
+                fDao.upsertFaction(com.ei8z.endworld.domain.world.dao.FactionEntity(
+                    f.factionId, f.name, f.factionType.name, f.population, f.militaryStrength,
+                    f.armamentRate, f.unitCombatCoefficient, gson.toJson(f.controlledRegions),
+                    gson.toJson(f.relationshipMatrix.mapValues { (_, v) -> v.name }),
+                    f.leaderPersonality.name, f.factionGoal.name, gson.toJson(f.stateTags),
+                    f.resources.foodReserve, f.resources.waterReserve, f.resources.medicalSupplies,
+                    f.resources.ammunitionReserve, f.resources.morale))
+            }
+            // 区域
+            regions.values.forEach { r ->
+                rDao.upsertRegion(com.ei8z.endworld.domain.world.dao.RegionEntity(
+                    r.regionId, r.name, r.terrainType.name, r.resourceAbundance, r.threatLevel,
+                    r.controllingFactionId, gson.toJson(r.adjacentRegions),
+                    gson.toJson(r.connectionStrength.mapValues { (_, v) -> v.name }),
+                    r.doomLevelCoefficient, gson.toJson(r.stateTags)))
+            }
+            // 事件
+            eDao.clearAll()
+            activeEvents.forEach { e ->
+                eDao.upsertEvent(com.ei8z.endworld.domain.world.dao.GlobalEventEntity(
+                    e.eventId, e.eventType.name, gson.toJson(e.affectedRegions),
+                    e.propagationRate, e.remainingDays, e.intensity, e.sourceRegionId, e.associatedFactionId))
+            }
+            // NPC
+            npcStates.values.forEach { npc ->
+                val aff = npcAffinities[npc.npcId]
+                val nd = npcNeeds[npc.npcId]
+                val mem = npcMemories[npc.npcId]
+                val dep = npcDepartures[npc.npcId]
+                nDao.upsertNpc(com.ei8z.endworld.domain.world.dao.NpcStateEntity(
+                    npc.npcId, npc.name, npc.identity, npc.combatRole.name, npc.currentLocationId,
+                    npc.factionId, gson.toJson(npc.personalityTags), gson.toJson(npc.statusTags),
+                    npc.tier.name, aff?.affinity ?: 0, aff?.relationshipStage?.name ?: "NEUTRAL",
+                    gson.toJson(aff?.emotionalTags ?: emptyList<String>()),
+                    aff?.interactionCount ?: 0, aff?.lastInteractionGameDay ?: 0,
+                    nd?.foodUrgency ?: 30, nd?.waterUrgency ?: 30, nd?.medicalUrgency ?: 0,
+                    nd?.safetyUrgency ?: 30, nd?.socialUrgency ?: 30,
+                    gson.toJson(mem?.detailedMemories?.map {
+                        mapOf("t" to it.timestamp, "l" to it.location, "s" to it.summary, "a" to it.affinityChange, "e" to (it.emotionalTag ?: ""), "src" to it.source.name)
+                    } ?: emptyList<Map<String, Any>>()),
+                    mem?.remoteSummary ?: "", dep?.status?.name ?: "PRESENT",
+                    dep?.reason ?: "", dep?.expectedReturnDay))
+            }
+        } catch (e: Exception) { Log.e(TAG, "V3持久化失败: ${e.message}") }
     }
 
     // ======================== 持久化辅助 ========================
@@ -788,7 +937,260 @@ class GameRepository(
         }
     }
 
-    /** 构建活跃目标列表（注入Storyteller user message） */
+    // ======================== V3.0 模拟层集成 ========================
+
+    private val worldEngine = com.ei8z.endworld.domain.world.engine.WorldRulesEngine()
+    private val dailySettlement = com.ei8z.endworld.domain.world.engine.DailySettlement(worldEngine)
+    private val npcEngine = com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine()
+    private val worldStorytellerClient by lazy {
+        WorldStorytellerApiClient(apiService, authHeader)
+    }
+    private val memosExtractor: MemosExtractionManager by lazy {
+        MemosExtractionManager(memosApiService, memosAuthHeader)
+    }
+
+    private val v3Mutex = kotlinx.coroutines.sync.Mutex()
+    val factions = mutableListOf<com.ei8z.endworld.domain.world.model.Faction>()
+    val regions = mutableMapOf<String, com.ei8z.endworld.domain.world.model.Region>()
+    val activeEvents = mutableListOf<com.ei8z.endworld.domain.world.model.GlobalEvent>()
+    val npcStates = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.NpcState>()
+    val npcNeeds = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.NeedState>()
+    val npcAffinities = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.AffinityState>()
+    val npcMemories = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.MemoryQueue>()
+    val npcDepartures = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.DepartureInfo>()
+
+    val currentGameDay: Int get() = stateMachine.clock.currentDay
+    var isAccelerating: Boolean = false
+    var accelerationStartHour: Float = 0f
+    var lastMidnightSettlementDay: Int = 1 // 初始化为第1天，避免首次行动触发伪结算
+    private var expectedChanges: WorldNarrativeTemplateEngine.ExpectedChanges? = null
+    private var localSummaryLog = mutableListOf<String>()
+
+    fun initV3World() {
+        val (r, f) = com.ei8z.endworld.domain.world.engine.WorldInitializer.createDefaultWorld()
+        regions.clear(); regions.putAll(r.associateBy { it.regionId })
+        factions.clear(); factions.addAll(f)
+        // 为每个区域创建背景NPC群体标签
+        for (region in r) {
+            val faction = f.find { region.regionId in it.controlledRegions }
+            val baseAttitude = if (faction != null) 0 else -10 // 无主区域偏敌意
+            // 背景NPC不创建个体实例，群体标签由WorldInfo的knownPoints承载
+            // 此处确保V3数据模型完整
+        }
+    }
+
+    suspend fun executeDailySettlement() {
+        val result = dailySettlement.execute(factions, regions, activeEvents)
+        Log.d(TAG, "V3结算: 资源${result.resourceChanges.size} 阈值${result.thresholdTriggers.size} 战斗${result.battleResults.size}")
+        resolveNpcSettlement()
+        // V3.0: 轻量AI评估（场景1）
+        if (result.needsAIEvaluation) { tryCallLightweightAI(result.thresholdTriggers) }
+        // 清理已解散势力
+        factions.removeAll { it.controlledRegions.isEmpty() && it.militaryStrength <= 0 && it.resources.foodReserve <= 0 }
+        // 持久化
+        persistV3State()
+    }
+
+    private suspend fun resolveNpcSettlement() {
+        val engine = npcEngine
+        for ((npcId, npc) in npcStates) {
+            if (npcDepartures[npcId]?.status == com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD) continue
+            val needs = npcNeeds[npcId] ?: continue
+            val threat = regions[npc.currentLocationId]?.threatLevel ?: 0
+            val injured = npc.statusTags.any { "受伤" in it }
+            val survivalOk = needs.foodUrgency < 80 && needs.waterUrgency < 80
+            val newNeeds = engine.advanceNeeds(needs, injured, threat, survivalOk)
+            npcNeeds[npcId] = newNeeds
+            val deathCause = engine.checkNeedOverloadDeath(newNeeds)
+            if (deathCause != null) {
+                npcDepartures[npcId] = com.ei8z.endworld.domain.npc.model.DepartureInfo(
+                    com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD, deathCause)
+                continue
+            }
+            val factionDead = npc.factionId?.let { fid -> factions.none { it.factionId == fid } } ?: false
+            val dep = engine.shouldDepart(npc, newNeeds, npcAffinities[npcId]
+                ?: engine.initializeAffinity(0), threat, factionDead, injured)
+            if (dep != null) npcDepartures[npcId] = dep
+        }
+        // NPC上限检查（30个接触NPC限制）
+        val contactNpcs = npcStates.values.filter { it.tier == com.ei8z.endworld.domain.npc.model.NpcTier.CONTACT &&
+            npcDepartures[it.npcId]?.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
+        if (contactNpcs.size > 30) {
+            val toDemote = contactNpcs.sortedByDescending { npcAffinities[it.npcId]?.lastInteractionGameDay ?: 0 }.drop(30)
+            toDemote.forEach { npcDepartures[it.npcId] = com.ei8z.endworld.domain.npc.model.DepartureInfo(com.ei8z.endworld.domain.npc.model.DepartureStatus.DEMOTED, "超过接触NPC上限")
+                npcMemories.remove(it.npcId) }
+        }
+
+        // NPC互动
+        val byLoc = npcStates.values.filter { npcDepartures[it.npcId]?.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
+            .groupBy { it.currentLocationId }
+        for ((_, list) in byLoc) {
+            for (i in list.indices) for (j in i + 1 until list.size) {
+                val r = engine.resolveNpcInteraction(list[i], npcNeeds[list[i].npcId] ?: continue,
+                    list[j], npcNeeds[list[j].npcId] ?: continue) ?: continue
+                npcMemories[list[i].npcId]?.let { engine.addMemory(it,
+                    com.ei8z.endworld.domain.npc.model.MemoryEntry("[Day $currentGameDay]", list[i].currentLocationId,
+                        r.description, source = com.ei8z.endworld.domain.npc.model.MemorySource.NPC_SOCIAL_SNAPSHOT)) }
+            }
+        }
+    }
+
+    suspend fun enterAcceleration(player: PlayerState) {
+        isAccelerating = true
+        accelerationStartHour = (stateMachine.clock.currentDay * 24 + stateMachine.clock.currentHour).toFloat()
+        localSummaryLog.clear()
+        val loc = regions.values.firstOrNull()?.regionId ?: ""
+        val faction = factions.firstOrNull { loc in it.controlledRegions }
+        expectedChanges = WorldNarrativeTemplateEngine.ExpectedChanges(
+            timeMarker = "第${currentGameDay}天 ${stateMachine.clock.currentHour}:00", elapsedGameHours = 0f,
+            resourceTrends = faction?.let { f ->
+                val fd = if (f.population > 0) f.resources.foodReserve / f.population else 0f
+                listOf(WorldNarrativeTemplateEngine.ResourceTrend(f.name, "食物",
+                    if (fd < 3) "critical" else if (fd < 7) "declining" else "stable", fd.toInt()))
+            } ?: emptyList(),
+            eventProximities = activeEvents.map { WorldNarrativeTemplateEngine.EventProximity(it.eventType.name, 2, it.propagationRate) },
+            playerVitals = WorldNarrativeTemplateEngine.PlayerVitalsSnapshot(player.hp, player.hpMax, player.hunger, player.thirst))
+    }
+
+    fun generateAccelStatusText(): String = expectedChanges?.let { WorldNarrativeTemplateEngine.generate(it) } ?: "时间流逝中..."
+
+    suspend fun exitAcceleration(player: PlayerState, world: WorldInfo): String {
+        isAccelerating = false
+        val curH = (stateMachine.clock.currentDay * 24 + stateMachine.clock.currentHour).toFloat()
+        val elapsed = curH - accelerationStartHour
+        if (elapsed < 2f) {
+            val partialRatio = elapsed / 24f
+            for (f in factions) { val c = f.controlledRegions.mapNotNull { regions[it] }
+                f.resources = f.resources.copy(foodReserve = max(0f, f.resources.foodReserve - f.population * partialRatio),
+                    waterReserve = max(0f, f.resources.waterReserve - f.population * partialRatio)) }
+            return "加速了${elapsed.toInt()}小时。一切如常。"
+        }
+        val fullDays = (elapsed / 24).toInt(); val partial = elapsed % 24
+        for (f in factions) { val c = f.controlledRegions.mapNotNull { regions[it] }; worldEngine.batchCatchupResources(f, c, fullDays, partial) }
+        for ((id, nd) in npcNeeds) { val npc = npcStates[id] ?: continue
+            val r = npcEngine.batchAdvanceNeeds(nd, fullDays, npc.statusTags.any { "受伤" in it }, regions[npc.currentLocationId]?.threatLevel ?: 0)
+            npcNeeds[id] = r.finalNeeds; if (r.diedOnDay != null) npcDepartures[id] = com.ei8z.endworld.domain.npc.model.DepartureInfo(com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD, "加速期间${r.deathCause}")
+        }
+        val scene = buildString { val r = regions.values.firstOrNull(); if (r != null) append("位置:${r.name} 威胁:${r.threatLevel}") }
+        val report = buildString { append("- 生命值：${player.hp}/${player.hpMax}\n- 饱食度/口渴度：${player.hunger}/${player.thirst}\n- 加速${elapsed.toInt()}小时") }
+        val response = worldStorytellerClient.narrate(
+            PromptBuilder.buildWorldStorytellerSystemPrompt(),
+            PromptBuilder.buildWorldStorytellerUserMessage("加速 ${elapsed.toInt()}h", localSummaryLog.toList(), emptyList(), report, scene, player.hp > 0), userId)
+        val r = response.getOrElse { worldStorytellerClient.buildFallbackResponse("第${currentGameDay}天",
+            WorldStorytellerApiClient.PlayerStatusSnapshot(player.hp, player.hunger, player.thirst)) }
+        return r.summary
+    }
+
+    fun checkPlayerDeath(player: PlayerState): String? {
+        if (player.hp <= 0) return "致命伤势"
+        if (player.hunger <= 0 && player.thirst <= 0) return "饥饿与脱水"
+        return null
+    }
+
+    fun inheritWorld(player: PlayerState): Map<String, Int> {
+        val transferred = mutableMapOf<String, Int>()
+        for ((id, aff) in npcAffinities) {
+            if (kotlin.math.abs(aff.affinity) >= 20) {
+                val t = (aff.affinity * 0.3f).toInt().coerceIn(-80, 80)
+                transferred[id] = t; aff.affinity = t
+                aff.relationshipStage = t.toRelationshipStage(); aff.emotionalTags.clear()
+            }
+        }
+        stateMachine.clock.setTotalMinutes(0); return transferred
+    }
+
+    /** V3.0 V2存档迁移 */
+    fun migrateFromV2(oldAffinities: Map<String, Int>): Map<String, Int> {
+        val converted = mutableMapOf<String, Int>()
+        for ((name, old) in oldAffinities) {
+            val new = ((old - 50) * 2).coerceIn(-100, 100)
+            converted[name] = new
+        }
+        return converted
+    }
+
+    /** V3.0 场景连锁判定 */
+    fun checkSceneChain(sceneOutput: String, outcome: String): Int {
+        return when {
+            sceneOutput == "scene3" && outcome == "severe_injury" -> 4
+            sceneOutput == "scene5" && outcome.contains("势力结构") -> 1
+            sceneOutput == "scene6" && outcome == "joined_other_faction" -> 1
+            else -> 0
+        }
+    }
+
+    /** V3.0 AI调用中断恢复 */
+    private var pendingAction: String? = null
+    fun markPendingAction(action: String) { pendingAction = action }
+    fun clearPendingAction() { pendingAction = null }
+    fun hasInterruptedAction(): String? = pendingAction
+
+    // === V3.0 RulingContext 辅助 ===
+    private fun buildV3WorldProgressString(snapshot: WorldSnapshot): String = buildString {
+        append(buildWorldProgressString(snapshot))
+        val loc = snapshot.location
+        val region = regions[loc]
+        if (region != null) {
+            append("\n【V3区域状态】${region.name}: 威胁${region.threatLevel} 资源${region.resourceAbundance}")
+            val cf = region.controllingFactionId?.let { fid -> factions.find { it.factionId == fid } }
+            if (cf != null) append(" 控制势力:${cf.name}(人口${cf.population} 食物${cf.resources.foodReserve.toInt()}天 士气${cf.resources.morale} 目标:${cf.factionGoal.name})")
+        }
+        if (activeEvents.isNotEmpty()) append("\n【V3全局事件】${activeEvents.joinToString("; ") { "${it.eventType.name}(强度${it.intensity})" }}")
+    }
+
+    private suspend fun buildV3NpcDepthContext(player: PlayerState, snapshot: WorldSnapshot): String {
+        val v2Ctx = buildNpcDepthContext(player, snapshot.nearbyNpcs)
+        val v3Npcs = npcStates.values.filter { it.currentLocationId == snapshot.location && npcDepartures[it.npcId]?.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
+        if (v3Npcs.isEmpty()) return v2Ctx
+        val v3Ctx = v3Npcs.joinToString("\n") { npc ->
+            val aff = npcAffinities[npc.npcId]; val nd = npcNeeds[npc.npcId]
+            val daysSince = aff?.let { currentGameDay - it.lastInteractionGameDay } ?: 99
+            "【V3-NPC:${npc.name}(${npc.identity})】好感:${aff?.affinity?:0} 阶段:${aff?.relationshipStage?.name?:"NEUTRAL"} 需求:食物${nd?.foodUrgency?:0}/水${nd?.waterUrgency?:0}/安全${nd?.safetyUrgency?:0} 互动:${if(daysSince>3)"${daysSince}天前" else "最近"}"
+        }
+        return if (v2Ctx.isNotBlank()) "$v2Ctx\n$v3Ctx" else v3Ctx
+    }
+
+    // === V3.0 NPC提取 ===
+    private fun tryV3NpcExtraction(result: com.ei8z.endworld.data.model.ActionResult, action: ActionParsed, gameDay: Int) {
+        val target = action.target ?: return
+        if (target.isBlank()) return
+        // 检查提取条件（文档 NPC§2.2 的 4 条规则，好感度变化由 GameResponse.statusUpdate.npcUpdate 提供，在 syncGameData 后检查）
+        val hasItemTransfer = result.resourceChanges?.any { it.changeAmount != 0f } == true
+        val hasInfoReveal = result.narrativeSummary?.contains("情报") == true || result.narrativeSummary?.contains("秘密") == true || result.narrativeSummary?.contains("透露") == true
+        val hasCommitment = action.primaryType == "社交" && (action.subType.contains("承诺") || action.subType.contains("委托") || action.subType.contains("要求"))
+        val shouldExtract = hasItemTransfer || hasInfoReveal || hasCommitment
+        if (!shouldExtract) return
+        // 创建NPC
+        val npcId = "npc_${target}_${gameDay}"
+        if (npcStates.containsKey(npcId)) return // 已是接触NPC
+        val loc = action.location.ifBlank { "R01" }
+        val factionId = regions[loc]?.controllingFactionId
+        val baseAttitude = if (factionId != null) 0 else -10
+        val npc = npcEngine.initializeNewNpc(npcId, target, "居民", loc, factionId, baseAttitude)
+        npcStates[npcId] = npc
+        npcNeeds[npcId] = npcEngine.initializeNeeds(factionFoodShortage = false, regionHighThreat = (regions[loc]?.threatLevel ?: 0) > 50)
+        npcAffinities[npcId] = npcEngine.initializeAffinity(baseAttitude, 5)
+        npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
+        npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
+            "[Day $gameDay]", loc, "与玩家首次互动", 5, source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
+        Log.d(TAG, "V3 NPC提取: $target → $npcId")
+    }
+
+    // === V3.0 轻量AI调用 ===
+    private suspend fun tryCallLightweightAI(triggers: List<com.ei8z.endworld.domain.world.engine.WorldRulesEngine.ThresholdTrigger>) {
+        if (triggers.isEmpty()) return
+        try {
+            val factionInfo = factions.joinToString("\n") { f ->
+                "【${f.name}】人口${f.population} 兵力${f.militaryStrength} 食物${f.resources.foodReserve.toInt()}天 士气${f.resources.morale} 目标:${f.factionGoal.name}"
+            }
+            val regionInfo = regions.values.joinToString("\n") { "【${it.name}】威胁${it.threatLevel} 资源${it.resourceAbundance} 控制:${it.controllingFactionId?: "无主"}" }
+            val triggerDescs = triggers.map { "${it.triggerType} ${it.factionId ?: it.regionId ?: ""} ${it.attribute} ${it.oldValue}→${it.newValue}" }
+            val userMsg = PromptBuilder.buildScene1UserMessage(triggerDescs, factionInfo, regionInfo, "夏季", stateMachine.doomLevel, "")
+            val response = reasonerClient.reason(PromptBuilder.buildLightweightEvalSystemPrompt(), userMsg, "v3_eval")
+            Log.d(TAG, "场景1 AI评估: ${response.result}")
+        } catch (e: Exception) { Log.e(TAG, "场景1 AI评估失败: ${e.message}") }
+    }
+
     private fun buildActiveGoalsList(plotContext: com.ei8z.endworld.data.model.PlotContext): List<com.ei8z.endworld.data.model.PersonalGoal> {
         val goals = mutableListOf<com.ei8z.endworld.data.model.PersonalGoal>()
         plotContext.urgentGoal?.let { goals.add(it) }

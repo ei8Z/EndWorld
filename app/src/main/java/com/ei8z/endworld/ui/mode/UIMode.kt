@@ -18,5 +18,7 @@ enum class UIMode {
     /** nearbyThreats 非空或 dangerWarnings 触发。屏幕边缘红色渐变，警示图标闪烁。 */
     DANGER,
     /** 安全区休息状态。柔和蓝绿色调，呼吸光晕动画。 */
-    SERENE
+    SERENE,
+    /** V3.0 加速模式。时间快速流逝，时间流摘要面板替换suggestions。淡紫色调。 */
+    ACCELERATING
 }

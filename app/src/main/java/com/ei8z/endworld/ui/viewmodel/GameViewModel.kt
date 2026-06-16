@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.CreationExtras
 import com.ei8z.endworld.data.GameConfigLoader
 import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.model.GameConfig
+import com.ei8z.endworld.data.model.SpeedMode
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.repository.GameRepository
 import com.ei8z.endworld.data.repository.GmStrategy
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -95,6 +97,75 @@ class GameViewModel(
     private var retryCount = 0
     private val MAX_RETRY = 3
     private var streamJob: Job? = null
+
+    // ======================== V3.0 加速/死亡状态 ========================
+
+    private val _speedMode = MutableStateFlow(SpeedMode.NORMAL)
+    val speedMode: StateFlow<SpeedMode> = _speedMode.asStateFlow()
+
+    private val _accelerationStatusText = MutableStateFlow("")
+    val accelerationStatusText: StateFlow<String> = _accelerationStatusText.asStateFlow()
+
+    private val _isDead = MutableStateFlow(false)
+    val isDead: StateFlow<Boolean> = _isDead.asStateFlow()
+
+    private val _deathNarrative = MutableStateFlow("")
+    val deathNarrative: StateFlow<String> = _deathNarrative.asStateFlow()
+
+    private val _deathCause = MutableStateFlow("")
+    val deathCause: StateFlow<String> = _deathCause.asStateFlow()
+
+    private var accelerationJob: Job? = null
+
+    /** V3.0 速度模式切换（元行动——不消耗游戏时间） */
+    fun setSpeedMode(mode: SpeedMode) {
+        val previous = _speedMode.value
+        _speedMode.value = mode
+        when (mode) {
+            SpeedMode.ACCELERATION -> enterAcceleration()
+            SpeedMode.NORMAL -> {
+                if (previous == SpeedMode.ACCELERATION) exitAcceleration()
+                uiModeManager.settleMode(hasThreats = false, isSafeZone = true)
+            }
+            SpeedMode.DECELERATION -> uiModeManager.settleMode(hasThreats = true, isSafeZone = false)
+        }
+    }
+
+    private fun enterAcceleration() {
+        uiModeManager.enterFate() // V3.0: repurpose FATE mode for acceleration start
+        accelerationJob?.cancel()
+        accelerationJob = viewModelScope.launch {
+            val player = repository.playerState.first() ?: return@launch
+            repository.enterAcceleration(player)
+            // 模板引擎定时刷新（每3秒）
+            while (_speedMode.value == SpeedMode.ACCELERATION) {
+                _accelerationStatusText.value = repository.generateAccelStatusText()
+                kotlinx.coroutines.delay(3000)
+            }
+        }
+    }
+
+    private fun exitAcceleration() {
+        accelerationJob?.cancel()
+        viewModelScope.launch {
+            val player = repository.playerState.first() ?: return@launch
+            val world = repository.worldInfo.first() ?: return@launch
+            _isLoading.value = true
+            val summary = repository.exitAcceleration(player, world)
+            _isLoading.value = false
+            _accelerationStatusText.value = ""
+            _speedMode.value = SpeedMode.NORMAL
+            uiModeManager.settleMode(hasThreats = false, isSafeZone = true)
+            // 将世界叙事摘要发送给叙事Agent生成初始场景
+            sendAction("恢复正常速度", null)
+        }
+    }
+
+    /** V3.0 生成加速目标标签 */
+    fun getAccelerationTargetLabel(): String {
+        val text = _accelerationStatusText.value
+        return if (text.isNotBlank()) text else "时间流逝中..."
+    }
 
     /**
      * V2.2 开局入口。委托 OpeningModule 执行掷骰+DB初始化+构建首个ActionParsed，
@@ -265,9 +336,43 @@ class GameViewModel(
                         _isLoading.value = false
                         _canRetry.value = event.retryable && lastAction != null && retryCount < MAX_RETRY
                     }
+                    // V3.0 加速模式事件
+                    is StreamEvent.AccelerationTick -> {
+                        _accelerationStatusText.value = event.text
+                    }
+                    is StreamEvent.AccelerationEnded -> {
+                        _accelerationStatusText.value = event.summary
+                    }
+                    is StreamEvent.PlayerDied -> {
+                        _isDead.value = true
+                        _deathCause.value = event.cause
+                        _deathNarrative.value = event.narrative
+                        _isLoading.value = false
+                        uiModeManager.settleMode(hasThreats = false, isSafeZone = true)
+                    }
                 }
             }
         }
+    }
+
+    /** V3.0 玩家死亡后选择继承 */
+    fun inheritWorld() {
+        viewModelScope.launch {
+            val player = repository.playerState.first() ?: return@launch
+            repository.inheritWorld(player)
+            _isDead.value = false
+            _deathNarrative.value = ""
+            _deathCause.value = ""
+            _speedMode.value = SpeedMode.NORMAL
+        }
+    }
+
+    /** V3.0 玩家死亡后选择读档 */
+    fun reloadFromSave() {
+        _isDead.value = false
+        _deathNarrative.value = ""
+        _deathCause.value = ""
+        _error.value = null
     }
 
     companion object {

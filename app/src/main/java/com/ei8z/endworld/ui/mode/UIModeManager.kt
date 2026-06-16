@@ -70,5 +70,6 @@ class UIModeManager {
         UIMode.READING -> "ambient_wind_rain"
         UIMode.DANGER -> "rapid_heartbeat_metal_scrape"
         UIMode.SERENE -> "soft_piano_chime"
+        UIMode.ACCELERATING -> "clock_ticking_fast"
     }
 }

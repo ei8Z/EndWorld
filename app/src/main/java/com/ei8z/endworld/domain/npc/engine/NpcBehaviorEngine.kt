@@ -311,4 +311,30 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
         )
         return Schedule(timeSlots = defaultSlots.toMutableMap())
     }
+
+    // ======================== V3.0 扩展：降级再提取 + 记忆保护 ========================
+
+    /** 降级NPC再提取时恢复好感度 */
+    fun calculateReextractionAffinity(archivedAffinity: Int, daysSinceDemotion: Int): Int? {
+        if (daysSinceDemotion >= 90) return null // 视为全新NPC
+        val decay = max(0.3f, 1.0f - daysSinceDemotion / 90f)
+        return (archivedAffinity * decay).toInt()
+    }
+
+    /** 检查是否触发高事件密度保护 */
+    fun shouldTriggerHighEventProtection(envMemoryCountToday: Int): Boolean = envMemoryCountToday >= 3
+
+    /** 批量补写冻结期间的环境记忆 */
+    fun backfillFrozenMemories(
+        queue: MemoryQueue,
+        frozenEvents: List<String>, // 冻结期间错过的宏观事件描述列表
+        startDay: Int, endDay: Int, location: String
+    ): MemoryQueue {
+        var q = queue
+        for ((i, event) in frozenEvents.withIndex()) {
+            val day = startDay + i / 3 // 粗略分配到各天
+            q = addEnvironmentMemory(q, "冻结期间事件", event, "[Day $day]", location)
+        }
+        return q
+    }
 }

@@ -51,7 +51,14 @@ class WorldRulesEngine(
             (region.resourceAbundance * region.doomLevelCoefficient * 0.5).toDouble()
         }.toFloat() * baseCollectionRate * seasonModifier * doomLevelModifier *
             manpowerModifier(faction)
-        val weatherModifier = 1.0f // 默认正常（炎热1.3/正常1.0/寒冷0.8/极热1.6/极寒0.5）
+        // V3.0: 天气修正（从天气系统获取，默认正常1.0）
+        val weatherModifier = when {
+            faction.stateTags.any { "极热" in it || "热浪" in it } -> 1.6f
+            faction.stateTags.any { "炎热" in it } -> 1.3f
+            faction.stateTags.any { "极寒" in it || "暴风雪" in it } -> 0.5f
+            faction.stateTags.any { "寒冷" in it } -> 0.8f
+            else -> 1.0f
+        }
         val waterConsumption = pop.toFloat() * 1.0f * weatherModifier
         val waterDepletion = r.waterReserve * depletionRate
         val newWater = max(0f, r.waterReserve + waterProduction - waterConsumption - waterDepletion)
