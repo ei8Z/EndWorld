@@ -110,7 +110,7 @@ fun InitializationScreen(
         OutlinedTextField(
             value = adultProfile,
             onValueChange = { adultProfile = it },
-            label = { Text("成人特质/性癖（可选）") },
+            label = { Text("成人特质（可选）") },
             modifier = Modifier.fillMaxWidth()
         )
 

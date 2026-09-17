@@ -237,7 +237,7 @@ AI 生成的 statusUpdate.inventory 可能和裁决结果不一致（幻觉风�
 
 ### 为什么 NpcRelation 以 name 为主键 + COALESCE 合并？
 
-早期使用 `autoGenerate id` 导致每轮 NPC 互动新增一条重复记录。改为 `name` 主键后，UPSERT 通过 IGNORE + UPDATE 实现去重。UPDATE SQL 使用 `COALESCE(:newValue, oldValue)` 确保 AI 未返回的深度字段（如 lastInteractionSummary）不会被意外清空。
+早期使用 `autoGenerate id` 导致每轮 NPC 互动新增一条重复记录。改为 `name` 主键后，UPSERT 通过 IGNORE + UPDATE 实现去重。UPDATE SQL 使用 `COALESCE(:newValue, oldValue)` 确保 AI 未返回的深度字段（比如 lastInteractionSummary）不会被意外清空。
 
 ### 为什么 syncInventory 使用定向删除而非全表清空？
 
