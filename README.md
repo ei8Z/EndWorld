@@ -18,7 +18,7 @@
 │  GmStrategy / ReasonerApiClient / StorytellerApiClient         │
 ├──────────────────────┬───────────────────────────────────────┤
 │  Domain State         │  Local (Room DB)                       │
-│  SurvivalStateMachine │  6 Entities / 6 DAOs                   │
+│  SurvivalStateMachine │  10 Entities / 10 DAOs                 │
 │  ├─ GameClock         │  Remote (Retrofit)                     │
 │  ├─ WeatherSystem     │  DeepSeek V4 Pro SSE 流式              │
 │  ├─ VitalSystem       │  MemOS OpenMem API (长期记忆)           │
@@ -46,11 +46,11 @@
 - **剧情管理**：PlotManager 章节推进 + 伏笔埋设/回收 + 剧情节点完成
 
 ### 扩展功能
-- **客户端发牌员模式**：通过 `check_inventory` Function Calling 工具，让 AI 在叙事前先查询玩家物资
+- **客户端发牌员模式（未接线）**：`ToolRegistry` 已实现 `check_inventory` 工具 schema，但尚未注册进请求（`tools=null`、`tool_choice=none`），当前不会实际调用
 - **流式输出 + SSE**：基于 OkHttp SSE 的逐字流式渲染，推理过程（fate）和故事文本（story）分阶段展示
 - **上下文缓存 (KV Cache)**：持久化 `user_id`，利用 DeepSeek API 的服务端缓存
 - **MemOS 长期记忆**：每次对话自动检索历史记忆注入 prompt，结束后回写，跨会话叙事连续性
-- **动态推理强度**：日常 `high`，战斗/逃跑等关键抉择 `max`
+- **推理强度**：当前固定写在请求里（裁决 Agent `max`、叙事 Agent `medium`，世界叙事用默认 `high`），尚未按场景动态切换
 - **JSON 断裂修复**：流中断或 JSON 不完整时，正则降级提取 story 文本
 - **记忆安检单次化**：裁决Agent 唯一过滤记忆，结果通过 `memoryContextChecked` 传给叙事Agent
 - **Prompt 动态提取**：所有跨层数值从代码常量动态提取，确保 Prompt 与代码逻辑 100% 同步
@@ -63,7 +63,7 @@
 | 语言 | Kotlin 2.0 |
 | UI | Jetpack Compose + Material 3 |
 | 架构 | MVVM (手动 DI) |
-| 本地数据库 | Room (6 表, Flow 响应式, fallbackToDestructiveMigration) |
+| 本地数据库 | Room (10 实体/10 DAO, `version 10`, Flow 响应式；仅 debug 允许破坏性回退) |
 | 网络 | Retrofit + OkHttp SSE |
 | JSON | Gson (序列化) + org.json (兜底提取) |
 | 异步 | Kotlin Coroutines + Flow + callbackFlow |
@@ -124,7 +124,7 @@ app/src/main/java/com/ei8z/endworld/
 ├── MainActivity.kt                    # 入口，路由：初始化 / 游戏
 ├── data/
 │   ├── local/
-│   │   ├── AppDatabase.kt             # Room DB (v5), DESTRUCTIVE MIGRATION
+│   │   ├── AppDatabase.kt             # Room DB (v10), 仅 debug 破坏性回退
 │   │   ├── Converters.kt              # List<String> ↔ JSON 转换
 │   │   ├── dao/
 │   │   │   ├── PlayerDao.kt           # 玩家状态 (单例 id=1)
