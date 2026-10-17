@@ -1,6 +1,6 @@
 # 末日求生 · AI 叙事游戏 (EndWorld)
 
-基于 DeepSeek V4 大语言模型驱动的硬核末日生存叙事游戏。AI 担任"城主"(GM)，通过**双Agent流水线**（裁决Agent + 叙事Agent）实时裁决玩家的每一个行动，生成压抑、冷酷、充满临场感的第一人称叙事。
+基于 DeepSeek 大语言模型驱动的硬核末日生存叙事游戏。AI 担任"城主"(GM)，通过**双Agent流水线**（裁决Agent + 叙事Agent）实时裁决玩家的每一个行动，生成压抑、冷酷、充满临场感的第一人称叙事。
 
 ## 架构概览
 
@@ -20,7 +20,7 @@
 │  Domain State         │  Local (Room DB)                       │
 │  SurvivalStateMachine │  10 Entities / 10 DAOs                 │
 │  ├─ GameClock         │  Remote (Retrofit)                     │
-│  ├─ WeatherSystem     │  DeepSeek V4 Pro SSE 流式              │
+│  ├─ WeatherSystem     │  DeepSeek Flash SSE 流式              │
 │  ├─ VitalSystem       │  MemOS OpenMem API (长期记忆)           │
 │  ├─ HealthSystem      │                                       │
 │  ├─ InventoryManager  │                                       │
@@ -50,7 +50,7 @@
 - **流式输出 + SSE**：基于 OkHttp SSE 的逐字流式渲染，推理过程（fate）和故事文本（story）分阶段展示
 - **上下文缓存 (KV Cache)**：持久化 `user_id`，利用 DeepSeek API 的服务端缓存
 - **MemOS 长期记忆**：每次对话自动检索历史记忆注入 prompt，结束后回写，跨会话叙事连续性
-- **推理强度**：当前固定写在请求里（裁决 Agent `max`、叙事 Agent `medium`，世界叙事用默认 `high`），尚未按场景动态切换
+- **推理强度**：当前固定写在请求里（裁决 Agent `max`、叙事 Agent `medium`，世界叙事 `medium`），尚未按场景动态切换
 - **JSON 断裂修复**：流中断或 JSON 不完整时，正则降级提取 story 文本
 - **记忆安检单次化**：裁决Agent 唯一过滤记忆，结果通过 `memoryContextChecked` 传给叙事Agent
 - **Prompt 动态提取**：所有跨层数值从代码常量动态提取，确保 Prompt 与代码逻辑 100% 同步
@@ -65,9 +65,10 @@
 | 架构 | MVVM (手动 DI) |
 | 本地数据库 | Room (10 实体/10 DAO, `version 10`, Flow 响应式；仅 debug 允许破坏性回退) |
 | 网络 | Retrofit + OkHttp SSE |
+| 构建 | Gradle 9.5.0 + JDK 25 daemon（编译目标 JVM 11） |
 | JSON | Gson (序列化) + org.json (兜底提取) |
 | 异步 | Kotlin Coroutines + Flow + callbackFlow |
-| AI 接口 | DeepSeek V4 Pro API (Chat Completions, reasoning_effort=max/medium) |
+| AI 接口 | DeepSeek Flash API (Chat Completions, reasoning_effort=max/medium) |
 | 记忆服务 | MemOS OpenMem API |
 
 ## 快速开始
@@ -75,7 +76,7 @@
 ### 前置条件
 
 - Android Studio Hedgehog (2024.1+) 或更新版本
-- JDK 17
+- JDK 25（Gradle 9.5 的 daemon criteria；编译目标仍为 JVM 11）
 - Android SDK 26+
 - DeepSeek API Key（[获取地址](https://platform.deepseek.com)）
 - MemOS API Key（[获取地址](https://memos.memtensor.cn)）
@@ -192,13 +193,13 @@ GameRepository.sendActionStream() [callbackFlow]
   ↓
   ┌─② 并行获取上下文                 ← MemOS 记忆检索 / PlotContext / 事件候选 / 技能效果 / NPC深度
   ↓
-  ┌─③ ReasonerClient.reason()       ← 裁决Agent (deepseek-v4-pro, reasoning_effort=max, 非流式)
+  ┌─③ ReasonerClient.reason()       ← 裁决Agent (deepseek-flash, reasoning_effort=max, 非流式)
   │   action_result                  ← 判定结果 + 物资变化 + 伤病 + 触发事件 + 剧情节点
   ↓
   ┌─④ applyActionResult()           ← 物资增减 / 伤病应用 / 事件状态变更 / 剧情更新 / 世界事件检查
   │   postSnapshot                   ← 裁决后世界快照
   ↓
-  ┌─⑤ StorytellerClient.stream()    ← 叙事Agent (deepseek-v4-pro, reasoning_effort=medium, 流式 SSE)
+  ┌─⑤ StorytellerClient.stream()    ← 叙事Agent (deepseek-flash, reasoning_effort=medium, 流式 SSE)
   │   finalGameResponse              ← story/suggestions/statusUpdate/header
   ↓
   ┌─⑥ syncGameData()                ← Room DB 持久化 (权威数据从 postSnapshot, 软数据从 AI)
