@@ -138,10 +138,11 @@ class GameViewModel(
         accelerationJob = viewModelScope.launch {
             val player = repository.playerState.first() ?: return@launch
             repository.enterAcceleration(player)
-            // 模板引擎定时刷新（每3秒）
+            // 定时推进游戏时钟（现实 3 秒 = 游戏内 45 分钟）并刷新模板文案
             while (_speedMode.value == SpeedMode.ACCELERATION) {
+                kotlinx.coroutines.delay(3_000)
+                repository.advanceAcceleration(3_000)
                 _accelerationStatusText.value = repository.generateAccelStatusText()
-                kotlinx.coroutines.delay(3000)
             }
         }
     }

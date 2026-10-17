@@ -58,6 +58,9 @@ class GameRepository(
 ) {
     companion object {
         private const val TAG = "GameRepo"
+
+        /** 加速模式时间比例：现实 1 秒 = 游戏内 15 分钟（总纲 §3.2） */
+        const val ACCELERATION_GAME_MINUTES_PER_REAL_SECOND = 15
     }
 
     private val gson = Gson()
@@ -952,6 +955,9 @@ class GameRepository(
     /** 最近一次加速退出的摘要；元行动 RESUME 会把这段文本作为 story 发回 UI。 */
     private var lastAccelerationSummary: String = ""
 
+    /** 最近一次加速退出的摘要（元行动 RESUME 会把这段文本作为 story 发回 UI）。 */
+    val accelerationSummary: String get() = lastAccelerationSummary
+
     fun initV3World() {
         val (r, f) = com.ei8z.endworld.domain.world.engine.WorldInitializer.createDefaultWorld()
         regions.clear(); regions.putAll(r.associateBy { it.regionId })
@@ -1023,7 +1029,7 @@ class GameRepository(
 
     suspend fun enterAcceleration(player: PlayerState) {
         isAccelerating = true
-        accelerationStartHour = (stateMachine.clock.currentDay * 24 + stateMachine.clock.currentHour).toFloat()
+        accelerationStartHour = stateMachine.clock.elapsedMinutes / 60f
         localSummaryLog.clear()
         val loc = regions.values.firstOrNull()?.regionId ?: ""
         val faction = factions.firstOrNull { loc in it.controlledRegions }
@@ -1040,31 +1046,89 @@ class GameRepository(
 
     fun generateAccelStatusText(): String = expectedChanges?.let { WorldNarrativeTemplateEngine.generate(it) } ?: "时间流逝中..."
 
+    /**
+     * 加速期间由 UI 定时器调用：按现实经过时间推进游戏时钟与被动消耗。
+     * 现实 1 秒 = 游戏内 15 分钟；非加速状态下调用为空操作。
+     */
+    fun advanceAcceleration(realMillis: Long) {
+        if (!isAccelerating) return
+        val minutes = (realMillis / 1000.0 * ACCELERATION_GAME_MINUTES_PER_REAL_SECOND).toInt()
+        if (minutes <= 0) return
+        stateMachine.clock.advance(minutes)
+        val hours = minutes / 60f
+        stateMachine.vital.applyPassiveConsumption(hours)
+        repeat(hours.toInt()) { stateMachine.health.tickHourly() }
+    }
+
     suspend fun exitAcceleration(player: PlayerState, world: WorldInfo): String {
         isAccelerating = false
-        val curH = (stateMachine.clock.currentDay * 24 + stateMachine.clock.currentHour).toFloat()
+        val curH = stateMachine.clock.elapsedMinutes / 60f
         val elapsed = curH - accelerationStartHour
+
+        // 加速期间不逐次落库，退出时把时钟写回，避免下一次行动被旧 DB 时间回滚
+        worldDao.updateWorldInfo(
+            world.copy(
+                totalGameMinutes = stateMachine.clock.elapsedMinutes,
+                currentDate = "第${stateMachine.clock.currentDay}天",
+                currentTime = String.format("%02d:%02d", stateMachine.clock.currentHour, stateMachine.clock.currentMinute)
+            )
+        )
+
         if (elapsed < 2f) {
             val partialRatio = elapsed / 24f
-            for (f in factions) { val c = f.controlledRegions.mapNotNull { regions[it] }
-                f.resources = f.resources.copy(foodReserve = max(0f, f.resources.foodReserve - f.population * partialRatio),
-                    waterReserve = max(0f, f.resources.waterReserve - f.population * partialRatio)) }
-            return "加速了${elapsed.toInt()}小时。一切如常。"
+            for (f in factions) {
+                f.resources = f.resources.copy(
+                    foodReserve = max(0f, f.resources.foodReserve - f.population * partialRatio),
+                    waterReserve = max(0f, f.resources.waterReserve - f.population * partialRatio)
+                )
+            }
+            lastAccelerationSummary = "加速了${elapsed.toInt()}小时。一切如常。"
+            return lastAccelerationSummary
         }
-        val fullDays = (elapsed / 24).toInt(); val partial = elapsed % 24
-        for (f in factions) { val c = f.controlledRegions.mapNotNull { regions[it] }; worldEngine.batchCatchupResources(f, c, fullDays, partial) }
-        for ((id, nd) in npcNeeds) { val npc = npcStates[id] ?: continue
-            val r = npcEngine.batchAdvanceNeeds(nd, fullDays, npc.statusTags.any { "受伤" in it }, regions[npc.currentLocationId]?.threatLevel ?: 0)
-            npcNeeds[id] = r.finalNeeds; if (r.diedOnDay != null) npcDepartures[id] = com.ei8z.endworld.domain.npc.model.DepartureInfo(com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD, "加速期间${r.deathCause}")
+
+        val fullDays = (elapsed / 24).toInt()
+        val partial = elapsed % 24
+        for (f in factions) {
+            val c = f.controlledRegions.mapNotNull { regions[it] }
+            worldEngine.batchCatchupResources(f, c, fullDays, partial)
         }
-        val scene = buildString { val r = regions.values.firstOrNull(); if (r != null) append("位置:${r.name} 威胁:${r.threatLevel}") }
-        val report = buildString { append("- 生命值：${player.hp}/${player.hpMax}\n- 饱食度/口渴度：${player.hunger}/${player.thirst}\n- 加速${elapsed.toInt()}小时") }
+        for ((id, nd) in npcNeeds) {
+            val npc = npcStates[id] ?: continue
+            val r = npcEngine.batchAdvanceNeeds(
+                nd, fullDays, npc.statusTags.any { "受伤" in it },
+                regions[npc.currentLocationId]?.threatLevel ?: 0
+            )
+            npcNeeds[id] = r.finalNeeds
+            if (r.diedOnDay != null) {
+                npcDepartures[id] = com.ei8z.endworld.domain.npc.model.DepartureInfo(
+                    com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD,
+                    "加速期间${r.deathCause}"
+                )
+            }
+        }
+        val scene = buildString {
+            val r = regions.values.firstOrNull()
+            if (r != null) append("位置:${r.name} 威胁:${r.threatLevel}")
+        }
+        val report = buildString {
+            append("- 生命值：${player.hp}/${player.hpMax}\n- 饱食度/口渴度：${player.hunger}/${player.thirst}\n- 加速${elapsed.toInt()}小时")
+        }
         val response = worldStorytellerClient.narrate(
             PromptBuilder.buildWorldStorytellerSystemPrompt(),
-            PromptBuilder.buildWorldStorytellerUserMessage("加速 ${elapsed.toInt()}h", localSummaryLog.toList(), emptyList(), report, scene, player.hp > 0), userId)
-        val r = response.getOrElse { worldStorytellerClient.buildFallbackResponse("第${currentGameDay}天",
-            WorldStorytellerApiClient.PlayerStatusSnapshot(player.hp, player.hunger, player.thirst)) }
-        return r.summary
+            PromptBuilder.buildWorldStorytellerUserMessage(
+                "加速 ${elapsed.toInt()}h", localSummaryLog.toList(), emptyList(), report, scene, player.hp > 0
+            ),
+            userId
+        )
+        val r = response.getOrElse {
+            worldStorytellerClient.buildFallbackResponse(
+                "第${currentGameDay}天",
+                WorldStorytellerApiClient.PlayerStatusSnapshot(player.hp, player.hunger, player.thirst)
+            )
+        }
+        val summary = r.summary.ifBlank { "时间加速流逝。当你回过神来，世界已经悄然改变。" }
+        lastAccelerationSummary = summary
+        return summary
     }
 
     fun checkPlayerDeath(player: PlayerState): String? {

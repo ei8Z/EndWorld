@@ -182,5 +182,58 @@ class GameRepositoryTest {
         assertTrue(events.single() is StreamEvent.Error)
     }
 
+    @Test
+    fun `advanceAcceleration advances clock 15 game minutes per real second`() = runTest {
+        val repo = createRepo()
+        repo.enterAcceleration(testPlayer())
+
+        val before = repo.stateMachine.clock.elapsedMinutes
+        repo.advanceAcceleration(realMillis = 10_000)
+
+        assertEquals(before + 150, repo.stateMachine.clock.elapsedMinutes)
+    }
+
+    @Test
+    fun `advanceAcceleration is a no-op after exit`() = runTest {
+        val repo = createRepo()
+        repo.enterAcceleration(testPlayer())
+        repo.advanceAcceleration(realMillis = 10_000)
+        repo.exitAcceleration(testPlayer(), testWorld())
+
+        val before = repo.stateMachine.clock.elapsedMinutes
+        repo.advanceAcceleration(realMillis = 60_000)
+
+        assertEquals(before, repo.stateMachine.clock.elapsedMinutes)
+    }
+
+    @Test
+    fun `exitAcceleration persists accelerated clock`() = runTest {
+        val repo = createRepo()
+        repo.enterAcceleration(testPlayer())
+        repo.advanceAcceleration(realMillis = 10_000)
+        repo.exitAcceleration(testPlayer(), testWorld())
+
+        coVerify { worldDao.updateWorldInfo(match { it.totalGameMinutes == 510 }) }
+    }
+
+    @Test
+    fun `resume after acceleration replays stored summary`() = runTest {
+        every { playerDao.getPlayer() } returns flowOf(testPlayer())
+        every { worldDao.getWorldInfo() } returns flowOf(testWorld())
+        every { inventoryDao.getAllItems() } returns flowOf(emptyList())
+
+        val repo = createRepo()
+        repo.enterAcceleration(testPlayer())
+        repo.advanceAcceleration(realMillis = 10_000)
+        val summary = repo.exitAcceleration(testPlayer(), testWorld())
+
+        val final = repo.sendActionStream("恢复正常速度").toList()
+            .filterIsInstance<StreamEvent.FinalResponse>()
+            .single()
+
+        assertEquals(summary, final.response.story)
+        assertEquals(summary, repo.accelerationSummary)
+    }
+
     // endregion
 }
