@@ -20,7 +20,7 @@ class NpcBehaviorEngineTest {
             baseAffinity = 10, personalityTags = listOf("谨慎"))
         needs = engine.initializeNeeds(factionFoodShortage = false, regionHighThreat = false)
         affinity = engine.initializeAffinity(baseAffinity = 10)
-        memory = MemoryQueue(capacity = 6)
+        memory = MemoryQueue(mutableListOf(), capacity = 6)
     }
 
     @Test
