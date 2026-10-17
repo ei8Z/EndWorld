@@ -320,5 +320,31 @@ class GameRepositoryTest {
         assertTrue(repo.regions.isNotEmpty())
     }
 
+    @Test
+    fun `writeV3State clears events before inserting`() = runTest {
+        stubV3Daos()
+        coEvery { eventDao.clearAll() } just Runs
+        coEvery { eventDao.upsertEvent(any()) } just Runs
+
+        val repo = createRepo()
+        repo.ensureV3WorldLoaded()
+        repo.absorbSettlementEvents(
+            listOf(
+                GlobalEvent(
+                    eventId = "ev_order", eventType = GlobalEventType.RUMOR,
+                    affectedRegions = mutableListOf("R01"), propagationRate = 0.1f,
+                    remainingDays = 1, intensity = 10, sourceRegionId = "R01",
+                    associatedFactionId = null
+                )
+            )
+        )
+        repo.writeV3State()
+
+        coVerifyOrder {
+            eventDao.clearAll()
+            eventDao.upsertEvent(any())
+        }
+    }
+
     // endregion
 }

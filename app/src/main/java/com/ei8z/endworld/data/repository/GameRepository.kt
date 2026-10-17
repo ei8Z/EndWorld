@@ -2,6 +2,7 @@ package com.ei8z.endworld.data.repository
 
 import android.content.Context
 import android.util.Log
+import androidx.room.withTransaction
 import com.ei8z.endworld.BuildConfig
 import com.ei8z.endworld.data.local.AppDatabase
 import com.ei8z.endworld.data.local.entity.*
@@ -766,7 +767,15 @@ class GameRepository(
 
     // ======================== V3.0 状态持久化 ========================
 
-    suspend fun persistV3State() {
+    private val persistMutex = Mutex()
+
+    /** 事务 + 串行：清空事件与批量写入要么全成，要么全不成。 */
+    suspend fun persistV3State() = persistMutex.withLock {
+        database.withTransaction { writeV3State() }
+    }
+
+    /** 把 V3 内存状态写入 Room。清空事件表与重写必须在同一事务内完成。 */
+    internal suspend fun writeV3State() {
         try {
             val fDao = database.factionDao()
             val rDao = database.regionDao()
@@ -964,6 +973,11 @@ class GameRepository(
 
     /** 最近一次加速退出的摘要（元行动 RESUME 会把这段文本作为 story 发回 UI）。 */
     val accelerationSummary: String get() = lastAccelerationSummary
+
+    /** 把每日结算生成的新事件并入活跃事件列表（此前 newEvents 被丢弃）。 */
+    internal fun absorbSettlementEvents(events: List<com.ei8z.endworld.domain.world.model.GlobalEvent>) {
+        activeEvents.addAll(events)
+    }
 
     fun initV3World() {
         val (r, f) = com.ei8z.endworld.domain.world.engine.WorldInitializer.createDefaultWorld()
