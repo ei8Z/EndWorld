@@ -89,11 +89,15 @@ class StorytellerApiClient(
 
             // 流结束，解析完整 JSON
             val rawJson = fullContent.toString()
-            try {
-                val gameResponse = gson.fromJson(rawJson, GameResponse::class.java)
-                trySend(StorytellerEvent.FinalResponse(gameResponse))
-            } catch (e: Exception) {
+            val safeRaw = GameResponseValidator.sanitize(rawJson)
+            if (safeRaw == null) {
                 trySend(StorytellerEvent.FinalResponse(buildSalvagedGameResponse(rawJson)))
+            } else {
+                trySend(
+                    StorytellerEvent.FinalResponse(
+                        gson.fromJson(safeRaw, GameResponse::class.java)
+                    )
+                )
             }
         } catch (e: Exception) {
             trySend(StorytellerEvent.Error("叙事Agent调用异常: ${e.message}"))
