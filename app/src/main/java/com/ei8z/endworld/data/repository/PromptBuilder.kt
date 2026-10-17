@@ -1010,6 +1010,10 @@ $JSON_CONSTRAINT
         appendLine("【请评估】：")
         appendLine("1. 这个关系质变对NPC的行为模式会产生什么影响？")
         appendLine("2. NPC对玩家的情感倾向是否发生变化？")
+        appendLine()
+        appendLine("【输出要求】：只输出 JSON，不要额外文字。")
+        appendLine("decision.npcId=\"$npcName\"；decision.behaviorModeChange 只能是中文关系阶段的 \"A→B\"（可选：仇恨、敌意、中立或陌生、熟悉、信任、亲密），或 null；decision.newEmotionalTags 为字符串数组；decision.shouldNotifyPlayer 为布尔。")
+        appendLine("示例：{\"decision\":{\"npcId\":\"$npcName\",\"behaviorModeChange\":\"$oldStage→$newStage\",\"newEmotionalTags\":[],\"shouldNotifyPlayer\":false},\"rationale\":\"...\",\"suggestedNarrativeAngle\":\"...\"}")
     }
 
     fun buildScene3UserMessage(npcName: String, npcIdentity: String, battleName: String,
@@ -1027,6 +1031,7 @@ $JSON_CONSTRAINT
         appendLine("【触发事件】：$npcName 发生生存状态突变：$mutationType")
         appendLine("需求=$needs | 位置=$location | 记忆=$memories | 战斗角色=$combatRole")
         appendLine("请评估该NPC行为模式应如何转变。")
+        appendLine("【输出要求】：只输出 JSON。decision 对象 + rationale + suggestedNarrativeAngle；decision 内给出行为模式变更字段，无变更时保持现状。")
     }
 
     fun buildScene5UserMessage(npcA: String, npcB: String, interactionType: String,

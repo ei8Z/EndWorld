@@ -54,6 +54,16 @@ data class StageCrossingEvent(
     val reason: String
 )
 
+/** 对外展示与提示词使用的中文阶段名，必须与 LightweightAIValidator.validRelationshipStages 一致。 */
+fun RelationshipStage.toDisplayName(): String = when (this) {
+    RelationshipStage.HATRED -> "仇恨"
+    RelationshipStage.HOSTILITY -> "敌意"
+    RelationshipStage.NEUTRAL -> "中立或陌生"
+    RelationshipStage.FAMILIAR -> "熟悉"
+    RelationshipStage.TRUST -> "信任"
+    RelationshipStage.INTIMATE -> "亲密"
+}
+
 fun Int.toRelationshipStage(): RelationshipStage = when {
     this < -60 -> RelationshipStage.HATRED
     this < -20 -> RelationshipStage.HOSTILITY

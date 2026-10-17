@@ -121,7 +121,8 @@ class ReasonerApiClient(
             ),
             reasoningEffort = "low",
             responseFormat = ResponseFormat("json_object"),
-            maxTokens = 1024,
+            // 1024 会被推理 token 吃满（真实 API 冒烟：finish_reason=length、content 为空）
+            maxTokens = 4096,
             stream = false,
             userId = userId
         )

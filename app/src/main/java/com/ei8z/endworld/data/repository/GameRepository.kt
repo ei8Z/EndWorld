@@ -27,6 +27,8 @@ import com.ei8z.endworld.data.remote.model.ResourceUpdate
 import com.ei8z.endworld.data.remote.model.ResponseHeader
 import com.ei8z.endworld.data.remote.model.StatusUpdate
 import com.ei8z.endworld.data.remote.model.WorldUpdate
+import com.ei8z.endworld.domain.npc.model.RelationshipStage
+import com.ei8z.endworld.domain.npc.model.toDisplayName
 import com.ei8z.endworld.domain.npc.model.toRelationshipStage
 import com.ei8z.endworld.domain.state.BranchClassifier
 import com.ei8z.endworld.domain.state.ClientDiceRoller
@@ -832,8 +834,10 @@ class GameRepository(
                             timeline = "",
                             memosFragments = "",
                             playerLoc = data.header.location,
-                            oldStage = trigger.detail["oldStage"] ?: "",
-                            newStage = trigger.detail["newStage"] ?: ""
+                            oldStage = trigger.detail["oldStage"]
+                                ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: "",
+                            newStage = trigger.detail["newStage"]
+                                ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: ""
                         )
                         sceneEvaluator.evaluate(trigger, message)?.let { decision ->
                             val hint = decision.get("suggestedNarrativeAngle")?.asString
