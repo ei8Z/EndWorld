@@ -20,7 +20,6 @@ class WorldRulesEngine(
     var doomLevelModifier: Float = 1.0f     // 1.0-2.0
     var depletionRate: Float = 0.02f        // 每日自然损耗比例
     var conflictBaseProbability: Float = 0.05f
-    var eventBasePropagationRate: Float = 0.3f
     var propagationDecayRate: Float = 0.10f  // 每传播一个区域衰减10%
     var minEventsPerDay: Int = 1            // 全局每日最少事件数
 

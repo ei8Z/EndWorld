@@ -101,8 +101,10 @@ object LightweightAIValidator {
 
         // 5. behaviorModeChange格式校验 (场景2)
         if (sceneType == 2) {
-            val bmc = evalObj.get("behaviorModeChange")?.asString
-            if (bmc != null && bmc != "null") {
+            // 规范允许 behaviorModeChange 为 null（表示不改变行为模式）
+            val bmcElement = evalObj.get("behaviorModeChange")
+            val bmc = if (bmcElement != null && bmcElement.isJsonPrimitive) bmcElement.asString else null
+            if (bmc != null) {
                 val parts = bmc.split("→")
                 if (parts.size != 2 || parts[0] !in validRelationshipStages ||
                     parts[1] !in validRelationshipStages
@@ -120,15 +122,8 @@ object LightweightAIValidator {
     }
 
     private fun validateTypes(json: JsonObject, warnings: MutableList<String>) {
-        for ((key, value) in json.entrySet()) {
-            when {
-                // 期望String的值收到Number/Boolean/null
-                value.isJsonNull -> {
-                    json.addProperty(key, "")
-                    warnings.add("类型错误: $key 为null → 取空字符串")
-                }
-            }
-        }
+        // 顶层 null 是合法值（例如场景2的 behaviorModeChange=null 表示不改变），
+        // 这里不再把 null 改写成空串，也不计入 warning；字段级类型校验由各场景分支负责。
     }
 
     private fun validateNumericFields(obj: JsonObject, warnings: MutableList<String>) {

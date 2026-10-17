@@ -30,9 +30,10 @@ class ReasonerApiClient(
     private val apiService: DeepSeekApiService,
     private val authHeader: String
 ) {
-    companion object {
+    private companion object {
+        const val MODEL = "deepseek-flash"
         /** 工具调用最多两轮，避免模型反复查询 */
-        private const val MAX_TOOL_ROUNDS = 2
+        const val MAX_TOOL_ROUNDS = 2
     }
 
     /**
@@ -59,9 +60,10 @@ class ReasonerApiClient(
         )
 
         return try {
-            repeat(MAX_TOOL_ROUNDS + 1) { round ->
+            // 最多 2 轮工具调用 + 1 次最终裁决
+            for (round in 0..MAX_TOOL_ROUNDS) {
                 val request = ChatRequest(
-                    model = "deepseek-flash",
+                    model = MODEL,
                     messages = messages,
                     reasoningEffort = "max",
                     responseFormat = ResponseFormat("json_object"),
@@ -84,7 +86,7 @@ class ReasonerApiClient(
                     messages = messages +
                         ChatMessage(role = "assistant", content = null, toolCalls = toolCalls) +
                         toolMessages
-                    return@repeat
+                    continue
                 }
 
                 val content = choice?.message?.content
@@ -112,7 +114,7 @@ class ReasonerApiClient(
         userId: String
     ): String? {
         val request = ChatRequest(
-            model = "deepseek-flash",
+            model = MODEL,
             messages = listOf(
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userMessage)

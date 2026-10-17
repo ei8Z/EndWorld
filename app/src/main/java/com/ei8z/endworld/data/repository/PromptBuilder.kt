@@ -1006,6 +1006,10 @@ $JSON_CONSTRAINT
         appendLine("【触发事件】：$npcName（$npcIdentity）好感度从 $oldAffinity 变为 $newAffinity，跨过 $boundary")
         appendLine("【NPC状态】：需求=$needs | 记忆=$memories | 时间线=$timeline | MemOS=$memosFragments")
         appendLine("【玩家状态】：位置=$playerLoc | 关系阶段：$oldStage → $newStage")
+        appendLine()
+        appendLine("【请评估】：")
+        appendLine("1. 这个关系质变对NPC的行为模式会产生什么影响？")
+        appendLine("2. NPC对玩家的情感倾向是否发生变化？")
     }
 
     fun buildScene3UserMessage(npcName: String, npcIdentity: String, battleName: String,

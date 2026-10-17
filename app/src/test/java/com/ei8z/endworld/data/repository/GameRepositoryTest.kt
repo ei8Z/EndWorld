@@ -278,6 +278,7 @@ class GameRepositoryTest {
         every { regionDao.getAllRegions() } returns flowOf(listOfNotNull(region))
         every { eventDao.getAllEvents() } returns flowOf(emptyList())
         every { npcStateDao.getAllNpcs() } returns flowOf(listOfNotNull(npc))
+        every { npcDao.getAllNpcs() } returns flowOf(emptyList())
     }
 
     @Test
@@ -559,4 +560,13 @@ class GameRepositoryTest {
     }
 
     // endregion
+    @Test
+    fun `legacy affinity and delta convert to v3 scale`() {
+        val repo = createRepo()
+        assertEquals(-100, repo.v3AffinityFromLegacy(0))
+        assertEquals(0, repo.v3AffinityFromLegacy(50))
+        assertEquals(100, repo.v3AffinityFromLegacy(100))
+        assertEquals(20, repo.v3DeltaFromLegacy(10))
+        assertEquals(-20, repo.v3DeltaFromLegacy(-10))
+    }
 }

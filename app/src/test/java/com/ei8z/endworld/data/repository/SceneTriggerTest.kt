@@ -19,4 +19,11 @@ class SceneTriggerTest {
     fun `same stage does not trigger`() {
         assertNull(SceneTriggerDetector.detectStageCrossing("n1", oldAffinity = 22, newAffinity = 30))
     }
+    @Test
+    fun `boundary is numeric and direction aware`() {
+        assertEquals("20", SceneTriggerDetector.detectStageCrossing("n1", 18, 22)?.detail?.get("boundary"))
+        assertEquals("20", SceneTriggerDetector.detectStageCrossing("n1", 22, 18)?.detail?.get("boundary"))
+        assertEquals("50", SceneTriggerDetector.detectStageCrossing("n1", 45, 55)?.detail?.get("boundary"))
+        assertEquals("50", SceneTriggerDetector.detectStageCrossing("n1", 55, 45)?.detail?.get("boundary"))
+    }
 }

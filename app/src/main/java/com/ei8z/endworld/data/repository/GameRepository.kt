@@ -107,7 +107,7 @@ class GameRepository(
      * 只读查询背包，无副作用。
      */
     private fun ensureToolRegistered() {
-        if (ToolRegistry.isRegistered("check_inventory")) return
+        // 每次覆盖注册：ToolRegistry 是全局单例，不能捕获首个 Repository 的 stateMachine
         ToolRegistry.register("check_inventory", object : ToolHandler {
             override fun execute(arguments: String): String {
                 val params: Map<String, String> = try {
@@ -140,8 +140,25 @@ class GameRepository(
 
     // ---- 场景评估（2B） ----
 
-    /** V3 NPC 好感度内存镜像（name -> affinity），用于场景 2 的跨越检测。 */
+    /** V3 NPC 好感度内存镜像（name -> -100..100），用于场景 2 的跨越检测。 */
     private val npcRelationAffinity = mutableMapOf<String, Int>()
+
+    private var npcAffinitiesSeeded = false
+
+    /** NpcRelation 好感度是 0..100；V3 是 -100..100，按 NPC 文档 §3.5 的 (x-50)*2 换算。 */
+    internal fun v3AffinityFromLegacy(legacy: Int): Int = ((legacy - 50) * 2).coerceIn(-100, 100)
+
+    /** AI 的 affinityDelta 是 0..100 量纲的增量，换算到 -100..100 直接 ×2。 */
+    internal fun v3DeltaFromLegacy(delta: Int): Int = (delta * 2).coerceIn(-100, 100)
+
+    /** 从 DB 播种好感度基准，避免重启后以 0 为基准误判跨越。 */
+    private suspend fun seedNpcAffinities() {
+        if (npcAffinitiesSeeded) return
+        npcDao.getAllNpcs().first().forEach { relation ->
+            npcRelationAffinity[relation.name] = v3AffinityFromLegacy(relation.affinity)
+        }
+        npcAffinitiesSeeded = true
+    }
 
     /** 场景评估结果，供下一轮叙事注入。 */
     private val pendingSceneNotes = mutableListOf<String>()
@@ -206,6 +223,7 @@ class GameRepository(
         seedStateMachine(currentPlayer, currentWorld)
         // V3.0: 首次调用时从 DB 回读世界模拟（空库才建默认世界）
         ensureV3WorldLoaded()
+        seedNpcAffinities()
 
         val job = repositoryScope.launch {
             try {
@@ -784,31 +802,38 @@ class GameRepository(
         // 好感度权威重构后改为模拟层事件驱动）
         update.npcUpdate?.forEach { npc ->
             val name = npc.name ?: return@forEach
-            val delta = npc.affinityDelta ?: return@forEach
+            val delta = v3DeltaFromLegacy(npc.affinityDelta ?: return@forEach)
             val oldAffinity = npcRelationAffinity[name] ?: 0
             val newAffinity = (oldAffinity + delta).coerceIn(-100, 100)
             npcRelationAffinity[name] = newAffinity
             SceneTriggerDetector.detectStageCrossing(name, oldAffinity, newAffinity)?.let { trigger ->
                 repositoryScope.launch {
-                    val message = PromptBuilder.buildScene2UserMessage(
-                        npcName = name,
-                        npcIdentity = npc.relation ?: "居民",
-                        oldAffinity = oldAffinity,
-                        newAffinity = newAffinity,
-                        boundary = "${trigger.detail["oldStage"] ?: ""}→${trigger.detail["newStage"] ?: ""}",
-                        needs = npc.currentNeed ?: "",
-                        memories = npc.lastInteractionSummary ?: "",
-                        timeline = "",
-                        memosFragments = "",
-                        playerLoc = data.header.location,
-                        oldStage = trigger.detail["oldStage"] ?: "",
-                        newStage = trigger.detail["newStage"] ?: ""
-                    )
-                    sceneEvaluator.evaluate(trigger, message)?.let { decision ->
-                        val hint = decision.get("suggestedNarrativeAngle")?.asString
-                        if (!hint.isNullOrBlank()) {
-                            synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+                    try {
+                        val message = PromptBuilder.buildScene2UserMessage(
+                            npcName = name,
+                            // NpcUpdate 没有 identity 字段，这里用性格标签兜底
+                            npcIdentity = npc.personalityTags?.joinToString("、")?.ifBlank { "居民" } ?: "居民",
+                            oldAffinity = oldAffinity,
+                            newAffinity = newAffinity,
+                            boundary = trigger.detail["boundary"] ?: "",
+                            needs = npc.currentNeed ?: "",
+                            memories = npc.lastInteractionSummary ?: "",
+                            timeline = "",
+                            memosFragments = "",
+                            playerLoc = data.header.location,
+                            oldStage = trigger.detail["oldStage"] ?: "",
+                            newStage = trigger.detail["newStage"] ?: ""
+                        )
+                        sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                            val hint = decision.get("suggestedNarrativeAngle")?.asString
+                            if (!hint.isNullOrBlank()) {
+                                synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+                            }
                         }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "场景2评估失败: ${e.message}", e)
                     }
                 }
             }

@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.domain.npc.model.RelationshipStage
 import com.ei8z.endworld.domain.npc.model.toRelationshipStage
 
 /** 轻量 AI 场景编号，对应 Agent 配置规范 §5.5-5.10。 */
@@ -32,8 +33,40 @@ object SceneTriggerDetector {
                 "oldAffinity" to oldAffinity.toString(),
                 "newAffinity" to newAffinity.toString(),
                 "oldStage" to oldStage.name,
-                "newStage" to newStage.name
+                "newStage" to newStage.name,
+                "boundary" to crossedBoundary(oldAffinity, newAffinity, oldStage, newStage).toString()
             )
         )
+    }
+
+    /** 阶段下界：HATRED -100 / HOSTILITY -60 / NEUTRAL -20 / FAMILIAR +20 / TRUST +50 / INTIMATE +80 */
+    private val lowerBound = mapOf(
+        RelationshipStage.HATRED to -100,
+        RelationshipStage.HOSTILITY to -60,
+        RelationshipStage.NEUTRAL to -20,
+        RelationshipStage.FAMILIAR to 20,
+        RelationshipStage.TRUST to 50,
+        RelationshipStage.INTIMATE to 80
+    )
+
+    /** 阶段上界：HATRED -60 / HOSTILITY -20 / NEUTRAL +20 / FAMILIAR +50 / TRUST +80 / INTIMATE +100 */
+    private val upperBound = mapOf(
+        RelationshipStage.HATRED to -60,
+        RelationshipStage.HOSTILITY to -20,
+        RelationshipStage.NEUTRAL to 20,
+        RelationshipStage.FAMILIAR to 50,
+        RelationshipStage.TRUST to 80,
+        RelationshipStage.INTIMATE to 100
+    )
+
+    private fun crossedBoundary(
+        oldAffinity: Int,
+        newAffinity: Int,
+        oldStage: RelationshipStage,
+        newStage: RelationshipStage
+    ): Int = if (newAffinity > oldAffinity) {
+        lowerBound[newStage] ?: 0
+    } else {
+        upperBound[newStage] ?: 0
     }
 }
