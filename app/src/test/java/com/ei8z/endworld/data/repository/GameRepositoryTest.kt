@@ -5,8 +5,13 @@ import android.content.SharedPreferences
 import com.ei8z.endworld.data.local.AppDatabase
 import com.ei8z.endworld.data.local.dao.*
 import com.ei8z.endworld.data.local.entity.*
+import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.MemosApiService
+import com.ei8z.endworld.data.remote.model.ChatMessage
+import com.ei8z.endworld.data.remote.model.ChatResponse
+import com.ei8z.endworld.data.remote.model.Choice
+import com.ei8z.endworld.data.remote.model.Usage
 import com.ei8z.endworld.domain.world.dao.*
 import com.ei8z.endworld.domain.world.model.GlobalEvent
 import com.ei8z.endworld.domain.world.model.GlobalEventType
@@ -374,6 +379,39 @@ class GameRepositoryTest {
 
         assertEquals(before + 1, repo.activeEvents.size)
         assertTrue(repo.activeEvents.any { it.eventId == "ev1" })
+    }
+
+    @Test
+    fun `lethal action emits PlayerDied before storyteller`() = runTest {
+        stubV3Daos()
+        every { prefs.getString("gm_strategy", null) } returns null
+        every { playerDao.getPlayer() } returns flowOf(testPlayer().copy(hp = 5, hpMax = 100))
+        every { worldDao.getWorldInfo() } returns flowOf(testWorld())
+        every { inventoryDao.getAllItems() } returns flowOf(emptyList())
+        coEvery { playerDao.updatePlayerState(any()) } just Runs
+        coEvery { worldDao.updateWorldInfo(any()) } just Runs
+        coEvery { inventoryDao.syncInventory(any()) } just Runs
+        coEvery { memoryDao.insertMemory(any()) } just Runs
+        coEvery { npcDao.upsertNpcDepth(any(), any(), any(), any(), any(), any()) } just Runs
+
+        val lethal = """
+            {"actionResult":{"result":"失败","dcValue":10,"rollValue":10,"totalValue":10,
+            "modifiersBreakdown":"","resourceChanges":[{"itemId":"hp","itemName":"生命值",
+            "category":"生命值","changeAmount":-10,"newValue":0,"maxValue":100,
+            "narrativeHint":"致命打击"}],"injuriesApplied":[],"injuriesRecovered":[],
+            "narrativeSummary":"你倒下了","eventTriggered":null}}
+        """.trimIndent()
+        coEvery { api.getChatCompletions(any(), any()) } returns ChatResponse(
+            "t", "m", listOf(Choice(ChatMessage("assistant", lethal), "stop", 0)), Usage(1, 1, 2)
+        )
+
+        val repo = createRepo()
+        val events = repo.sendActionStream(
+            "战斗",
+            ActionParsed("战斗", "", "敌人", "", "", "高", 30)
+        ).toList()
+
+        assertTrue(events.any { it is StreamEvent.PlayerDied })
     }
 
     // endregion

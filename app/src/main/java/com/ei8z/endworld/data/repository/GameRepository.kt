@@ -256,6 +256,25 @@ class GameRepository(
         sm.applyActionResult(actionResult, actionParsed)
         val postSnapshot = sm.generatePostRulingSnapshot()
 
+        // 致死判定：先于叙事 Agent，避免"死者还在叙事"
+        val deathCause = checkPlayerDeath(postSnapshot.hp, postSnapshot.hunger, postSnapshot.thirst)
+        if (deathCause != null) {
+            playerDao.updatePlayerState(
+                player.copy(
+                    hp = postSnapshot.hp,
+                    hunger = postSnapshot.hunger,
+                    thirst = postSnapshot.thirst
+                )
+            )
+            trySend(
+                StreamEvent.PlayerDied(
+                    cause = deathCause,
+                    narrative = "你倒下了。寒冷与黑暗合拢，世界没有为你停留。"
+                )
+            )
+            return
+        }
+
         // 5. 叙事Agent（流式）
         trySend(StreamEvent.PhaseChanged("story"))
         val activeGoals = buildActiveGoalsList(plotContext)
@@ -1199,9 +1218,9 @@ class GameRepository(
         return summary
     }
 
-    fun checkPlayerDeath(player: PlayerState): String? {
-        if (player.hp <= 0) return "致命伤势"
-        if (player.hunger <= 0 && player.thirst <= 0) return "饥饿与脱水"
+    fun checkPlayerDeath(hp: Int, hunger: Int, thirst: Int): String? {
+        if (hp <= 0) return "致命伤势"
+        if (hunger <= 0 && thirst <= 0) return "饥饿与脱水"
         return null
     }
 
