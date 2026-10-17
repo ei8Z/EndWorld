@@ -202,11 +202,13 @@ class GameRepository(
         sm.doomLevel = player.doomLevel.coerceIn(1, 5)
         sm.processPreRuling(actionParsed.estimatedTimeMinutes, actionParsed.primaryType)
 
-        // V3.0: 午夜检测 → 每日结算
-        val prevDay = lastMidnightSettlementDay
-        if (sm.clock.currentDay > prevDay) {
-            repositoryScope.launch { v3Mutex.withLock { executeDailySettlement() } }
+        // V3.0: 跨过几个午夜就结算几次（此前只结算 1 次）
+        val pendingDays = pendingSettlementDays(lastMidnightSettlementDay, sm.clock.currentDay)
+        if (pendingDays > 0) {
             lastMidnightSettlementDay = sm.clock.currentDay
+            repositoryScope.launch {
+                v3Mutex.withLock { repeat(pendingDays) { executeDailySettlement() } }
+            }
         }
 
         val preSnapshot = sm.generatePreRulingSnapshot()
@@ -974,6 +976,10 @@ class GameRepository(
     /** 最近一次加速退出的摘要（元行动 RESUME 会把这段文本作为 story 发回 UI）。 */
     val accelerationSummary: String get() = lastAccelerationSummary
 
+    /** 一次行动跨过几个午夜，就补几次每日结算。 */
+    internal fun pendingSettlementDays(previousDay: Int, currentDay: Int): Int =
+        (currentDay - previousDay).coerceAtLeast(0)
+
     /** 把每日结算生成的新事件并入活跃事件列表（此前 newEvents 被丢弃）。 */
     internal fun absorbSettlementEvents(events: List<com.ei8z.endworld.domain.world.model.GlobalEvent>) {
         activeEvents.addAll(events)
@@ -1031,6 +1037,7 @@ class GameRepository(
     suspend fun executeDailySettlement() {
         val result = dailySettlement.execute(factions, regions, activeEvents)
         Log.d(TAG, "V3结算: 资源${result.resourceChanges.size} 阈值${result.thresholdTriggers.size} 战斗${result.battleResults.size}")
+        absorbSettlementEvents(result.newEvents)
         resolveNpcSettlement()
         // V3.0: 轻量AI评估（场景1）
         if (result.needsAIEvaluation) { tryCallLightweightAI(result.thresholdTriggers) }

@@ -346,5 +346,35 @@ class GameRepositoryTest {
         }
     }
 
+    @Test
+    fun `pendingSettlementDays counts every crossed midnight`() {
+        val repo = createRepo()
+        assertEquals(0, repo.pendingSettlementDays(previousDay = 3, currentDay = 3))
+        assertEquals(1, repo.pendingSettlementDays(previousDay = 3, currentDay = 4))
+        assertEquals(2, repo.pendingSettlementDays(previousDay = 3, currentDay = 5))
+    }
+
+    @Test
+    fun `absorbSettlementEvents appends new global events`() = runTest {
+        stubV3Daos()
+        val repo = createRepo()
+        repo.ensureV3WorldLoaded()
+        val before = repo.activeEvents.size
+
+        repo.absorbSettlementEvents(
+            listOf(
+                GlobalEvent(
+                    eventId = "ev1", eventType = GlobalEventType.ZOMBIE_HORDE,
+                    affectedRegions = mutableListOf("R01"), propagationRate = 0.3f,
+                    remainingDays = 3, intensity = 50, sourceRegionId = "R01",
+                    associatedFactionId = null
+                )
+            )
+        )
+
+        assertEquals(before + 1, repo.activeEvents.size)
+        assertTrue(repo.activeEvents.any { it.eventId == "ev1" })
+    }
+
     // endregion
 }
