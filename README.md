@@ -46,7 +46,7 @@
 - **剧情管理**：PlotManager 章节推进 + 伏笔埋设/回收 + 剧情节点完成
 
 ### 扩展功能
-- **客户端发牌员模式（未接线）**：`ToolRegistry` 已实现 `check_inventory` 工具 schema，但尚未注册进请求（`tools=null`、`tool_choice=none`），当前不会实际调用
+- **客户端发牌员模式**：裁决 Agent 通过 `check_inventory` Function Calling 查询背包，作为防幻觉对账（最多 2 轮工具调用）
 - **流式输出 + SSE**：基于 OkHttp SSE 的逐字流式渲染，推理过程（fate）和故事文本（story）分阶段展示
 - **上下文缓存 (KV Cache)**：持久化 `user_id`，利用 DeepSeek API 的服务端缓存
 - **MemOS 长期记忆**：每次对话自动检索历史记忆注入 prompt，结束后回写，跨会话叙事连续性
