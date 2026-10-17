@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import android.util.Log
 import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.model.ChatMessage
 import com.ei8z.endworld.data.remote.model.ChatRequest
@@ -60,36 +61,23 @@ class StorytellerApiClient(
         )
 
         try {
-            val responseBody = apiService.getChatCompletionsStream(authHeader, request)
-            val fullContent = StringBuilder()
+            var outcome = streamOnce(request) { trySend(StorytellerEvent.Content(it)) }
 
-            responseBody.charStream().buffered().use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    val row = line ?: ""
-                    if (row.startsWith("data: ")) {
-                        val data = row.substring(6)
-                        if (data == "[DONE]") break
+            // 流在 [DONE] 之前断开且没收到任何内容：安全重试一次（UI 尚无半截文本）
+            if (!outcome.sawDone && outcome.content.isEmpty()) {
+                Log.w(TAG, "SSE ended before [DONE] without content, retrying once")
+                outcome = streamOnce(request) { trySend(StorytellerEvent.Content(it)) }
+            }
 
-                        try {
-                            val chunk = gson.fromJson(
-                                data,
-                                com.ei8z.endworld.data.remote.model.ChatChunkResponse::class.java
-                            )
-                            val delta = chunk.choices.firstOrNull()?.delta
-                            delta?.content?.let {
-                                fullContent.append(it)
-                                trySend(StorytellerEvent.Content(it))
-                            }
-                        } catch (e: Exception) {
-                            // 忽略单条 chunk 解析失败
-                        }
-                    }
-                }
+            // 收到半截内容后断流：不回退成 salvage（否则 UI 会出现"未知"+半句），明确报错让用户重试
+            if (!outcome.sawDone) {
+                Log.w(TAG, "SSE incomplete: contentLen=${outcome.content.length}")
+                trySend(StorytellerEvent.Error("叙事流中断，请重试"))
+                return@callbackFlow
             }
 
             // 流结束，解析完整 JSON
-            val rawJson = fullContent.toString()
+            val rawJson = outcome.content
             val safeRaw = GameResponseValidator.sanitize(rawJson)
             if (safeRaw == null) {
                 trySend(StorytellerEvent.FinalResponse(buildSalvagedGameResponse(rawJson)))
@@ -107,6 +95,59 @@ class StorytellerApiClient(
         } finally {
             close()
         }
+    }
+
+    private class StreamOutcome(
+        val content: String,
+        val sawDone: Boolean,
+        val lastFinish: String?
+    )
+
+    /** 单次流式读取；sawDone=false 表示连接在 [DONE] 之前结束。 */
+    private suspend fun streamOnce(
+        request: ChatRequest,
+        onDelta: suspend (String) -> Unit
+    ): StreamOutcome {
+        val responseBody = apiService.getChatCompletionsStream(authHeader, request)
+        val fullContent = StringBuilder()
+        var sawDone = false
+        var lastFinish: String? = null
+        var chunkCount = 0
+
+        responseBody.charStream().buffered().use { reader ->
+            var line: String?
+            while (reader.readLine().also { line = it } != null) {
+                val row = line ?: ""
+                if (!row.startsWith("data: ")) continue
+                val data = row.substring(6)
+                if (data == "[DONE]") {
+                    sawDone = true
+                    break
+                }
+                chunkCount++
+                try {
+                    val chunk = gson.fromJson(
+                        data,
+                        com.ei8z.endworld.data.remote.model.ChatChunkResponse::class.java
+                    )
+                    val choice = chunk.choices.firstOrNull()
+                    choice?.finishReason?.let { lastFinish = it }
+                    choice?.delta?.content?.let {
+                        fullContent.append(it)
+                        onDelta(it)
+                    }
+                } catch (e: Exception) {
+                    // 忽略单条 chunk 解析失败
+                }
+            }
+        }
+
+        Log.i(
+            TAG,
+            "SSE end: chunks=$chunkCount, contentLen=${fullContent.length}, " +
+                "sawDone=$sawDone, lastFinish=$lastFinish"
+        )
+        return StreamOutcome(fullContent.toString(), sawDone, lastFinish)
     }
 
     /**
