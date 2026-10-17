@@ -1218,6 +1218,32 @@ class GameRepository(
             val survivalOk = needs.foodUrgency < 80 && needs.waterUrgency < 80
             val newNeeds = engine.advanceNeeds(needs, injured, threat, survivalOk)
             npcNeeds[npcId] = newNeeds
+
+            // 场景 4：需求跨入饱和 → 生存状态突变，异步评估行为模式转变
+            SceneTriggerDetector.detectNeedsMutation(npcId, needs, newNeeds)?.let { trigger ->
+                repositoryScope.launch {
+                    try {
+                        val message = PromptBuilder.buildScene4UserMessage(
+                            npcName = npc.name,
+                            mutationType = trigger.detail["mutation"] ?: "",
+                            needs = "食物${newNeeds.foodUrgency} 水${newNeeds.waterUrgency} 医疗${newNeeds.medicalUrgency}",
+                            location = npc.currentLocationId,
+                            memories = "",
+                            combatRole = npc.combatRole.name
+                        )
+                        sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                            decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let { hint ->
+                                synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+                            }
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "场景4评估失败: ${e.message}", e)
+                    }
+                }
+            }
+
             val deathCause = engine.checkNeedOverloadDeath(newNeeds)
             if (deathCause != null) {
                 npcDepartures[npcId] = com.ei8z.endworld.domain.npc.model.DepartureInfo(
