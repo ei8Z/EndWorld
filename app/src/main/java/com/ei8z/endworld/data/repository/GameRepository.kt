@@ -76,6 +76,13 @@ class GameRepository(
     private val npcDao = database.npcDao()
     private val historyDao = database.historyDao()
 
+    private val factionDao = database.factionDao()
+    private val regionDao = database.regionDao()
+    private val eventDao = database.globalEventDao()
+    private val npcStateDao = database.npcStateDao()
+
+    private var v3Loaded = false
+
     // ======================== V2.1 双Agent组件 ========================
 
     /** 生存状态机（客户端唯一数据权威）。PlotManager 从 assets 加载章节。 */
@@ -150,8 +157,8 @@ class GameRepository(
 
         // 初始化状态机（首次调用时从 Room DB 注入初始状态）
         seedStateMachine(currentPlayer, currentWorld)
-        // V3.0: 首次调用时初始化世界模拟
-        if (factions.isEmpty()) { initV3World() }
+        // V3.0: 首次调用时从 DB 回读世界模拟（空库才建默认世界）
+        ensureV3WorldLoaded()
 
         val job = repositoryScope.launch {
             try {
@@ -969,6 +976,42 @@ class GameRepository(
             // 背景NPC不创建个体实例，群体标签由WorldInfo的knownPoints承载
             // 此处确保V3数据模型完整
         }
+    }
+
+    /**
+     * 启动/首次行动时把 V3 世界状态从 Room 回读为内存模型。
+     * DB 为空（全新存档）才创建默认世界；重复调用是幂等的。
+     */
+    suspend fun ensureV3WorldLoaded() {
+        if (v3Loaded) return
+        val storedFactions = factionDao.getAllFactions().first()
+        val storedRegions = regionDao.getAllRegions().first()
+        val storedEvents = eventDao.getAllEvents().first()
+        val storedNpcs = npcStateDao.getAllNpcs().first()
+
+        if (storedFactions.isEmpty() && storedRegions.isEmpty()) {
+            initV3World()
+        } else {
+            factions.clear()
+            factions.addAll(storedFactions.map(V3StateMapper::faction))
+            regions.clear()
+            regions.putAll(storedRegions.associate { it.regionId to V3StateMapper.region(it) })
+            activeEvents.clear()
+            activeEvents.addAll(storedEvents.map(V3StateMapper::event))
+            npcStates.clear()
+            npcNeeds.clear()
+            npcAffinities.clear()
+            npcMemories.clear()
+            npcDepartures.clear()
+            storedNpcs.forEach { e ->
+                npcStates[e.npcId] = V3StateMapper.npc(e)
+                npcNeeds[e.npcId] = V3StateMapper.needs(e)
+                npcAffinities[e.npcId] = V3StateMapper.affinity(e)
+                npcMemories[e.npcId] = V3StateMapper.memory(e)
+                npcDepartures[e.npcId] = V3StateMapper.departure(e)
+            }
+        }
+        v3Loaded = true
     }
 
     suspend fun executeDailySettlement() {

@@ -7,6 +7,9 @@ import com.ei8z.endworld.data.local.dao.*
 import com.ei8z.endworld.data.local.entity.*
 import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.MemosApiService
+import com.ei8z.endworld.domain.world.dao.*
+import com.ei8z.endworld.domain.world.model.GlobalEvent
+import com.ei8z.endworld.domain.world.model.GlobalEventType
 import io.mockk.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.runTest
@@ -28,6 +31,10 @@ class GameRepositoryTest {
     private lateinit var worldDao: WorldDao
     private lateinit var npcDao: NpcDao
     private lateinit var historyDao: HistoryDao
+    private lateinit var factionDao: FactionDao
+    private lateinit var regionDao: RegionDao
+    private lateinit var eventDao: GlobalEventDao
+    private lateinit var npcStateDao: NpcStateDao
     private lateinit var prefs: SharedPreferences
     private lateinit var prefsEdit: SharedPreferences.Editor
 
@@ -46,6 +53,10 @@ class GameRepositoryTest {
         worldDao = mockk(relaxed = true)
         npcDao = mockk(relaxed = true)
         historyDao = mockk(relaxed = true)
+        factionDao = mockk(relaxed = true)
+        regionDao = mockk(relaxed = true)
+        eventDao = mockk(relaxed = true)
+        npcStateDao = mockk(relaxed = true)
 
         every { db.playerDao() } returns playerDao
         every { db.inventoryDao() } returns inventoryDao
@@ -160,6 +171,7 @@ class GameRepositoryTest {
 
     @Test
     fun `resume meta action always emits FinalResponse`() = runTest {
+        stubV3Daos()
         every { playerDao.getPlayer() } returns flowOf(testPlayer())
         every { worldDao.getWorldInfo() } returns flowOf(testWorld())
         every { inventoryDao.getAllItems() } returns flowOf(emptyList())
@@ -218,6 +230,7 @@ class GameRepositoryTest {
 
     @Test
     fun `resume after acceleration replays stored summary`() = runTest {
+        stubV3Daos()
         every { playerDao.getPlayer() } returns flowOf(testPlayer())
         every { worldDao.getWorldInfo() } returns flowOf(testWorld())
         every { inventoryDao.getAllItems() } returns flowOf(emptyList())
@@ -233,6 +246,78 @@ class GameRepositoryTest {
 
         assertEquals(summary, final.response.story)
         assertEquals(summary, repo.accelerationSummary)
+    }
+
+    // endregion
+
+    // region V3 state loading
+
+    private fun stubV3Daos(
+        faction: FactionEntity? = null,
+        region: RegionEntity? = null,
+        npc: NpcStateEntity? = null
+    ) {
+        every { db.factionDao() } returns factionDao
+        every { db.regionDao() } returns regionDao
+        every { db.globalEventDao() } returns eventDao
+        every { db.npcStateDao() } returns npcStateDao
+        every { factionDao.getAllFactions() } returns flowOf(listOfNotNull(faction))
+        every { regionDao.getAllRegions() } returns flowOf(listOfNotNull(region))
+        every { eventDao.getAllEvents() } returns flowOf(emptyList())
+        every { npcStateDao.getAllNpcs() } returns flowOf(listOfNotNull(npc))
+    }
+
+    @Test
+    fun `ensureV3WorldLoaded restores persisted factions and npcs`() = runTest {
+        stubV3Daos(
+            faction = FactionEntity(
+                factionId = "F01", name = "红松营地", factionType = "SURVIVOR_SETTLEMENT",
+                population = 40, militaryStrength = 12, armamentRate = 0.3f,
+                unitCombatCoefficient = 1.0f, controlledRegionsJson = "[\"R01\"]",
+                relationshipMatrixJson = "{\"F02\":\"HOSTILE\"}", leaderPersonality = "CAUTIOUS_CONSERVATIVE",
+                factionGoal = "DEFENSE", stateTagsJson = "[]",
+                foodReserve = 30f, waterReserve = 20f, medicalSupplies = 5f,
+                ammunitionReserve = 3f, morale = 60
+            ),
+            region = RegionEntity(
+                regionId = "R01", name = "避难所", terrainType = "URBAN_RUIN",
+                resourceAbundance = 40, threatLevel = 30, controllingFactionId = "F01",
+                adjacentRegionsJson = "[\"R02\"]", connectionStrengthJson = "{\"R02\":\"HIGH\"}",
+                doomLevelCoefficient = 1.0f, stateTagsJson = "[]"
+            ),
+            npc = NpcStateEntity(
+                npcId = "npc_老张_1", name = "老张", identity = "哨兵",
+                combatRole = "COMBATANT", currentLocationId = "R01", factionId = "F01",
+                personalityTagsJson = "[\"谨慎\"]", statusTagsJson = "[\"受伤\"]",
+                tier = "CONTACT", affinity = 24, relationshipStage = "FAMILIAR",
+                emotionalTagsJson = "[\"感激\"]", interactionCount = 3, lastInteractionGameDay = 1,
+                foodUrgency = 40, waterUrgency = 35, medicalUrgency = 10,
+                safetyUrgency = 50, socialUrgency = 20,
+                detailedMemoriesJson = "[]", remoteSummary = "",
+                departureStatus = "PRESENT", departureReason = "", expectedReturnDay = null
+            )
+        )
+
+        val repo = createRepo()
+        repo.ensureV3WorldLoaded()
+
+        assertEquals(1, repo.factions.size)
+        assertEquals("红松营地", repo.factions[0].name)
+        assertEquals(1, repo.regions.size)
+        assertEquals(1, repo.npcStates.size)
+        assertEquals(24, repo.npcAffinities["npc_老张_1"]?.affinity)
+        assertEquals(40, repo.npcNeeds["npc_老张_1"]?.foodUrgency)
+    }
+
+    @Test
+    fun `ensureV3WorldLoaded creates default world when db is empty`() = runTest {
+        stubV3Daos()
+
+        val repo = createRepo()
+        repo.ensureV3WorldLoaded()
+
+        assertTrue(repo.factions.isNotEmpty())
+        assertTrue(repo.regions.isNotEmpty())
     }
 
     // endregion
