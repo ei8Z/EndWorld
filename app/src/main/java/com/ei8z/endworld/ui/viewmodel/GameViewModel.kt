@@ -133,7 +133,7 @@ class GameViewModel(
     }
 
     private fun enterAcceleration() {
-        uiModeManager.enterFate() // V3.0: repurpose FATE mode for acceleration start
+        uiModeManager.enterAccelerating()
         accelerationJob?.cancel()
         accelerationJob = viewModelScope.launch {
             val player = repository.playerState.first() ?: return@launch
@@ -157,7 +157,7 @@ class GameViewModel(
             _isLoading.value = false
             _accelerationStatusText.value = ""
             _speedMode.value = SpeedMode.NORMAL
-            uiModeManager.settleMode(hasThreats = false, isSafeZone = true)
+            uiModeManager.restoreFromAcceleration(hasThreats = false, isSafeZone = true)
             // 将世界叙事摘要发送给叙事Agent生成初始场景
             sendAction("恢复正常速度", null)
         }

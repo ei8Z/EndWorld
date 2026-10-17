@@ -30,6 +30,16 @@ class UIModeManager {
         _currentMode.value = UIMode.READING
     }
 
+    /** V3.0 加速模式：时间流摘要面板替换 suggestions */
+    fun enterAccelerating() {
+        _currentMode.value = UIMode.ACCELERATING
+    }
+
+    /** 退出加速：按当前世界状态恢复到探索/危险/宁静 */
+    fun restoreFromAcceleration(hasThreats: Boolean, isSafeZone: Boolean) {
+        settleMode(hasThreats = hasThreats, isSafeZone = isSafeZone)
+    }
+
     /** 叙事结束，根据当前状态恢复到探索/危险/宁静 */
     fun settleMode(
         hasThreats: Boolean,
