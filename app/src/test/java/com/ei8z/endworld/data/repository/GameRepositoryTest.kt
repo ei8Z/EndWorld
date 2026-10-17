@@ -142,4 +142,45 @@ class GameRepositoryTest {
     }
 
     // endregion
+
+    // region meta action streaming
+
+    private fun testPlayer() = PlayerState(
+        userId = "u1", name = "测试", genderPhysique = "男",
+        personality = "冷静", adultProfile = "", baseDescription = "幸存者",
+        doomType = "丧尸", mentalStateTags = listOf("健康"),
+        innerThought = "", equippedItems = emptyList()
+    )
+
+    private fun testWorld() = WorldInfo(
+        currentDate = "第1天", currentTime = "06:00",
+        locationScene = "避难所", macroSituation = "",
+        knownPointsJson = "[]"
+    )
+
+    @Test
+    fun `resume meta action always emits FinalResponse`() = runTest {
+        every { playerDao.getPlayer() } returns flowOf(testPlayer())
+        every { worldDao.getWorldInfo() } returns flowOf(testWorld())
+        every { inventoryDao.getAllItems() } returns flowOf(emptyList())
+
+        val repo = createRepo()
+        val events = repo.sendActionStream("恢复正常速度").toList()
+
+        val final = events.filterIsInstance<StreamEvent.FinalResponse>().single()
+        assertTrue(final.response.suggestions.isEmpty())
+        assertTrue(final.response.story.isNotBlank())
+    }
+
+    @Test
+    fun `missing player emits Error instead of hanging`() = runTest {
+        every { playerDao.getPlayer() } returns flowOf<PlayerState?>(null)
+
+        val repo = createRepo()
+        val events = repo.sendActionStream("搜索").toList()
+
+        assertTrue(events.single() is StreamEvent.Error)
+    }
+
+    // endregion
 }

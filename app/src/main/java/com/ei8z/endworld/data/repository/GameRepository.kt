@@ -153,8 +153,8 @@ class GameRepository(
         val job = repositoryScope.launch {
             try {
                 // V3.0 元行动分支：速度切换、恢复正常速度等不经过AI
-                if (isMetaAction(action)) {
-                    handleMetaAction(action, currentPlayer, currentWorld)
+                MetaAction.fromCommand(action)?.let { meta ->
+                    handleMetaAction(meta, currentPlayer, currentWorld)
                     close()
                     return@launch
                 }
@@ -446,54 +446,38 @@ class GameRepository(
 
     // ======================== V3.0 元行动处理 ========================
 
-    /** V3.0 元行动——不消耗游戏时间，不经过裁决Agent */
-    private fun isMetaAction(action: String): Boolean {
-        val metaKeywords = listOf("加速", "减速", "恢复正常速度", "子弹时间", "暂停")
-        return metaKeywords.any { action.contains(it) }
+    /** V3.0 元行动——不消耗游戏时间，不经过裁决 Agent；每条分支都必须闭环。 */
+    private suspend fun ProducerScope<StreamEvent>.handleMetaAction(
+        meta: MetaAction,
+        player: PlayerState,
+        world: WorldInfo
+    ) {
+        trySend(StreamEvent.PhaseChanged(meta.phase))
+        val story = if (meta == MetaAction.RESUME && lastAccelerationSummary.isNotBlank()) {
+            lastAccelerationSummary
+        } else {
+            meta.narrative
+        }
+        trySend(StreamEvent.Content(story))
+        trySend(StreamEvent.FinalResponse(metaResponse(story, player, world)))
     }
 
-    private suspend fun ProducerScope<StreamEvent>.handleMetaAction(
-        action: String, player: PlayerState, world: WorldInfo
-    ) {
-        when {
-            action.contains("加速") -> {
-                trySend(StreamEvent.PhaseChanged("accelerating"))
-                trySend(StreamEvent.Content("你决定加快脚步，让时间快速流逝……"))
-                val metaResponse = GameResponse(
-                    header = ResponseHeader(
-                        date = world.currentDate, time = world.currentTime,
-                        location = world.locationScene
-                    ),
-                    story = "你决定加快脚步，让时间快速流逝……",
-                    suggestions = emptyList(),
-                    statusUpdate = StatusUpdate(
-                        player = PlayerUpdate(
-                            stateTags = emptyList(), innerThought = "", equipment = emptyList()
-                        ),
-                        world = WorldUpdate(
-                            doomLevel = player.doomLevel, macroSituation = ""
-                        ),
-                        resources = ResourceUpdate(
-                            knownPoints = emptyList(),
-                            inventory = InventoryUpdate()
-                        ),
-                        memoryUpdate = MemoryUpdate(
-                            newTempMemory = null, newPermanentPlot = null
-                        )
-                    )
-                )
-                trySend(StreamEvent.FinalResponse(metaResponse))
-            }
-            action.contains("恢复正常速度") -> {
-                trySend(StreamEvent.PhaseChanged("resuming"))
-                // 加速退出由GameViewModel直接调用GameRepositoryV3处理
-                trySend(StreamEvent.Content("你放慢了脚步，重新审视周围的世界。"))
-            }
-            action.contains("减速") || action.contains("子弹时间") -> {
-                trySend(StreamEvent.PhaseChanged("decelerating"))
-                trySend(StreamEvent.Content("时间仿佛凝滞，每一个细节都变得无比清晰……"))
-            }
-        }
+    private fun metaResponse(story: String, player: PlayerState, world: WorldInfo): GameResponse {
+        return GameResponse(
+            header = ResponseHeader(
+                date = world.currentDate,
+                time = world.currentTime,
+                location = world.locationScene
+            ),
+            story = story,
+            suggestions = emptyList(),
+            statusUpdate = StatusUpdate(
+                player = PlayerUpdate(stateTags = emptyList(), innerThought = "", equipment = emptyList()),
+                world = WorldUpdate(doomLevel = player.doomLevel, macroSituation = ""),
+                resources = ResourceUpdate(knownPoints = emptyList(), inventory = InventoryUpdate()),
+                memoryUpdate = MemoryUpdate(newTempMemory = null, newPermanentPlot = null)
+            )
+        )
     }
 
     /**
@@ -965,6 +949,8 @@ class GameRepository(
     var lastMidnightSettlementDay: Int = 1 // 初始化为第1天，避免首次行动触发伪结算
     private var expectedChanges: WorldNarrativeTemplateEngine.ExpectedChanges? = null
     private var localSummaryLog = mutableListOf<String>()
+    /** 最近一次加速退出的摘要；元行动 RESUME 会把这段文本作为 story 发回 UI。 */
+    private var lastAccelerationSummary: String = ""
 
     fun initV3World() {
         val (r, f) = com.ei8z.endworld.domain.world.engine.WorldInitializer.createDefaultWorld()

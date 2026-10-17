@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -252,7 +253,9 @@ class GameViewModel(
             var hasReachedStory = false
             var hasReachedSuggestions = false
 
-            repository.sendActionStream(action, actionParsed).collect { event ->
+            repository.sendActionStream(action, actionParsed)
+                .onCompletion { _isLoading.value = false }
+                .collect { event ->
                 when (event) {
                     is StreamEvent.PhaseChanged -> {
                         when (event.phase) {
