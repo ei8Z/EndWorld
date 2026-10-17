@@ -12,7 +12,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '25'
       - uses: android-actions/setup-android@v3
       - name: Install SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
