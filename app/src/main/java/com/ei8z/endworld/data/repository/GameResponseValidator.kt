@@ -20,9 +20,16 @@ object GameResponseValidator {
             return null
         } as? JsonObject ?: return null
 
-        if (root.getAsJsonObject("header") == null) return null
-        if (root.getAsJsonObject("statusUpdate") == null) return null
-        val player = root.getAsJsonObject("statusUpdate").getAsJsonObject("player") ?: return null
+        val header = root.getAsJsonObject("header") ?: return null
+        if (!header.hasNonBlankString("date")) return null
+        if (!header.hasNonBlankString("time")) return null
+        if (!header.hasNonBlankString("location")) return null
+
+        val status = root.getAsJsonObject("statusUpdate") ?: return null
+        if (status.getAsJsonObject("world") == null) return null
+        if (status.getAsJsonObject("resources") == null) return null
+        if (status.getAsJsonObject("memoryUpdate") == null) return null
+        val player = status.getAsJsonObject("player") ?: return null
         if (player.getAsJsonArray("stateTags") == null) return null
 
         val story = root.get("story")
@@ -42,5 +49,10 @@ object GameResponseValidator {
         }
         root.add("suggestions", sanitized)
         return root.toString()
+    }
+
+    private fun JsonObject.hasNonBlankString(key: String): Boolean {
+        val value = get(key) ?: return false
+        return value.isJsonPrimitive && value.asJsonPrimitive.isString && value.asString.isNotBlank()
     }
 }

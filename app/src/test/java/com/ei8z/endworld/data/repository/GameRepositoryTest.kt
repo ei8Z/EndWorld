@@ -415,4 +415,59 @@ class GameRepositoryTest {
     }
 
     // endregion
+    // region 事务与新游戏
+
+    @Test(expected = IllegalStateException::class)
+    fun `writeV3State propagates failure so transaction can roll back`() = runTest {
+        stubV3Daos()
+        coEvery { eventDao.clearAll() } throws IllegalStateException("boom")
+
+        val repo = createRepo()
+        repo.ensureV3WorldLoaded()
+        repo.absorbSettlementEvents(
+            listOf(
+                GlobalEvent(
+                    eventId = "ev_fail", eventType = GlobalEventType.RUMOR,
+                    affectedRegions = mutableListOf("R01"), propagationRate = 0.1f,
+                    remainingDays = 1, intensity = 10, sourceRegionId = "R01",
+                    associatedFactionId = null
+                )
+            )
+        )
+
+        repo.writeV3State()
+    }
+
+    @Test
+    fun `new game clears v3 tables and in-memory world`() = runTest {
+        stubV3Daos()
+        coEvery { playerDao.updatePlayerState(any()) } just Runs
+        coEvery { worldDao.updateWorldInfo(any()) } just Runs
+        coEvery { memoryDao.insertMemory(any()) } just Runs
+        coEvery { historyDao.clearHistory() } just Runs
+        coEvery { factionDao.clearAll() } just Runs
+        coEvery { regionDao.clearAll() } just Runs
+        coEvery { eventDao.clearAll() } just Runs
+        coEvery { npcStateDao.clearAll() } just Runs
+
+        val repo = createRepo()
+        repo.ensureV3WorldLoaded()
+        assertTrue(repo.factions.isNotEmpty())
+
+        repo.initializeNewGameV22(
+            "新角色", "成年男性", "冷静", "", "丧尸", 1,
+            100, 100, 100, 100, 50, 50, 0
+        )
+
+        assertTrue(repo.factions.isEmpty())
+        assertTrue(repo.regions.isEmpty())
+        coVerify {
+            factionDao.clearAll()
+            regionDao.clearAll()
+            eventDao.clearAll()
+            npcStateDao.clearAll()
+        }
+    }
+
+    // endregion
 }

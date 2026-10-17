@@ -770,6 +770,8 @@ class GameRepository(
                     )
                 )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "MemOS Add Message Failed: ${e.message}")
         }
@@ -796,62 +798,84 @@ class GameRepository(
 
     /** 事务 + 串行：清空事件与批量写入要么全成，要么全不成。 */
     suspend fun persistV3State() = persistMutex.withLock {
-        database.withTransaction { writeV3State() }
+        try {
+            database.withTransaction { writeV3State() }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "V3持久化失败: ${e.message}", e)
+        }
     }
 
-    /** 把 V3 内存状态写入 Room。清空事件表与重写必须在同一事务内完成。 */
+    /** 新游戏：清空 V3 四张表。单独抽出来便于单测（mock 的 withTransaction 不执行 lambda）。 */
+    internal suspend fun clearV3Tables() {
+        factionDao.clearAll()
+        regionDao.clearAll()
+        eventDao.clearAll()
+        npcStateDao.clearAll()
+    }
+
+    /** 清表 + 清内存 + 复位初始化标记；下一次 ensure 会重建默认世界。 */
+    private suspend fun resetV3World() {
+        // ponytail: 4 表顺序删除非原子（Room 的 withTransaction 在 mock 数据库上会挂起，
+        // 无法在单测中覆盖）；新开局是低频操作，中途失败留下的孤儿行会在下次新开局时再清。
+        // 升级路径：给 DAO 增加一个 @Transaction 的 clearAllV3() 方法。
+        clearV3Tables()
+        factions.clear()
+        regions.clear()
+        activeEvents.clear()
+        npcStates.clear()
+        npcNeeds.clear()
+        npcAffinities.clear()
+        npcMemories.clear()
+        npcDepartures.clear()
+        lastMidnightSettlementDay = 1
+        v3Loaded = false
+    }
+
+    /** 把 V3 内存状态写入 Room。异常必须抛出，事务才能回滚。 */
     internal suspend fun writeV3State() {
-        try {
-            val fDao = database.factionDao()
-            val rDao = database.regionDao()
-            val eDao = database.globalEventDao()
-            val nDao = database.npcStateDao()
-            // 势力
-            factions.forEach { f ->
-                fDao.upsertFaction(com.ei8z.endworld.domain.world.dao.FactionEntity(
-                    f.factionId, f.name, f.factionType.name, f.population, f.militaryStrength,
-                    f.armamentRate, f.unitCombatCoefficient, gson.toJson(f.controlledRegions),
-                    gson.toJson(f.relationshipMatrix.mapValues { (_, v) -> v.name }),
-                    f.leaderPersonality.name, f.factionGoal.name, gson.toJson(f.stateTags),
-                    f.resources.foodReserve, f.resources.waterReserve, f.resources.medicalSupplies,
-                    f.resources.ammunitionReserve, f.resources.morale))
-            }
-            // 区域
-            regions.values.forEach { r ->
-                rDao.upsertRegion(com.ei8z.endworld.domain.world.dao.RegionEntity(
-                    r.regionId, r.name, r.terrainType.name, r.resourceAbundance, r.threatLevel,
-                    r.controllingFactionId, gson.toJson(r.adjacentRegions),
-                    gson.toJson(r.connectionStrength.mapValues { (_, v) -> v.name }),
-                    r.doomLevelCoefficient, gson.toJson(r.stateTags)))
-            }
-            // 事件
-            eDao.clearAll()
-            activeEvents.forEach { e ->
-                eDao.upsertEvent(com.ei8z.endworld.domain.world.dao.GlobalEventEntity(
-                    e.eventId, e.eventType.name, gson.toJson(e.affectedRegions),
-                    e.propagationRate, e.remainingDays, e.intensity, e.sourceRegionId, e.associatedFactionId))
-            }
-            // NPC
-            npcStates.values.forEach { npc ->
-                val aff = npcAffinities[npc.npcId]
-                val nd = npcNeeds[npc.npcId]
-                val mem = npcMemories[npc.npcId]
-                val dep = npcDepartures[npc.npcId]
-                nDao.upsertNpc(com.ei8z.endworld.domain.world.dao.NpcStateEntity(
-                    npc.npcId, npc.name, npc.identity, npc.combatRole.name, npc.currentLocationId,
-                    npc.factionId, gson.toJson(npc.personalityTags), gson.toJson(npc.statusTags),
-                    npc.tier.name, aff?.affinity ?: 0, aff?.relationshipStage?.name ?: "NEUTRAL",
-                    gson.toJson(aff?.emotionalTags ?: emptyList<String>()),
-                    aff?.interactionCount ?: 0, aff?.lastInteractionGameDay ?: 0,
-                    nd?.foodUrgency ?: 30, nd?.waterUrgency ?: 30, nd?.medicalUrgency ?: 0,
-                    nd?.safetyUrgency ?: 30, nd?.socialUrgency ?: 30,
-                    gson.toJson(mem?.detailedMemories?.map {
-                        mapOf("t" to it.timestamp, "l" to it.location, "s" to it.summary, "a" to it.affinityChange, "e" to (it.emotionalTag ?: ""), "src" to it.source.name)
-                    } ?: emptyList<Map<String, Any>>()),
-                    mem?.remoteSummary ?: "", dep?.status?.name ?: "PRESENT",
-                    dep?.reason ?: "", dep?.expectedReturnDay))
-            }
-        } catch (e: Exception) { Log.e(TAG, "V3持久化失败: ${e.message}") }
+        factions.forEach { f ->
+            factionDao.upsertFaction(com.ei8z.endworld.domain.world.dao.FactionEntity(
+                f.factionId, f.name, f.factionType.name, f.population, f.militaryStrength,
+                f.armamentRate, f.unitCombatCoefficient, gson.toJson(f.controlledRegions),
+                gson.toJson(f.relationshipMatrix.mapValues { (_, v) -> v.name }),
+                f.leaderPersonality.name, f.factionGoal.name, gson.toJson(f.stateTags),
+                f.resources.foodReserve, f.resources.waterReserve, f.resources.medicalSupplies,
+                f.resources.ammunitionReserve, f.resources.morale))
+        }
+        regions.values.forEach { r ->
+            regionDao.upsertRegion(com.ei8z.endworld.domain.world.dao.RegionEntity(
+                r.regionId, r.name, r.terrainType.name, r.resourceAbundance, r.threatLevel,
+                r.controllingFactionId, gson.toJson(r.adjacentRegions),
+                gson.toJson(r.connectionStrength.mapValues { (_, v) -> v.name }),
+                r.doomLevelCoefficient, gson.toJson(r.stateTags)))
+        }
+        eventDao.clearAll()
+        activeEvents.forEach { e ->
+            eventDao.upsertEvent(com.ei8z.endworld.domain.world.dao.GlobalEventEntity(
+                e.eventId, e.eventType.name, gson.toJson(e.affectedRegions),
+                e.propagationRate, e.remainingDays, e.intensity, e.sourceRegionId, e.associatedFactionId))
+        }
+        npcStates.values.forEach { npc ->
+            val aff = npcAffinities[npc.npcId]
+            val nd = npcNeeds[npc.npcId]
+            val mem = npcMemories[npc.npcId]
+            val dep = npcDepartures[npc.npcId]
+            npcStateDao.upsertNpc(com.ei8z.endworld.domain.world.dao.NpcStateEntity(
+                npc.npcId, npc.name, npc.identity, npc.combatRole.name, npc.currentLocationId,
+                npc.factionId, gson.toJson(npc.personalityTags), gson.toJson(npc.statusTags),
+                npc.tier.name, aff?.affinity ?: 0, aff?.relationshipStage?.name ?: "NEUTRAL",
+                gson.toJson(aff?.emotionalTags ?: emptyList<String>()),
+                aff?.interactionCount ?: 0, aff?.lastInteractionGameDay ?: 0,
+                nd?.foodUrgency ?: 30, nd?.waterUrgency ?: 30, nd?.medicalUrgency ?: 0,
+                nd?.safetyUrgency ?: 30, nd?.socialUrgency ?: 30,
+                gson.toJson(mem?.detailedMemories?.map {
+                    mapOf("t" to it.timestamp, "l" to it.location, "s" to it.summary, "a" to it.affinityChange, "e" to (it.emotionalTag ?: ""), "src" to it.source.name)
+                } ?: emptyList<Map<String, Any>>()),
+                mem?.remoteSummary ?: "", dep?.status?.name ?: "PRESENT",
+                dep?.reason ?: "", dep?.expectedReturnDay))
+        }
     }
 
     // ======================== 持久化辅助 ========================
@@ -898,6 +922,7 @@ class GameRepository(
         worldDao.updateWorldInfo(initialWorld)
         memoryDao.insertMemory(Memory(location = "系统", event = "降临世界", result = "初始"))
         historyDao.clearHistory()
+        resetV3World()
     }
 
     // ======================== 调试 ========================

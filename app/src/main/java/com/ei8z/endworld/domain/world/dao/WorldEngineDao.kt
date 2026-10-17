@@ -39,6 +39,9 @@ interface RegionDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertRegions(entities: List<RegionEntity>)
+
+    @Query("DELETE FROM region_entities")
+    suspend fun clearAll()
 }
 
 @Dao
@@ -78,6 +81,9 @@ interface NpcStateDao {
 
     @Query("SELECT COUNT(*) FROM npc_state_entities WHERE tier = 'CONTACT' OR tier = 'KEY'")
     suspend fun contactNpcCount(): Int
+
+    @Query("DELETE FROM npc_state_entities")
+    suspend fun clearAll()
 }
 
 // === Room Entities (持久化数据) ===

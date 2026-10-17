@@ -103,6 +103,8 @@ class WorldStorytellerApiClient(
                 `final` = json.get("final")?.asBoolean ?: true
             )
             Result.success(result)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Result.failure(e)
         }

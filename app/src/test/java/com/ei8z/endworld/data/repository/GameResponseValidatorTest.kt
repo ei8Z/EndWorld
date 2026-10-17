@@ -61,4 +61,60 @@ class GameResponseValidatorTest {
     fun `broken json is rejected`() {
         assertNull(GameResponseValidator.sanitize("{\"story\": "))
     }
+    @Test
+    fun `missing header location is rejected`() {
+        val raw = validJson().replace("\"location\":\"避难所\"", "\"location\":\"\"")
+        assertNull(GameResponseValidator.sanitize(raw))
+    }
+
+    @Test
+    fun `missing world block is rejected`() {
+        val raw = """
+            {
+              "header": {"date":"第1天","time":"06:00","location":"避难所"},
+              "story": "你醒了过来。",
+              "suggestions": [],
+              "statusUpdate": {
+                "player": {"stateTags": [], "innerThought": "", "equipment": []},
+                "resources": {"knownPoints": [], "inventory": {"items": []}},
+                "memoryUpdate": {"newTempMemory": null, "newPermanentPlot": null}
+              }
+            }
+        """.trimIndent()
+        assertNull(GameResponseValidator.sanitize(raw))
+    }
+
+    @Test
+    fun `missing resources block is rejected`() {
+        val raw = """
+            {
+              "header": {"date":"第1天","time":"06:00","location":"避难所"},
+              "story": "你醒了过来。",
+              "suggestions": [],
+              "statusUpdate": {
+                "player": {"stateTags": [], "innerThought": "", "equipment": []},
+                "world": {"doomLevel": 1, "macroSituation": ""},
+                "memoryUpdate": {"newTempMemory": null, "newPermanentPlot": null}
+              }
+            }
+        """.trimIndent()
+        assertNull(GameResponseValidator.sanitize(raw))
+    }
+
+    @Test
+    fun `missing memoryUpdate block is rejected`() {
+        val raw = """
+            {
+              "header": {"date":"第1天","time":"06:00","location":"避难所"},
+              "story": "你醒了过来。",
+              "suggestions": [],
+              "statusUpdate": {
+                "player": {"stateTags": [], "innerThought": "", "equipment": []},
+                "world": {"doomLevel": 1, "macroSituation": ""},
+                "resources": {"knownPoints": [], "inventory": {"items": []}}
+              }
+            }
+        """.trimIndent()
+        assertNull(GameResponseValidator.sanitize(raw))
+    }
 }
