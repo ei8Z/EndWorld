@@ -102,6 +102,42 @@ class GameRepository(
     /** 叙事Agent API 客户端 */
     private val storytellerClient by lazy { StorytellerApiClient(apiService, authHeader) }
 
+    /**
+     * 幂等注册裁决 Agent 的 `check_inventory` 工具（防幻觉对账）。
+     * 只读查询背包，无副作用。
+     */
+    private fun ensureToolRegistered() {
+        if (ToolRegistry.isRegistered("check_inventory")) return
+        ToolRegistry.register("check_inventory", object : ToolHandler {
+            override fun execute(arguments: String): String {
+                val params: Map<String, String> = try {
+                    gson.fromJson(arguments, object : TypeToken<Map<String, String>>() {}.type)
+                } catch (e: Exception) {
+                    emptyMap()
+                }
+                val itemName = params["item_name"]
+                    ?: return """{"found":false,"error":"item_name missing"}"""
+
+                val item = stateMachine.inventory.getAllItems()
+                    .firstOrNull { it.name == itemName || it.id == itemName }
+                return if (item == null) {
+                    gson.toJson(mapOf("found" to false, "item" to itemName))
+                } else {
+                    gson.toJson(
+                        mapOf(
+                            "found" to true,
+                            "item" to item.name,
+                            "quantity" to item.quantity,
+                            "measureType" to item.measureType,
+                            "currentMeasure" to item.currentMeasure,
+                            "measureUnit" to item.measureUnit
+                        )
+                    )
+                }
+            }
+        })
+    }
+
     // ---- 持久化/身份 ----
 
     private fun getOrCreateStableUserId(): String {
@@ -247,8 +283,12 @@ class GameRepository(
             player = player
         )
         saveJsonToDebugFile(reasonerMessage, "reasoner_user_msg")
+        ensureToolRegistered()
         val actionResult = reasonerClient.reason(
-            PromptBuilder.buildReasonerSystemPrompt(currentStrategy), reasonerMessage, player.userId
+            PromptBuilder.buildReasonerSystemPrompt(currentStrategy),
+            reasonerMessage,
+            player.userId,
+            tools = ToolRegistry.getActiveTools()
         )
         saveJsonToDebugFile(gson.toJson(actionResult), "action_result")
 

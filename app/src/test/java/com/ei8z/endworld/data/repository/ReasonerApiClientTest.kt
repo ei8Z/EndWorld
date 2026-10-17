@@ -5,6 +5,8 @@ import com.ei8z.endworld.data.remote.model.ChatMessage
 import com.ei8z.endworld.data.remote.model.ChatRequest
 import com.ei8z.endworld.data.remote.model.ChatResponse
 import com.ei8z.endworld.data.remote.model.Choice
+import com.ei8z.endworld.data.remote.model.FunctionCall
+import com.ei8z.endworld.data.remote.model.ToolCall
 import com.ei8z.endworld.data.remote.model.Usage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
@@ -102,5 +104,72 @@ class ReasonerApiClientTest {
             ReasonerApiClient(api, "Bearer test").reason("s", "u", "u1")
             Unit
         }
+    }
+
+    @Test
+    fun `tool call round trip then parses final json`() = runBlocking {
+        val toolCall = ToolCall(
+            id = "call_1", type = "function",
+            function = FunctionCall(
+                name = "check_inventory",
+                arguments = """{"item_name":"绷带"}"""
+            )
+        )
+        val first = ChatResponse(
+            "t", "m",
+            listOf(Choice(ChatMessage("assistant", null, toolCalls = listOf(toolCall)), "tool_calls", 0)),
+            Usage(1, 1, 2)
+        )
+        val second = ChatResponse(
+            "t", "m",
+            listOf(
+                Choice(
+                    ChatMessage(
+                        "assistant",
+                        """{"actionResult":{"result":"成功","dcValue":40,"rollValue":50,"totalValue":45,"modifiersBreakdown":"","resourceChanges":[],"injuriesApplied":[],"injuriesRecovered":[],"narrativeSummary":"用绷带","eventTriggered":null}}"""
+                    ), "stop", 0
+                )
+            ),
+            Usage(1, 1, 2)
+        )
+        var calls = 0
+        val api = object : DeepSeekApiService {
+            override suspend fun getChatCompletions(authorization: String, request: ChatRequest): ChatResponse =
+                if (calls++ == 0) first else second
+            override suspend fun getChatCompletionsStream(authorization: String, request: ChatRequest) =
+                throw UnsupportedOperationException()
+        }
+
+        val r = ReasonerApiClient(api, "Bearer test")
+            .reason("s", "u", "u1", tools = ToolRegistry.getActiveTools())
+
+        assertEquals("成功", r.result)
+        assertEquals(2, calls)
+    }
+
+    @Test
+    fun `unknown tool does not crash`() = runBlocking {
+        val toolCall = ToolCall("c1", "function", FunctionCall("nope", "{}"))
+        val first = ChatResponse(
+            "t", "m",
+            listOf(Choice(ChatMessage("assistant", null, toolCalls = listOf(toolCall)), "tool_calls", 0)),
+            Usage(1, 1, 2)
+        )
+        val second = ChatResponse(
+            "t", "m",
+            listOf(Choice(ChatMessage("assistant", """{"actionResult":{"result":"失败"}}"""), "stop", 0)),
+            Usage(1, 1, 2)
+        )
+        var calls = 0
+        val api = object : DeepSeekApiService {
+            override suspend fun getChatCompletions(authorization: String, request: ChatRequest): ChatResponse =
+                if (calls++ == 0) first else second
+            override suspend fun getChatCompletionsStream(authorization: String, request: ChatRequest) =
+                throw UnsupportedOperationException()
+        }
+
+        val r = ReasonerApiClient(api, "Bearer test").reason("s", "u", "u1", tools = ToolRegistry.getActiveTools())
+        assertEquals("失败", r.result)
+        assertEquals(2, calls)
     }
 }

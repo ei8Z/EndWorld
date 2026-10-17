@@ -7,6 +7,7 @@ import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.model.ChatMessage
 import com.ei8z.endworld.data.remote.model.ChatRequest
 import com.ei8z.endworld.data.remote.model.ResponseFormat
+import com.ei8z.endworld.data.remote.model.Tool
 import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
@@ -29,44 +30,74 @@ class ReasonerApiClient(
     private val apiService: DeepSeekApiService,
     private val authHeader: String
 ) {
+    companion object {
+        /** 工具调用最多两轮，避免模型反复查询 */
+        private const val MAX_TOOL_ROUNDS = 2
+    }
+
     /**
      * 调用裁决Agent，传入提示词和用户消息，返回 ActionResult。
+     *
+     * 携带 [tools] 时启用 Function Calling：模型请求工具 → 本地执行 → 回填
+     * `role=tool` 消息后再次请求；最多 [MAX_TOOL_ROUNDS] 轮。
      *
      * @param systemPrompt 裁决Agent系统提示词（PromptBuilder.REASONER_SYSTEM_PROMPT）
      * @param userMessage 用户消息（PromptBuilder.buildReasonerUserMessage 的输出）
      * @param userId 用于 KV Cache 优化的用户ID
+     * @param tools 可用工具定义，null 或空列表时不启用工具
      * @return ActionResult，解析失败时返回降级结果
      */
     suspend fun reason(
         systemPrompt: String,
         userMessage: String,
-        userId: String
+        userId: String,
+        tools: List<Tool>? = null
     ): ActionResult {
-        val request = ChatRequest(
-            model = "deepseek-flash",
-            messages = listOf(
-                ChatMessage(role = "system", content = systemPrompt),
-                ChatMessage(role = "user", content = userMessage)
-            ),
-            reasoningEffort = "max",
-            responseFormat = ResponseFormat("json_object"),
-            maxTokens = 8192,
-            stream = false,
-            userId = userId
+        var messages = listOf(
+            ChatMessage(role = "system", content = systemPrompt),
+            ChatMessage(role = "user", content = userMessage)
         )
 
         return try {
-            val response = apiService.getChatCompletions(authHeader, request)
-            val content = response.choices.firstOrNull()?.message?.content
-            if (content.isNullOrBlank()) {
-                // Empty response from reasoner API — fallback
-                return buildFallbackResult(userMessage)
+            repeat(MAX_TOOL_ROUNDS + 1) { round ->
+                val request = ChatRequest(
+                    model = "deepseek-flash",
+                    messages = messages,
+                    reasoningEffort = "max",
+                    responseFormat = ResponseFormat("json_object"),
+                    maxTokens = 8192,
+                    stream = false,
+                    userId = userId,
+                    tools = tools,
+                    toolChoice = if (tools.isNullOrEmpty()) "none" else "auto"
+                )
+                val response = apiService.getChatCompletions(authHeader, request)
+                val choice = response.choices.firstOrNull()
+                val toolCalls = choice?.message?.toolCalls
+
+                if (!toolCalls.isNullOrEmpty() && round < MAX_TOOL_ROUNDS) {
+                    val toolMessages = toolCalls.map { call ->
+                        val output = ToolRegistry.execute(call.function.name, call.function.arguments)
+                            ?: """{"error":"unknown tool: ${call.function.name}"}"""
+                        ChatMessage(role = "tool", content = output, toolCallId = call.id)
+                    }
+                    messages = messages +
+                        ChatMessage(role = "assistant", content = null, toolCalls = toolCalls) +
+                        toolMessages
+                    return@repeat
+                }
+
+                val content = choice?.message?.content
+                return if (content.isNullOrBlank()) {
+                    buildFallbackResult(userMessage)
+                } else {
+                    parseActionResult(content)
+                }
             }
-            parseActionResult(content)
+            buildFallbackResult(userMessage)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Reasoner API call failed — fallback
             buildFallbackResult(userMessage)
         }
     }
