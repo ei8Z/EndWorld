@@ -138,6 +138,16 @@ class GameRepository(
         })
     }
 
+    // ---- 场景评估（2B） ----
+
+    /** V3 NPC 好感度内存镜像（name -> affinity），用于场景 2 的跨越检测。 */
+    private val npcRelationAffinity = mutableMapOf<String, Int>()
+
+    /** 场景评估结果，供下一轮叙事注入。 */
+    private val pendingSceneNotes = mutableListOf<String>()
+
+    private val sceneEvaluator by lazy { SceneEvaluator(reasonerClient) }
+
     // ---- 持久化/身份 ----
 
     private fun getOrCreateStableUserId(): String {
@@ -268,7 +278,11 @@ class GameRepository(
         val skillEffects = sm.skillManager.getActiveEffects()
         // V3.0: RulingContext 注入模拟层数据
         val worldProgress = buildV3WorldProgressString(preSnapshot)
-        val npcDepthContext = buildV3NpcDepthContext(player, preSnapshot)
+        val sceneNotes = synchronized(pendingSceneNotes) {
+            pendingSceneNotes.joinToString("\n").also { pendingSceneNotes.clear() }
+        }
+        val npcDepthContext = buildV3NpcDepthContext(player, preSnapshot) +
+            if (sceneNotes.isNotBlank()) "\n【场景评估】\n$sceneNotes" else ""
 
         Log.d(TAG, "Mainline: roll=$rollValue, events=${eventCandidates.size}, hp=${preSnapshot.hp}")
 
@@ -762,6 +776,40 @@ class GameRepository(
                     npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
                         "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
                         source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
+                }
+            }
+        }
+
+        // 场景 2：好感度跨越关系阶段（ponytail: 暂用 AI 的 affinityDelta 作为来源，
+        // 好感度权威重构后改为模拟层事件驱动）
+        update.npcUpdate?.forEach { npc ->
+            val name = npc.name ?: return@forEach
+            val delta = npc.affinityDelta ?: return@forEach
+            val oldAffinity = npcRelationAffinity[name] ?: 0
+            val newAffinity = (oldAffinity + delta).coerceIn(-100, 100)
+            npcRelationAffinity[name] = newAffinity
+            SceneTriggerDetector.detectStageCrossing(name, oldAffinity, newAffinity)?.let { trigger ->
+                repositoryScope.launch {
+                    val message = PromptBuilder.buildScene2UserMessage(
+                        npcName = name,
+                        npcIdentity = npc.relation ?: "居民",
+                        oldAffinity = oldAffinity,
+                        newAffinity = newAffinity,
+                        boundary = "${trigger.detail["oldStage"] ?: ""}→${trigger.detail["newStage"] ?: ""}",
+                        needs = npc.currentNeed ?: "",
+                        memories = npc.lastInteractionSummary ?: "",
+                        timeline = "",
+                        memosFragments = "",
+                        playerLoc = data.header.location,
+                        oldStage = trigger.detail["oldStage"] ?: "",
+                        newStage = trigger.detail["newStage"] ?: ""
+                    )
+                    sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                        val hint = decision.get("suggestedNarrativeAngle")?.asString
+                        if (!hint.isNullOrBlank()) {
+                            synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+                        }
+                    }
                 }
             }
         }

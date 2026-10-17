@@ -103,6 +103,37 @@ class ReasonerApiClient(
     }
 
     /**
+     * 返回模型原始文本（不解析 ActionResult），供轻量场景评估使用。
+     * 使用低推理强度与较小输出上限以控制成本；异常返回 null。
+     */
+    suspend fun completeRaw(
+        systemPrompt: String,
+        userMessage: String,
+        userId: String
+    ): String? {
+        val request = ChatRequest(
+            model = "deepseek-flash",
+            messages = listOf(
+                ChatMessage(role = "system", content = systemPrompt),
+                ChatMessage(role = "user", content = userMessage)
+            ),
+            reasoningEffort = "low",
+            responseFormat = ResponseFormat("json_object"),
+            maxTokens = 1024,
+            stream = false,
+            userId = userId
+        )
+        return try {
+            apiService.getChatCompletions(authHeader, request)
+                .choices.firstOrNull()?.message?.content
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /**
      * 解析 ActionResult JSON。
      * 裁决Agent 返回 {"actionResult": {...}}，需要提取内层对象。
      */
