@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import com.ei8z.endworld.BuildConfig
 import com.ei8z.endworld.data.local.dao.*
 import com.ei8z.endworld.data.local.entity.*
 import com.ei8z.endworld.domain.world.dao.*
@@ -22,8 +23,8 @@ import com.ei8z.endworld.domain.world.dao.*
         GlobalEventEntity::class,
         NpcStateEntity::class
     ],
-    version = 10,
-    exportSchema = false
+    version = DatabasePolicy.VERSION,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -45,13 +46,15 @@ abstract class AppDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
+                val builder = Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "end_world_database"
                 )
-                .fallbackToDestructiveMigration()
-                .build()
+                if (DatabasePolicy.destructiveFallbackEnabled(BuildConfig.DEBUG)) {
+                    builder.fallbackToDestructiveMigration()
+                }
+                val instance = builder.build()
                 INSTANCE = instance
                 instance
             }
