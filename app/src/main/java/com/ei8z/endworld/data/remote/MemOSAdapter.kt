@@ -1,6 +1,7 @@
 package com.ei8z.endworld.data.remote
 
 import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
@@ -35,15 +36,15 @@ class MemOSAdapter(
     ): String = coroutineScope {
         // 事实检索：优先查特定目标和行为
         val factsDeferred = async {
-            runCatching { queryFacts(primaryType, subType, target, location) }.getOrDefault("")
+            try { queryFacts(primaryType, subType, target, location) } catch (e: CancellationException) { throw e } catch (e: Exception) { "" }
         }
         // 关系检索：针对周边 NPC
         val relationsDeferred = async {
-            runCatching { queryRelations(nearbyNpcs) }.getOrDefault("")
+            try { queryRelations(nearbyNpcs) } catch (e: CancellationException) { throw e } catch (e: Exception) { "" }
         }
         // 因果检索：查特定行为或目标的过往后果
         val causalDeferred = async {
-            runCatching { queryCausal(primaryType, target) }.getOrDefault("")
+            try { queryCausal(primaryType, target) } catch (e: CancellationException) { throw e } catch (e: Exception) { "" }
         }
 
         val facts = factsDeferred.await()

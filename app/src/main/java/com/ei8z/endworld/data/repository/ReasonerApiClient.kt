@@ -7,6 +7,7 @@ import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.model.ChatMessage
 import com.ei8z.endworld.data.remote.model.ChatRequest
 import com.ei8z.endworld.data.remote.model.ResponseFormat
+import kotlinx.coroutines.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -62,6 +63,8 @@ class ReasonerApiClient(
                 return buildFallbackResult(userMessage)
             }
             parseActionResult(content)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             // Reasoner API call failed — fallback
             buildFallbackResult(userMessage)

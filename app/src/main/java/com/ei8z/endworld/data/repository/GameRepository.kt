@@ -175,6 +175,8 @@ class GameRepository(
                 } else {
                     processBranch(action, currentPlayer, currentWorld)
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "流请求异常: ${e.message}", e)
                 trySend(StreamEvent.Error("连接异常: ${e.message}", retryable = true))
@@ -430,6 +432,8 @@ class GameRepository(
                     is StorytellerEvent.Error -> trySend(StreamEvent.Error(event.message))
                 }
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Storyteller stream error: ${e.message}")
             trySend(StreamEvent.Error("叙事生成异常: ${e.message}"))

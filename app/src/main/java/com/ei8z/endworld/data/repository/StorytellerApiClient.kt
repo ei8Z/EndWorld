@@ -7,6 +7,7 @@ import com.ei8z.endworld.data.remote.model.ChatResponse
 import com.ei8z.endworld.data.remote.model.GameResponse
 import com.ei8z.endworld.data.remote.model.ResponseFormat
 import com.google.gson.Gson
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -99,6 +100,8 @@ class StorytellerApiClient(
                     )
                 )
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             trySend(StorytellerEvent.Error("叙事Agent调用异常: ${e.message}"))
         } finally {

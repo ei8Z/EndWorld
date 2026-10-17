@@ -6,7 +6,9 @@ import com.ei8z.endworld.data.remote.model.ChatRequest
 import com.ei8z.endworld.data.remote.model.ChatResponse
 import com.ei8z.endworld.data.remote.model.Choice
 import com.ei8z.endworld.data.remote.model.Usage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import okhttp3.ResponseBody
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -85,5 +87,20 @@ class ReasonerApiClientTest {
         val client = clientWith(ChatResponse("t", "m", listOf(Choice(ChatMessage("assistant", "not json"), "stop", 0)), Usage(10, 5, 15)))
         val r = client.reason("s", "u", "u1")
         assertEquals("失败", r.result)
+    }
+
+    @Test(expected = CancellationException::class)
+    fun `reason rethrows cancellation instead of degrading`() {
+        runBlocking {
+            val api = object : DeepSeekApiService {
+                override suspend fun getChatCompletions(authorization: String, request: ChatRequest): ChatResponse {
+                    throw CancellationException("cancelled")
+                }
+                override suspend fun getChatCompletionsStream(authorization: String, request: ChatRequest): ResponseBody =
+                    throw CancellationException("cancelled")
+            }
+            ReasonerApiClient(api, "Bearer test").reason("s", "u", "u1")
+            Unit
+        }
     }
 }
