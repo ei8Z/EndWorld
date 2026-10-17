@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.callbackFlow
  * 发送叙事提示词和上下文，流式返回 story 文本增量 + 最终的 GameResponse。
  *
  * API 参数（对应文档 4.5）：
- * - model: deepseek-v4-pro
+ * - model: deepseek-flash
  * - reasoningEffort: medium（叙事不需要极限推理）
  * - responseFormat: json_object
  * - maxTokens: 8192（1000+字叙事需要较大输出空间）
@@ -46,7 +46,7 @@ class StorytellerApiClient(
         userId: String
     ): Flow<StorytellerEvent> = callbackFlow {
         val request = ChatRequest(
-            model = "deepseek-v4-pro",
+            model = "deepseek-flash",
             messages = listOf(
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userMessage)

@@ -10,7 +10,7 @@ import com.google.gson.annotations.SerializedName
  * - [tools] + [toolChoice] 为 Function Calling 保留（未来扩展项，当前不启用）
  */
 data class ChatRequest(
-    @SerializedName("model") val model: String = "deepseek-v4-pro",
+    @SerializedName("model") val model: String = "deepseek-flash",
     @SerializedName("messages") val messages: List<ChatMessage>,
     @SerializedName("response_format") val responseFormat: ResponseFormat? = ResponseFormat("json_object"),
     @SerializedName("thinking") val thinking: Thinking? = Thinking("enabled"),

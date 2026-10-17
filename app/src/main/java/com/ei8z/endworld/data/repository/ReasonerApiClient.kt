@@ -15,7 +15,7 @@ import org.json.JSONObject
  * 解析返回的 ActionResult JSON。
  *
  * API 参数（对应文档 3.5）：
- * - model: deepseek-v4-pro
+ * - model: deepseek-flash
  * - reasoningEffort: max（裁决需要最高推理能力）
  * - responseFormat: json_object
  * - maxTokens: 8192（V2.3 升级后 ActionResult 包含精确计量等字段，需要更大输出空间）
@@ -42,7 +42,7 @@ class ReasonerApiClient(
         userId: String
     ): ActionResult {
         val request = ChatRequest(
-            model = "deepseek-v4-pro",
+            model = "deepseek-flash",
             messages = listOf(
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userMessage)

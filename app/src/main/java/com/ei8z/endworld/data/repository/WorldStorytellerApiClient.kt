@@ -53,7 +53,7 @@ class WorldStorytellerApiClient(
     ): Result<WorldNarrativeResponse> {
         return try {
             val request = ChatRequest(
-                model = "deepseek-v4-pro",
+                model = "deepseek-flash",
                 messages = listOf(
                     ChatMessage("system", systemPrompt),
                     ChatMessage("user", userMessage)
