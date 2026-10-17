@@ -165,6 +165,9 @@ class GameRepository(
 
     private val sceneEvaluator by lazy { SceneEvaluator(reasonerClient) }
 
+    /** 当日玩家与 NPC 的交互文本，供每日 MemOS 抽取使用。 */
+    private val lastPlayerNpcInteractions = mutableMapOf<String, MutableList<String>>()
+
     // ---- 持久化/身份 ----
 
     private fun getOrCreateStableUserId(): String {
@@ -777,6 +780,14 @@ class GameRepository(
                 currentNeed = npc.currentNeed,
                 lastInteractionSummary = npc.lastInteractionSummary
             )
+            val interaction = "${npc.relation ?: ""} ${npc.lastInteractionSummary ?: ""}".trim()
+            if (interaction.isNotBlank()) {
+                synchronized(lastPlayerNpcInteractions) {
+                    lastPlayerNpcInteractions
+                        .getOrPut(npc.name ?: "") { mutableListOf() }
+                        .add(interaction)
+                }
+            }
         }
 
         // V3.0: 好感度变化触发NPC提取（文档 NPC§2.2 条件1）
@@ -1204,6 +1215,24 @@ class GameRepository(
         if (result.needsAIEvaluation) { tryCallLightweightAI(result.thresholdTriggers) }
         // 清理已解散势力
         factions.removeAll { it.controlledRegions.isEmpty() && it.militaryStrength <= 0 && it.resources.foodReserve <= 0 }
+
+        // 每日抽取：只处理当日与玩家有交互的接触 NPC
+        val interactionTexts = synchronized(lastPlayerNpcInteractions) {
+            lastPlayerNpcInteractions.values.flatten().also { lastPlayerNpcInteractions.clear() }
+        }
+        if (interactionTexts.isNotEmpty()) {
+            val entries = memosExtractor.extractMemories(
+                npcId = "player_daily",
+                interactionTexts = interactionTexts,
+                timestamp = "[Day $currentGameDay]",
+                location = regions.values.firstOrNull()?.name ?: "",
+                gameDay = currentGameDay
+            )
+            entries.forEach {
+                memoryDao.insertMemory(Memory(location = it.location, event = it.summary, result = "MemOS抽取"))
+            }
+        }
+
         // 持久化
         persistV3State()
     }

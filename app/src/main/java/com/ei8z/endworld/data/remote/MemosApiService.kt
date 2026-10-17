@@ -17,6 +17,12 @@ interface MemosApiService {
         @Header("Authorization") token: String,
         @Body request: MemosAddMessageRequest
     ): MemosResponse<Unit>
+
+    @POST("extract/memory")
+    suspend fun extractMemory(
+        @Header("Authorization") token: String,
+        @Body request: MemosExtractRequest
+    ): MemosExtractResponse
 }
 
 data class MemosSearchRequest(
@@ -49,4 +55,26 @@ data class MemosSearchData(
 
 data class MemoryDetail(
     @SerializedName("memory_value") val value: String
+)
+
+data class MemosExtractRequest(
+    @SerializedName("messages") val messages: List<MemosMessage>,
+    @SerializedName("extraction_types") val extractionTypes: List<String>
+)
+
+data class MemosExtractResponse(
+    @SerializedName("code") val code: Int,
+    @SerializedName("message") val message: String,
+    @SerializedName("data") val data: MemosExtractData?
+)
+
+data class MemosExtractData(
+    @SerializedName("memory_detail_list") val memories: List<MemosExtractMemory>?,
+    @SerializedName("preference_detail_list") val preferences: List<MemosExtractMemory>?
+)
+
+data class MemosExtractMemory(
+    @SerializedName("memory_key") val key: String?,
+    @SerializedName("memory_value") val value: String?,
+    @SerializedName("tags") val tags: List<String>?
 )
