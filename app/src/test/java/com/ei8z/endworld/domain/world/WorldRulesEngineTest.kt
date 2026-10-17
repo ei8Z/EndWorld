@@ -117,11 +117,8 @@ class WorldRulesEngineTest {
             "R02" to Region("R02", "邻区", TerrainType.URBAN_RUIN, 40, 30, null,
                 listOf("R01"), mapOf("R01" to ConnectionStrength.HIGH), 1.2f, mutableListOf()))
 
-        // propagateEvent 用的是引擎的 eventBasePropagationRate（不是 event.propagationRate），
-        // 这里把它设为 1.0，概率 = 1.0 × 连接强度 1.5 × 地形 1.2 > 1，必然传播。
-        engine.eventBasePropagationRate = 1.0f
         val result = engine.propagateEvent(event, regions)
-        assertTrue("传播必然发生时应至少扩展一个区域", result.newlyAffectedRegions.isNotEmpty())
+        assertTrue("事件传播率 1.0 时应至少扩展一个区域", result.newlyAffectedRegions.isNotEmpty())
         assertTrue("传播后强度应衰减", result.decayedIntensity < event.intensity)
     }
 

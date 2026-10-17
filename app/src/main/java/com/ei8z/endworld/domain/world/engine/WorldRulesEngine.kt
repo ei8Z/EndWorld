@@ -232,7 +232,7 @@ class WorldRulesEngine(
                     TerrainType.MOUNTAIN -> 0.6f
                 }
 
-                val propagationProb = eventBasePropagationRate *
+                val propagationProb = event.propagationRate *
                     connectionStrength.modifier * regionTypeModifier
 
                 if (random.nextFloat() < propagationProb) {
