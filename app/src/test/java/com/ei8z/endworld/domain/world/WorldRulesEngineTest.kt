@@ -112,15 +112,17 @@ class WorldRulesEngineTest {
     @Test
     fun `事件传播强度衰减`() {
         val event = GlobalEvent("E01", GlobalEventType.ZOMBIE_HORDE,
-            mutableListOf("R01"), 0.3f, 5, 75, "R01", null)
+            mutableListOf("R01"), 1.0f, 5, 75, "R01", null)
         val regions = mapOf("R01" to region,
             "R02" to Region("R02", "邻区", TerrainType.URBAN_RUIN, 40, 30, null,
                 listOf("R01"), mapOf("R01" to ConnectionStrength.HIGH), 1.2f, mutableListOf()))
 
+        // propagateEvent 用的是引擎的 eventBasePropagationRate（不是 event.propagationRate），
+        // 这里把它设为 1.0，概率 = 1.0 × 连接强度 1.5 × 地形 1.2 > 1，必然传播。
+        engine.eventBasePropagationRate = 1.0f
         val result = engine.propagateEvent(event, regions)
-        if (result.newlyAffectedRegions.isNotEmpty()) {
-            assertTrue(result.decayedIntensity < event.intensity) // 传播后应衰减
-        }
+        assertTrue("传播必然发生时应至少扩展一个区域", result.newlyAffectedRegions.isNotEmpty())
+        assertTrue("传播后强度应衰减", result.decayedIntensity < event.intensity)
     }
 
     @Test

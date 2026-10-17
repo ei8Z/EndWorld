@@ -125,11 +125,10 @@ class IntegrationTest {
         val card = sm.getEventCandidates().firstOrNull {
             sm.eventDeck.getById(it.id)?.oneTimeOnly == true
         }
-        if (card != null) {
-            sm.eventDeck.markTriggered(card.id)
-            val nextCandidates = sm.getEventCandidates()
-            assertTrue(nextCandidates.none { it.id == card.id })
-        }
+        assertNotNull("doomLevel=1 应至少有一张 oneTimeOnly 卡", card)
+        sm.eventDeck.markTriggered(card!!.id)
+        val nextCandidates = sm.getEventCandidates()
+        assertTrue(nextCandidates.none { it.id == card.id })
     }
 
     // ======================== 剧情节点完成与章节过渡 ========================

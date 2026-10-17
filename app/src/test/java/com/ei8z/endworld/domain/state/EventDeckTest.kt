@@ -39,11 +39,10 @@ class EventDeckTest {
         val card = deck.getCandidates(doomLevel = 1).firstOrNull {
             deck.getById(it.id)?.oneTimeOnly == true
         }
-        if (card != null) {
-            deck.markTriggered(card.id)
-            val nextCandidates = deck.getCandidates(doomLevel = 1)
-            assertTrue(nextCandidates.none { it.id == card.id })
-        }
+        assertNotNull("卡池应至少有一张 oneTimeOnly 卡", card)
+        deck.markTriggered(card!!.id)
+        val nextCandidates = deck.getCandidates(doomLevel = 1)
+        assertTrue(nextCandidates.none { it.id == card.id })
     }
 
     @Test
@@ -52,12 +51,10 @@ class EventDeckTest {
         val card = deck.getCandidates(doomLevel = 2).firstOrNull {
             (deck.getById(it.id)?.cooldownRounds ?: 0) > 0
         }
-        if (card != null) {
-            deck.markTriggered(card.id)
-            val candidates = deck.getCandidates(doomLevel = 2)
-            // Card should be on cooldown and excluded
-            assertTrue(candidates.none { it.id == card.id })
-        }
+        assertNotNull("卡池应至少有一张带冷却的卡", card)
+        deck.markTriggered(card!!.id)
+        val candidates = deck.getCandidates(doomLevel = 2)
+        assertTrue(candidates.none { it.id == card.id })
     }
 
     @Test
@@ -66,14 +63,13 @@ class EventDeckTest {
         val card = deck.getCandidates(doomLevel = 2).firstOrNull {
             (deck.getById(it.id)?.cooldownRounds ?: 0) > 0
         }
-        if (card != null) {
-            deck.markTriggered(card.id)
-            assertTrue(deck.cooldownCount > 0)
+        assertNotNull("卡池应至少有一张带冷却的卡", card)
+        deck.markTriggered(card!!.id)
+        assertTrue(deck.cooldownCount > 0)
 
-            val rounds = deck.getById(card.id)?.cooldownRounds ?: 0
-            repeat(rounds) { deck.tickRound() }
-            assertEquals(0, deck.cooldownCount)
-        }
+        val rounds = deck.getById(card.id)?.cooldownRounds ?: 0
+        repeat(rounds) { deck.tickRound() }
+        assertEquals(0, deck.cooldownCount)
     }
 
     @Test
@@ -84,11 +80,10 @@ class EventDeckTest {
     @Test
     fun `getById returns card for known id`() {
         val candidates = deck.getCandidates(doomLevel = 1)
-        if (candidates.isNotEmpty()) {
-            val card = deck.getById(candidates.first().id)
-            assertNotNull(card)
-            assertEquals(candidates.first().name, card?.name)
-        }
+        assertTrue("doomLevel=1 应至少有一张候选卡", candidates.isNotEmpty())
+        val card = deck.getById(candidates.first().id)
+        assertNotNull(card)
+        assertEquals(candidates.first().name, card?.name)
     }
 
     @Test
@@ -98,10 +93,9 @@ class EventDeckTest {
         val card = deck.getCandidates(doomLevel = 2).firstOrNull {
             deck.getById(it.id)?.oneTimeOnly == true
         }
-        if (card != null) {
-            deck.markTriggered(card.id)
-            assertEquals(initialCount + 1, deck.triggeredCount)
-        }
+        assertNotNull("卡池应至少有一张 oneTimeOnly 卡", card)
+        deck.markTriggered(card!!.id)
+        assertEquals(initialCount + 1, deck.triggeredCount)
     }
 
     @Test

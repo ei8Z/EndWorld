@@ -8,17 +8,9 @@ import org.junit.Test
 class DatabasePolicyTest {
 
     @Test
-    fun `release build never enables destructive fallback`() {
-        assertFalse(DatabasePolicy.destructiveFallbackEnabled(debug = false))
-    }
-
-    @Test
-    fun `debug build keeps destructive fallback for fast iteration`() {
-        assertTrue(DatabasePolicy.destructiveFallbackEnabled(debug = true))
-    }
-
-    @Test
-    fun `schema version is pinned`() {
+    fun `release is safe and debug is permissive`() {
         assertEquals(10, DatabasePolicy.VERSION)
+        assertFalse(DatabasePolicy.destructiveFallbackEnabled(debug = false))
+        assertTrue(DatabasePolicy.destructiveFallbackEnabled(debug = true))
     }
 }

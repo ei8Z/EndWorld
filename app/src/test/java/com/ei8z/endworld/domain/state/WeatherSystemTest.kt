@@ -15,15 +15,8 @@ class WeatherSystemTest {
     @Test
     fun `severe weather returns 0_2 DC modifier`() {
         val ws = WeatherSystem()
-        // Force weather by ticking many times until we get severe
-        var attempts = 0
-        while (ws.weather !in WeatherSystem.SEVERE_WEATHERS && attempts < 1000) {
-            ws.tick(1f)
-            attempts++
-        }
-        if (ws.weather in WeatherSystem.SEVERE_WEATHERS) {
-            assertEquals(0.2f, ws.getDcModifier())
-        }
+        ws.weather = "暴风雨"
+        assertEquals(0.2f, ws.getDcModifier())
     }
 
     @Test

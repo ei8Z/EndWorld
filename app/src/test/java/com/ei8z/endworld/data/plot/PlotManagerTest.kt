@@ -167,17 +167,6 @@ class PlotManagerTest {
     }
 
     @Test
-    fun `payoffForeshadow matches event id`() {
-        plotManager.plantForeshadow("军队伏笔")
-        plotManager.payoffForeshadow("military_checkpoint_event") // contains hint substring
-        // Payoff condition is "遭遇军队事件", event id may or may not match
-        // The contains check is: fs.payoffCondition.contains(eventTriggeredId) || eventTriggeredId.contains(fs.name)
-        // "军事伏笔" doesn't match "military_checkpoint_event"
-        // This is a weak test - the matching logic is keyword-based
-        assertTrue(plotManager.plantedForeshadowCount >= 0) // at least no crash
-    }
-
-    @Test
     fun `foreshadowHints generated correctly`() {
         val ctx = plotManager.generatePlotContext()
         assertTrue(ctx.foreshadowHints.isNotEmpty())

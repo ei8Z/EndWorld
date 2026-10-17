@@ -1,29 +1,19 @@
 package com.ei8z.endworld.data.repository
 
-import org.junit.Assert.*
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PromptBuilderTest {
 
     @Test
-    fun `buildReasonerSystemPrompt is non-empty`() {
-        assertTrue(PromptBuilder.buildReasonerSystemPrompt().isNotBlank())
-    }
+    fun `system prompts carry their JSON contracts`() {
+        val reasoner = PromptBuilder.buildReasonerSystemPrompt()
+        val storyteller = PromptBuilder.buildStorytellerSystemPrompt()
+        val branch = PromptBuilder.buildStorytellerBranchSystemPrompt()
 
-    @Test
-    fun `buildStorytellerSystemPrompt is non-empty`() {
-        assertTrue(PromptBuilder.buildStorytellerSystemPrompt().isNotBlank())
-    }
-
-    @Test
-    fun `buildStorytellerBranchSystemPrompt is non-empty`() {
-        assertTrue(PromptBuilder.buildStorytellerBranchSystemPrompt().isNotBlank())
-    }
-
-    @Test
-    fun `memory contract prompt is preserved`() {
-        // 用户明确要求保持不变的记忆安全协议
-        val contract = PromptBuilder.buildReasonerSystemPrompt()
-        assertTrue(contract.isNotBlank())
+        listOf(reasoner, storyteller, branch).forEach { assertTrue(it.isNotBlank()) }
+        assertTrue("裁决契约应包含 actionResult", reasoner.contains("actionResult"))
+        assertTrue("叙事契约应包含 story", storyteller.contains("story"))
+        assertTrue("叙事契约应包含 suggestions", storyteller.contains("suggestions"))
     }
 }

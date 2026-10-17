@@ -8,16 +8,22 @@ import com.ei8z.endworld.data.local.entity.*
 import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.MemosApiService
+import com.ei8z.endworld.data.remote.model.ChatChunkResponse
 import com.ei8z.endworld.data.remote.model.ChatMessage
 import com.ei8z.endworld.data.remote.model.ChatResponse
+import com.ei8z.endworld.data.remote.model.ChunkChoice
+import com.ei8z.endworld.data.remote.model.ChunkDelta
 import com.ei8z.endworld.data.remote.model.Choice
 import com.ei8z.endworld.data.remote.model.Usage
 import com.ei8z.endworld.domain.world.dao.*
 import com.ei8z.endworld.domain.world.model.GlobalEvent
 import com.ei8z.endworld.domain.world.model.GlobalEventType
+import com.google.gson.Gson
 import io.mockk.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.test.runTest
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -177,6 +183,7 @@ class GameRepositoryTest {
     @Test
     fun `resume meta action always emits FinalResponse`() = runTest {
         stubV3Daos()
+        every { prefs.getString("gm_strategy", null) } returns null
         every { playerDao.getPlayer() } returns flowOf(testPlayer())
         every { worldDao.getWorldInfo() } returns flowOf(testWorld())
         every { inventoryDao.getAllItems() } returns flowOf(emptyList())
@@ -236,6 +243,7 @@ class GameRepositoryTest {
     @Test
     fun `resume after acceleration replays stored summary`() = runTest {
         stubV3Daos()
+        every { prefs.getString("gm_strategy", null) } returns null
         every { playerDao.getPlayer() } returns flowOf(testPlayer())
         every { worldDao.getWorldInfo() } returns flowOf(testWorld())
         every { inventoryDao.getAllItems() } returns flowOf(emptyList())
@@ -466,6 +474,87 @@ class GameRepositoryTest {
             regionDao.clearAll()
             eventDao.clearAll()
             npcStateDao.clearAll()
+        }
+    }
+
+    // endregion
+    // region 主线集成
+
+    private fun stubMainlineApis() {
+        stubV3Daos()
+        every { prefs.getString("gm_strategy", null) } returns null
+        every { playerDao.getPlayer() } returns flowOf(testPlayer())
+        every { worldDao.getWorldInfo() } returns flowOf(testWorld())
+        every { inventoryDao.getAllItems() } returns flowOf(emptyList())
+        coEvery { playerDao.updatePlayerState(any()) } just Runs
+        coEvery { worldDao.updateWorldInfo(any()) } just Runs
+        coEvery { inventoryDao.syncInventory(any()) } just Runs
+        coEvery { memoryDao.insertMemory(any()) } just Runs
+        coEvery { npcDao.upsertNpcDepth(any(), any(), any(), any(), any(), any()) } just Runs
+
+        val actionResult = """
+            {"actionResult":{"result":"部分成功","dcValue":50,"rollValue":60,"totalValue":55,
+            "modifiersBreakdown":"","resourceChanges":[],"injuriesApplied":["中度割伤"],
+            "injuriesRecovered":[],"narrativeSummary":"你被划伤了","eventTriggered":null}}
+        """.trimIndent()
+        coEvery { api.getChatCompletions(any(), any()) } returns ChatResponse(
+            "t", "m", listOf(Choice(ChatMessage("assistant", actionResult), "stop", 0)), Usage(1, 1, 2)
+        )
+
+        val gameResponse = """
+            {"header":{"date":"第1天","time":"06:10","location":"避难所"},
+            "story":"你被划伤了。","suggestions":[],"customActionAvailable":true,
+            "statusUpdate":{"player":{"stateTags":["AI幻觉"],"innerThought":"","equipment":[]},
+            "world":{"doomLevel":1,"macroSituation":""},
+            "resources":{"knownPoints":[],"inventory":{"items":[]}},
+            "memoryUpdate":{"newTempMemory":null,"newPermanentPlot":null}}}
+        """.trimIndent()
+        val chunk = ChatChunkResponse(
+            id = "1",
+            choices = listOf(
+                ChunkChoice(
+                    delta = ChunkDelta(role = "assistant", content = gameResponse, reasoningContent = null),
+                    finishReason = "stop",
+                    index = 0
+                )
+            )
+        )
+        val sse = "data: ${Gson().toJson(chunk)}\n\ndata: [DONE]\n\n"
+        coEvery { api.getChatCompletionsStream(any(), any()) } returns
+            sse.toResponseBody("text/event-stream".toMediaType())
+    }
+
+    @Test
+    fun `mainline emits fate then story then FinalResponse`() = runTest {
+        stubMainlineApis()
+        val repo = createRepo()
+
+        val events = repo.sendActionStream(
+            "战斗",
+            ActionParsed("战斗", "", "敌人", "避难所", "", "高", 30)
+        ).toList()
+
+        val fate = events.indexOfFirst { it is StreamEvent.PhaseChanged && it.phase == "fate" }
+        val story = events.indexOfFirst { it is StreamEvent.PhaseChanged && it.phase == "story" }
+        val final = events.indexOfFirst { it is StreamEvent.FinalResponse }
+        assertTrue("events=$events, fate=$fate story=$story final=$final", fate in 0 until story)
+        assertTrue("events=$events, story=$story final=$final", story < final)
+    }
+
+    @Test
+    fun `mainline persists authoritative tags not AI tags`() = runTest {
+        stubMainlineApis()
+        val repo = createRepo()
+
+        repo.sendActionStream(
+            "战斗",
+            ActionParsed("战斗", "", "敌人", "避难所", "", "高", 30)
+        ).toList()
+
+        coVerify {
+            playerDao.updatePlayerState(match {
+                it.mentalStateTags.contains("中度割伤") && "AI幻觉" !in it.mentalStateTags
+            })
         }
     }
 

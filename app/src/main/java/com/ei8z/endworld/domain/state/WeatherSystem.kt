@@ -18,7 +18,7 @@ class WeatherSystem {
     }
 
     var weather: String = "晴"
-        private set
+        internal set // 单测需要强制天气，生产代码不应写它
 
     /** 当前天气已持续的小时数（整数近似） */
     var weatherDuration: Int = 0

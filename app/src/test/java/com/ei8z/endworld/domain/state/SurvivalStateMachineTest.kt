@@ -145,14 +145,11 @@ class SurvivalStateMachineTest {
         val cardWithCooldown = candidates.firstOrNull {
             (machine.eventDeck.getById(it.id)?.cooldownRounds ?: 0) > 0
         }
-        if (cardWithCooldown != null) {
-            machine.eventDeck.markTriggered(cardWithCooldown.id)
-            assertTrue(machine.eventDeck.cooldownCount > initialCooldownCount)
+        assertNotNull("卡池应至少有一张带冷却的卡", cardWithCooldown)
+        machine.eventDeck.markTriggered(cardWithCooldown!!.id)
+        assertTrue(machine.eventDeck.cooldownCount > initialCooldownCount)
 
-            // One round of preRuling should decrement cooldown
-            machine.processPreRuling(estimatedMinutes = 30, primaryType = "观察")
-            // Cooldown not necessarily zero yet (depends on cooldownRounds),
-            // but tickRound should have been called
-        }
+        // One round of preRuling should decrement cooldown
+        machine.processPreRuling(estimatedMinutes = 30, primaryType = "观察")
     }
 }
