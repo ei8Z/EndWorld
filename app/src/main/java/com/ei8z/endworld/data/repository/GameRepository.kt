@@ -165,6 +165,9 @@ class GameRepository(
 
     private val sceneEvaluator by lazy { SceneEvaluator(reasonerClient) }
 
+    /** 当日玩家与 NPC 的交互文本，供每日 MemOS 抽取使用。 */
+    private val lastPlayerNpcInteractions = mutableMapOf<String, MutableList<String>>()
+
     // ---- 持久化/身份 ----
 
     private fun getOrCreateStableUserId(): String {
@@ -777,6 +780,14 @@ class GameRepository(
                 currentNeed = npc.currentNeed,
                 lastInteractionSummary = npc.lastInteractionSummary
             )
+            val interaction = "${npc.relation ?: ""} ${npc.lastInteractionSummary ?: ""}".trim()
+            if (interaction.isNotBlank()) {
+                synchronized(lastPlayerNpcInteractions) {
+                    lastPlayerNpcInteractions
+                        .getOrPut(npc.name ?: "") { mutableListOf() }
+                        .add(interaction)
+                }
+            }
         }
 
         // V3.0: 好感度变化触发NPC提取（文档 NPC§2.2 条件1）
@@ -1204,6 +1215,29 @@ class GameRepository(
         if (result.needsAIEvaluation) { tryCallLightweightAI(result.thresholdTriggers) }
         // 清理已解散势力
         factions.removeAll { it.controlledRegions.isEmpty() && it.militaryStrength <= 0 && it.resources.foodReserve <= 0 }
+
+        // 每日抽取：只处理当日与玩家有交互的接触 NPC
+        val interactionsByNpc = synchronized(lastPlayerNpcInteractions) {
+            lastPlayerNpcInteractions.mapValues { it.value.toList() }
+                .also { lastPlayerNpcInteractions.clear() }
+        }
+        if (interactionsByNpc.isNotEmpty()) {
+            val playerLocation = stateMachine.clock.location
+            // 按 NPC 分组抽取：暂停/失败计数才是"按 NPC"，记忆也保留归属
+            interactionsByNpc.forEach { (npcName, texts) ->
+                val entries = memosExtractor.extractMemories(
+                    npcId = npcName,
+                    interactionTexts = texts,
+                    timestamp = "[Day $currentGameDay]",
+                    location = playerLocation,
+                    gameDay = currentGameDay
+                )
+                entries.forEach {
+                    memoryDao.insertMemory(Memory(location = it.location, event = it.summary, result = "MemOS抽取"))
+                }
+            }
+        }
+
         // 持久化
         persistV3State()
     }
@@ -1218,12 +1252,39 @@ class GameRepository(
             val survivalOk = needs.foodUrgency < 80 && needs.waterUrgency < 80
             val newNeeds = engine.advanceNeeds(needs, injured, threat, survivalOk)
             npcNeeds[npcId] = newNeeds
+
             val deathCause = engine.checkNeedOverloadDeath(newNeeds)
             if (deathCause != null) {
                 npcDepartures[npcId] = com.ei8z.endworld.domain.npc.model.DepartureInfo(
                     com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD, deathCause)
                 continue
             }
+            // 场景 4：需求跨入饱和 → 生存状态突变（§5.7 的重伤/失去庇护所/失去重要的人信号
+            // 尚未建模，这里用需求饱和作为近似；只在跨越当次触发，避免每日重复评估）
+            SceneTriggerDetector.detectNeedsMutation(npcId, needs, newNeeds)?.let { trigger ->
+                repositoryScope.launch {
+                    try {
+                        val message = PromptBuilder.buildScene4UserMessage(
+                            npcName = npc.name,
+                            mutationType = trigger.detail["mutation"] ?: "",
+                            needs = "食物${newNeeds.foodUrgency} 水${newNeeds.waterUrgency} 医疗${newNeeds.medicalUrgency}",
+                            location = npc.currentLocationId,
+                            memories = "",
+                            combatRole = npc.combatRole.name
+                        )
+                        sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                            decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let { hint ->
+                                synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+                            }
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "场景4评估失败: ${e.message}", e)
+                    }
+                }
+            }
+
             val factionDead = npc.factionId?.let { fid -> factions.none { it.factionId == fid } } ?: false
             val dep = engine.shouldDepart(npc, newNeeds, npcAffinities[npcId]
                 ?: engine.initializeAffinity(0), threat, factionDead, injured)

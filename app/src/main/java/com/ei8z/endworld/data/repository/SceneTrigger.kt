@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.domain.npc.model.NeedState
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
 import com.ei8z.endworld.domain.npc.model.toRelationshipStage
 
@@ -36,6 +37,24 @@ object SceneTriggerDetector {
                 "newStage" to newStage.name,
                 "boundary" to crossedBoundary(oldAffinity, newAffinity, oldStage, newStage).toString()
             )
+        )
+    }
+
+    /**
+     * 需求从"未饱和"跨入"饱和"（紧迫度 >= 100）→ 场景 4 生存状态突变。
+     * 只在跨越当次触发，已饱和状态下不再重复触发。
+     */
+    fun detectNeedsMutation(npcId: String, previous: NeedState, current: NeedState): SceneTrigger? {
+        val saturatedNow = listOf(
+            "食物" to (previous.foodUrgency < 100 && current.foodUrgency >= 100),
+            "饮水" to (previous.waterUrgency < 100 && current.waterUrgency >= 100),
+            "医疗" to (previous.medicalUrgency < 100 && current.medicalUrgency >= 100)
+        ).filter { it.second }
+        if (saturatedNow.isEmpty()) return null
+        return SceneTrigger(
+            type = SceneType.NEEDS_MUTATION,
+            npcId = npcId,
+            detail = mapOf("mutation" to saturatedNow.joinToString("、") { it.first })
         )
     }
 
