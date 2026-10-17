@@ -645,7 +645,7 @@ GameResponse {
 
 ```kotlin
 val reasonerRequest = ChatRequest(
-    model = "deepseek-v4-pro",
+    model = "deepseek-flash",
     messages = listOf(
         Message("system", REASONER_SYSTEM_PROMPT),
         Message("user", buildReasonerUserMessage(actionParsed, worldSnapshot, memoryList, plotContext, clientRollValue))
@@ -861,7 +861,7 @@ val reasonerRequest = ChatRequest(
 
 ```kotlin
 val storytellerRequest = ChatRequest(
-    model = "deepseek-v4-pro",
+    model = "deepseek-flash",
     messages = listOf(
         Message("system", STORYTELLER_SYSTEM_PROMPT),
         Message("user", buildStorytellerUserMessage(actionLabel, actionResult, plotContext, worldSnapshotAfterRuling, memoryList))

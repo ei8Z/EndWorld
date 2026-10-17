@@ -13,3 +13,9 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Kotlin 编译日志/会话
+.kotlin/
+
+# 个人材料，不入库
+面试必答手册.md
