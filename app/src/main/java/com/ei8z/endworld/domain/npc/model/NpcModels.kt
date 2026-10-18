@@ -141,7 +141,15 @@ enum class TimeSlot(val label: String, val startHour: Int, val endHour: Int) {
     MORNING("上午", 8, 12),
     AFTERNOON("下午", 12, 17),
     EVENING("傍晚", 17, 20),
-    NIGHT("夜晚", 20, 5)
+    NIGHT("夜晚", 20, 5);
+
+    companion object {
+        /** 唯一的时间段解析：5 点前算夜晚，跨午夜由 NIGHT 的 20-5 区间覆盖。 */
+        fun at(hour: Int): TimeSlot? = entries.firstOrNull { slot ->
+            if (slot.startHour < slot.endHour) hour in slot.startHour until slot.endHour
+            else hour >= slot.startHour || hour < slot.endHour
+        }
+    }
 }
 
 // === 离开状态 ===

@@ -20,10 +20,7 @@ class NpcMovementEngine {
         if (departureStatus != null && departureStatus != DepartureStatus.PRESENT) {
             return MoveDecision(currentLocationId, moved = false)
         }
-        val slot = TimeSlot.entries.firstOrNull { slot ->
-            if (slot.startHour < slot.endHour) gameHour in slot.startHour until slot.endHour
-            else gameHour >= slot.startHour || gameHour < slot.endHour
-        } ?: return MoveDecision(currentLocationId, moved = false)
+        val slot = TimeSlot.at(gameHour) ?: return MoveDecision(currentLocationId, moved = false)
         val target = schedule.timeSlots[slot] ?: return MoveDecision(currentLocationId, moved = false)
         return MoveDecision(target, moved = target != currentLocationId)
     }

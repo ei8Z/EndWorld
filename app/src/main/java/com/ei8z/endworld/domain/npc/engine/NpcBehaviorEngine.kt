@@ -261,14 +261,8 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
     // === 时间表查询 ===
 
     fun getCurrentLocation(schedule: Schedule, gameHour: Int): String {
-        val slot = TimeSlot.entries.find { slot ->
-            if (slot.startHour < slot.endHour) {
-                gameHour in slot.startHour until slot.endHour
-            } else {
-                // 跨午夜（如夜晚20-5）
-                gameHour >= slot.startHour || gameHour < slot.endHour
-            }
-        } ?: TimeSlot.AFTERNOON
+        // 非 0..23 的越界小时退回下午（旧行为）；正常小时统一走 TimeSlot.at
+        val slot = TimeSlot.at(gameHour) ?: TimeSlot.AFTERNOON
 
         return schedule.timeSlots[slot] ?: "unknown"
     }
