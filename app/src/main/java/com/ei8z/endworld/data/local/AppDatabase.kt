@@ -52,7 +52,7 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "end_world_database"
-                ).addMigrations(DatabasePolicy.migration10To11(), DatabasePolicy.migration11To12())
+                ).addMigrations(DatabasePolicy.migration10To11())
                 if (DatabasePolicy.destructiveFallbackEnabled(BuildConfig.DEBUG)) {
                     builder.fallbackToDestructiveMigration()
                 }

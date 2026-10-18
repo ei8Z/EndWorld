@@ -133,8 +133,7 @@ enum class MemorySource {
 data class Schedule(
     val timeSlots: Map<TimeSlot, String>,  // 时间段 -> 位置ID
     val overriddenBy: String? = null,      // 当前被什么覆盖
-    val overrideUntilDay: Int? = null,
-    val anomalySinceDay: Int? = null       // 场景7：首次位置不符的游戏日；恢复后清零
+    val overrideUntilDay: Int? = null
 )
 
 enum class TimeSlot(val label: String, val startHour: Int, val endHour: Int) {

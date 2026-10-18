@@ -12,12 +12,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  *
  * v11（第三批B-2）新增 npc_schedules 表承载场景7 的 NPC 时间表。迁移 SQL 必须与
  * Room 由实体生成的建表语句逐字一致，由 DatabasePolicyTest 用导出的 schema JSON 校验。
- *
- * v12（第三批C-1）给 npc_schedules 增加可空列 anomalySinceDay（场景7 异常起始日）。
- * ALTER TABLE 加可空列不重写旧行，升级后旧时间表保留、新列默认 null。
  */
 object DatabasePolicy {
-    const val VERSION = 12
+    const val VERSION = 11
 
     fun destructiveFallbackEnabled(debug: Boolean): Boolean = debug
 
@@ -28,12 +25,6 @@ object DatabasePolicy {
                     "`npcId` TEXT NOT NULL, `timeSlotsJson` TEXT NOT NULL, " +
                     "`overriddenBy` TEXT, `overrideUntilDay` INTEGER, PRIMARY KEY(`npcId`))"
             )
-        }
-    }
-
-    fun migration11To12(): Migration = object : Migration(11, 12) {
-        override fun migrate(db: SupportSQLiteDatabase) {
-            db.execSQL("ALTER TABLE `npc_schedules` ADD COLUMN `anomalySinceDay` INTEGER")
         }
     }
 }

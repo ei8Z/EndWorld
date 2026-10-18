@@ -135,23 +135,6 @@ object SceneTriggerDetector {
         )
     }
 
-    /**
-     * 场景7 的持续天数：从首次异常当天算起，当天为 0。
-     * 起始日持久化在 [com.ei8z.endworld.domain.npc.model.Schedule.anomalySinceDay]。
-     */
-    fun anomalyDuration(currentDay: Int, since: Int?): Int =
-        if (since == null) 0 else (currentDay - since).coerceAtLeast(0)
-
-    /**
-     * 场景7 异常起始日状态机：首次异常记录当天，持续异常保持原值（据此去重，不重复调用 AI），
-     * 位置恢复时清零，下次异常重新评估。
-     */
-    fun nextAnomalySinceDay(gameDay: Int, isAnomalous: Boolean, previousSinceDay: Int?): Int? = when {
-        !isAnomalous -> null
-        previousSinceDay == null -> gameDay
-        else -> previousSinceDay
-    }
-
     /** 阶段下界：HATRED -100 / HOSTILITY -60 / NEUTRAL -20 / FAMILIAR +20 / TRUST +50 / INTIMATE +80 */
     private val lowerBound = mapOf(
         RelationshipStage.HATRED to -100,
