@@ -63,7 +63,7 @@ class NpcBehaviorEngineTest {
 
     @Test
     fun `schedule uses a work location when one is provided`() {
-        val schedule = NpcBehaviorEngine().initializeSchedule("哨兵", "HOME", "WORK")
+        val schedule = NpcBehaviorEngine().initializeSchedule("HOME", "WORK")
         assertEquals("HOME", schedule.timeSlots[TimeSlot.DAWN])
         assertEquals("WORK", schedule.timeSlots[TimeSlot.MORNING])
         assertEquals("HOME", schedule.timeSlots[TimeSlot.NIGHT])
@@ -71,7 +71,7 @@ class NpcBehaviorEngineTest {
 
     @Test
     fun `schedule without a work location stays at home`() {
-        val schedule = NpcBehaviorEngine().initializeSchedule("居民", "HOME")
+        val schedule = NpcBehaviorEngine().initializeSchedule("HOME")
         assertEquals(setOf("HOME"), schedule.timeSlots.values.toSet())
     }
 }

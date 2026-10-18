@@ -335,7 +335,7 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
         )
     }
 
-    fun initializeSchedule(identity: String, homeLocationId: String, workLocationId: String? = null): Schedule {
+    fun initializeSchedule(homeLocationId: String, workLocationId: String? = null): Schedule {
         val work = workLocationId ?: homeLocationId
         val defaultSlots = mapOf(
             TimeSlot.DAWN to homeLocationId,

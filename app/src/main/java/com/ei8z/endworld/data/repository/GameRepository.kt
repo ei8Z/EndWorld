@@ -863,7 +863,7 @@ class GameRepository(
                     npcAffinities[npcId] = npcEngine.initializeAffinity(0, npc.affinityDelta)
                     npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
                     npcSchedules[npcId] = npcEngine.initializeSchedule(
-                        n.identity, n.currentLocationId, workLocationFor(n.currentLocationId)
+                        n.currentLocationId, workLocationFor(n.currentLocationId)
                     )
                     npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
                         "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
@@ -966,14 +966,9 @@ class GameRepository(
         schedules = npcSchedules.toMap()
     )
 
-    /** 新游戏：清空 V3 五张表（store 内是事务）。 */
-    internal suspend fun clearV3Tables() {
-        v3Store.clear()
-    }
-
     /** 清表 + 清内存 + 复位初始化标记；下一次 ensure 会重建默认世界。 */
     private suspend fun resetV3World() {
-        clearV3Tables()
+        v3Store.clear()
         factions.clear()
         regions.clear()
         activeEvents.clear()
@@ -1192,7 +1187,7 @@ class GameRepository(
                 // 旧存档没有时间表行：按当前位置补默认表，既不丢 NPC 也不立刻报场景7
                 npcSchedules.getOrPut(npcId) {
                     npcEngine.initializeSchedule(
-                        npc.identity, npc.currentLocationId, workLocationFor(npc.currentLocationId)
+                        npc.currentLocationId, workLocationFor(npc.currentLocationId)
                     )
                 }
             }
@@ -1208,7 +1203,7 @@ class GameRepository(
         // 战斗伤亡抽取：只给状态标签，KEY NPC 交给场景3 裁决生死
         val casualtyEngine = BattleCasualtyEngine()
         val casualties = result.battleResults.flatMap { battle ->
-            casualtyEngine.roll(npcStates.values, battle)
+            casualtyEngine.roll(npcStates.values, battle, currentGameDay)
         }
         for (casualty in casualties) {
             val npc = npcStates[casualty.npcId] ?: continue
@@ -1300,7 +1295,7 @@ class GameRepository(
             // 时间表移动：健康且在场的 NPC 按当前时段去工作点/回家。
             // 移动后立刻重新取快照，保证当天后续逻辑（异常校验、离队、互动）看到新位置。
             val schedule = npcSchedules[npcId] ?: npcEngine.initializeSchedule(
-                npc.identity, npc.currentLocationId, workLocationFor(npc.currentLocationId)
+                npc.currentLocationId, workLocationFor(npc.currentLocationId)
             ).also { npcSchedules[npcId] = it }
             val move = npcMovementEngine.decide(
                 schedule, stateMachine.clock.currentHour, npc.currentLocationId,
@@ -1598,7 +1593,7 @@ class GameRepository(
         npcAffinities[npcId] = npcEngine.initializeAffinity(baseAttitude, 5)
         npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
         npcSchedules[npcId] = npcEngine.initializeSchedule(
-            npc.identity, npc.currentLocationId, workLocationFor(npc.currentLocationId)
+            npc.currentLocationId, workLocationFor(npc.currentLocationId)
         )
         npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
             "[Day $gameDay]", loc, "与玩家首次互动", 5, source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))

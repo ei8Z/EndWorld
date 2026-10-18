@@ -20,7 +20,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
-/** 仓库层的 V3 往返：用真 Room 覆盖 persistV3State → ensureV3WorldLoaded → clearV3Tables。 */
+/** 仓库层的 V3 往返：用真 Room 覆盖 persistV3State → ensureV3WorldLoaded → V3WorldStateStore.clear。 */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
 class V3StateRoundTripTest {
@@ -79,7 +79,7 @@ class V3StateRoundTripTest {
         // 旧存档（无时间表行）的 NPC 升级后按当前位置补一份默认时间表，不会立刻报异常
         assertEquals("R03", second.npcSchedules["n2"]?.timeSlots?.get(TimeSlot.NIGHT))
 
-        second.clearV3Tables()
+        V3WorldStateStore(db).clear()
         assertTrue(db.npcScheduleDao().getAll().first().isEmpty())
     }
 

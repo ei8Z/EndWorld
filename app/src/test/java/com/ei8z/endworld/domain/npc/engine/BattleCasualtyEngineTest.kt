@@ -33,7 +33,7 @@ class BattleCasualtyEngineTest {
     fun `npc on losing side is rolled with that side casualty rate`() {
         // 0.1 < 0.6 → 中签；0.5 ≥ 0.3 → WOUNDED
         val engine = BattleCasualtyEngine(FixedRandom(listOf(0.1f, 0.5f)))
-        val result = engine.roll(listOf(npc("n1", "F_B")), battle())
+        val result = engine.roll(listOf(npc("n1", "F_B")), battle(), gameDay = 1)
         assertEquals(1, result.size)
         assertEquals(CasualtySeverity.WOUNDED, result.single().severity)
     }
@@ -41,15 +41,22 @@ class BattleCasualtyEngineTest {
     @Test
     fun `npc outside the battle is skipped`() {
         val engine = BattleCasualtyEngine(FixedRandom(listOf(0.0f, 0.0f)))
-        assertTrue(engine.roll(listOf(npc("n1", "F_C")), battle()).isEmpty())
+        assertTrue(engine.roll(listOf(npc("n1", "F_C")), battle(), gameDay = 1).isEmpty())
     }
 
     @Test
     fun `severe casualty when severity roll is low`() {
         val engine = BattleCasualtyEngine(FixedRandom(listOf(0.1f, 0.1f)))
-        val result = engine.roll(listOf(npc("n1", "F_B")), battle())
+        val result = engine.roll(listOf(npc("n1", "F_B")), battle(), gameDay = 1)
         assertEquals(CasualtySeverity.SEVERE, result.single().severity)
     }
+    @Test
+    fun `battle id includes the game day so repeat battles stay distinct`() {
+        val engine = BattleCasualtyEngine(FixedRandom(listOf(0.1f, 0.5f)))
+        val result = engine.roll(listOf(npc("n1", "F_B")), battle(), gameDay = 7)
+        assertEquals("F_A-F_B-day7", result.single().battleId)
+    }
+
     @Test
     fun `severe casualty counts as injured too`() {
         assertTrue(BattleCasualtyEngine.tagsFor(CasualtySeverity.WOUNDED).contains("受伤"))

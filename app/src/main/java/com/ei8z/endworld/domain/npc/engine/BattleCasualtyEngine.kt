@@ -25,7 +25,7 @@ class BattleCasualtyEngine(private val random: Random = Random.Default) {
             if (severity == CasualtySeverity.SEVERE) listOf("受伤", "重伤") else listOf("受伤")
     }
 
-    fun roll(npcs: Collection<NpcState>, battle: BattleResult): List<Casualty> {
+    fun roll(npcs: Collection<NpcState>, battle: BattleResult, gameDay: Int): List<Casualty> {
         val out = mutableListOf<Casualty>()
         for (npc in npcs) {
             val factionId = npc.factionId ?: continue
@@ -37,7 +37,7 @@ class BattleCasualtyEngine(private val random: Random = Random.Default) {
             val probability = (rate * npc.combatRole.deathProbabilityModifier).coerceIn(0f, 1f)
             if (random.nextFloat() >= probability) continue
             val severity = if (random.nextFloat() < 0.3f) CasualtySeverity.SEVERE else CasualtySeverity.WOUNDED
-            out.add(Casualty(npc.npcId, severity, "${battle.attackerFactionId}-${battle.defenderFactionId}", factionId))
+            out.add(Casualty(npc.npcId, severity, "${battle.attackerFactionId}-${battle.defenderFactionId}-day$gameDay", factionId))
         }
         return out
     }
