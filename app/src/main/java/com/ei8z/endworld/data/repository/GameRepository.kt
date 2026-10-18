@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import java.util.Locale
 import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
@@ -430,7 +431,7 @@ class GameRepository(
             if (mergedItems.isNotEmpty()) {
                 val msg = mergedItems.joinToString("、") + "已合并"
                 val directResponse = GameResponse(
-                    header = ResponseHeader(date = "第${sm.clock.currentDay}天", time = String.format("%02d:%02d", sm.clock.currentHour, sm.clock.currentMinute), location = preSnapshot.location),
+                    header = ResponseHeader(date = "第${sm.clock.currentDay}天", time = String.format(Locale.ROOT, "%02d:%02d", sm.clock.currentHour, sm.clock.currentMinute), location = preSnapshot.location),
                     story = "你将${msg}。（${minutes}分钟）",
                     suggestions = emptyList(), customActionAvailable = true, customActionHint = "输入你的行动...",
                     statusUpdate = StatusUpdate(
@@ -456,7 +457,7 @@ class GameRepository(
             val directResponse = GameResponse(
                 header = ResponseHeader(
                     date = "第${sm.clock.currentDay}天",
-                    time = String.format("%02d:%02d", sm.clock.currentHour, sm.clock.currentMinute),
+                    time = String.format(Locale.ROOT, "%02d:%02d", sm.clock.currentHour, sm.clock.currentMinute),
                     location = preSnapshot.location
                 ),
                 story = systemMessage,
@@ -732,7 +733,7 @@ class GameRepository(
         worldDao.updateWorldInfo(
             oldWorld.copy(
                 currentDate = "第${stateMachine.clock.currentDay}天",
-                currentTime = String.format("%02d:%02d", stateMachine.clock.currentHour, stateMachine.clock.currentMinute),
+                currentTime = String.format(Locale.ROOT, "%02d:%02d", stateMachine.clock.currentHour, stateMachine.clock.currentMinute),
                 locationScene = data.header.location,
                 macroSituation = update.world.macroSituation,  // AI 生成，软数据
                 knownPointsJson = gson.toJson(update.resources.knownPoints),
@@ -1392,7 +1393,7 @@ class GameRepository(
             world.copy(
                 totalGameMinutes = stateMachine.clock.elapsedMinutes,
                 currentDate = "第${stateMachine.clock.currentDay}天",
-                currentTime = String.format("%02d:%02d", stateMachine.clock.currentHour, stateMachine.clock.currentMinute)
+                currentTime = String.format(Locale.ROOT, "%02d:%02d", stateMachine.clock.currentHour, stateMachine.clock.currentMinute)
             )
         )
 

@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import java.util.Locale
 import com.ei8z.endworld.data.local.entity.PlayerState
 import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.model.ActionResult
@@ -547,8 +548,8 @@ $JSON_CONSTRAINT
         if (ar.resourceChanges.isNotEmpty()) {
             append("- 物资变化：\n")
             ar.resourceChanges.forEach { rc ->
-                val amtStr = if (rc.changeAmount == rc.changeAmount.toInt().toFloat()) rc.changeAmount.toInt().toString() else String.format("%.1f", rc.changeAmount)
-                val newStr = if (rc.newValue == rc.newValue.toInt().toFloat()) rc.newValue.toInt().toString() else String.format("%.1f", rc.newValue)
+                val amtStr = if (rc.changeAmount == rc.changeAmount.toInt().toFloat()) rc.changeAmount.toInt().toString() else String.format(Locale.ROOT, "%.1f", rc.changeAmount)
+                val newStr = if (rc.newValue == rc.newValue.toInt().toFloat()) rc.newValue.toInt().toString() else String.format(Locale.ROOT, "%.1f", rc.newValue)
                 append("  · ${rc.itemName}: ${if (rc.changeAmount > 0) "+" else ""}$amtStr → $newStr${rc.measureUnit}（${rc.narrativeHint}）\n")
             }
         }
@@ -806,9 +807,9 @@ $branchConstraint
             when (item.measureType) {
                 "volume", "weight" -> {
                     val remain = if (item.currentMeasure == item.currentMeasure.toInt().toFloat())
-                        item.currentMeasure.toInt().toString() else String.format("%.1f", item.currentMeasure)
+                        item.currentMeasure.toInt().toString() else String.format(Locale.ROOT, "%.1f", item.currentMeasure)
                     val total = if (item.totalMeasure == item.totalMeasure.toInt().toFloat())
-                        item.totalMeasure.toInt().toString() else String.format("%.1f", item.totalMeasure)
+                        item.totalMeasure.toInt().toString() else String.format(Locale.ROOT, "%.1f", item.totalMeasure)
                     "[${item.id}] ${item.name} $remain/$total${item.measureUnit} (${item.measureType}, ${item.category})"
                 }
                 "durability" -> {

@@ -1,5 +1,6 @@
 package com.ei8z.endworld.domain.state
 
+import java.util.Locale
 import com.ei8z.endworld.data.model.WorldSnapshot
 
 /**
@@ -85,7 +86,7 @@ class WorldStateProvider(
         for ((name, instances) in mergeGroups) {
             val totalVol = instances.sumOf { it.currentMeasure.toDouble() }.toFloat()
             val unit = instances.first().measureUnit
-            val displayVol = if (totalVol == totalVol.toInt().toFloat()) totalVol.toInt().toString() else String.format("%.1f", totalVol)
+            val displayVol = if (totalVol == totalVol.toInt().toFloat()) totalVol.toInt().toString() else String.format(Locale.ROOT, "%.1f", totalVol)
             actions.add("你可以将${instances.size}份${name}合并（共$displayVol$unit）")
         }
 
