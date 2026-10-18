@@ -1386,9 +1386,12 @@ class GameRepository(
             for (i in list.indices) for (j in i + 1 until list.size) {
                 val r = engine.resolveNpcInteraction(list[i], npcRuntime[list[i].npcId]?.needs ?: continue,
                     list[j], npcRuntime[list[j].npcId]?.needs ?: continue) ?: continue
-                npcRuntime[list[i].npcId]?.let { engine.addMemory(it.memory,
-                    com.ei8z.endworld.domain.npc.model.MemoryEntry("[Day $currentGameDay]", list[i].currentLocationId,
-                        r.description, source = com.ei8z.endworld.domain.npc.model.MemorySource.NPC_SOCIAL_SNAPSHOT)) }
+                // 降级 NPC 的记忆条目在旧实现里被删除，等价于此处跳过写入
+                npcRuntime[list[i].npcId]
+                    ?.takeIf { it.departure.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEMOTED }
+                    ?.let { engine.addMemory(it.memory,
+                        com.ei8z.endworld.domain.npc.model.MemoryEntry("[Day $currentGameDay]", list[i].currentLocationId,
+                            r.description, source = com.ei8z.endworld.domain.npc.model.MemorySource.NPC_SOCIAL_SNAPSHOT)) }
 
                 // 场景5：破坏性互动或关键NPC参与 → 异步评估，结果供下一轮叙事注入
                 SceneTriggerDetector.detectRareInteraction(list[i], list[j], r.interactionType)?.let { trigger ->
