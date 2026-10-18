@@ -31,6 +31,7 @@ import com.ei8z.endworld.data.remote.model.WorldUpdate
 import com.ei8z.endworld.domain.npc.engine.BattleCasualtyEngine
 import com.ei8z.endworld.domain.npc.engine.Casualty
 import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
+import com.ei8z.endworld.domain.npc.model.AffinityState
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NpcState
@@ -149,24 +150,24 @@ class GameRepository(
 
     // ---- 场景评估（2B） ----
 
-    /** V3 NPC 好感度内存镜像（name -> -100..100），用于场景 2 的跨越检测。 */
-    private val npcRelationAffinity = mutableMapOf<String, Int>()
-
-    private var npcAffinitiesSeeded = false
-
     /** NpcRelation 好感度是 0..100；V3 是 -100..100，按 NPC 文档 §3.5 的 (x-50)*2 换算。 */
     internal fun v3AffinityFromLegacy(legacy: Int): Int = ((legacy - 50) * 2).coerceIn(-100, 100)
 
     /** AI 的 affinityDelta 是 0..100 量纲的增量，换算到 -100..100 直接 ×2。 */
     internal fun v3DeltaFromLegacy(delta: Int): Int = (delta * 2).coerceIn(-100, 100)
 
-    /** 从 DB 播种好感度基准，避免重启后以 0 为基准误判跨越。 */
-    private suspend fun seedNpcAffinities() {
-        if (npcAffinitiesSeeded) return
-        npcDao.getAllNpcs().first().forEach { relation ->
-            npcRelationAffinity[relation.name] = v3AffinityFromLegacy(relation.affinity)
-        }
-        npcAffinitiesSeeded = true
+    /** 指定 NPC 的好感度权威状态；未提取的 NPC 返回 null（不新建）。 */
+    internal fun affinityFor(npcId: String): AffinityState? = npcAffinities[npcId]
+
+    /**
+     * AI 只提供好感度增量；由模拟层统一落地（±20 单次夹取、-100..100 钳制、阶段重算）。
+     * 名字找不到对应 NPC 时返回 null：不新建好感度，也不给场景 2 触发点。
+     */
+    internal fun applyInteractionAffinity(npcName: String, delta: Int): String? {
+        val npcId = npcStates.values.firstOrNull { it.name == npcName }?.npcId ?: return null
+        val old = npcAffinities[npcId] ?: npcEngine.initializeAffinity(0)
+        npcAffinities[npcId] = npcEngine.applyAffinityDelta(old, delta, currentGameDay)
+        return npcId
     }
 
     /** 场景评估结果，供下一轮叙事注入。 */
@@ -248,7 +249,6 @@ class GameRepository(
         seedStateMachine(currentPlayer, currentWorld)
         // V3.0: 首次调用时从 DB 回读世界模拟（空库才建默认世界）
         ensureV3WorldLoaded()
-        seedNpcAffinities()
 
         val job = repositoryScope.launch {
             try {
@@ -818,6 +818,38 @@ class GameRepository(
             }
         }
 
+        // 场景 2：好感度跨越关系阶段。AI 只提供增量，由模拟层统一落地（±20 单次夹取、
+        // 阶段重算）；未知名字不建 NPC、不触发。NPC 提取放在下一段，避免同一轮
+        // 新提取的 NPC 被当成"已知 NPC"而误触发场景 2。
+        update.npcUpdate?.forEach { npc ->
+            val name = npc.name ?: return@forEach
+            val delta = v3DeltaFromLegacy(npc.affinityDelta ?: return@forEach)
+            val npcId = npcStates.values.firstOrNull { it.name == name }?.npcId ?: return@forEach
+            val old = affinityFor(npcId) ?: npcEngine.initializeAffinity(0)
+            applyInteractionAffinity(name, delta) ?: return@forEach
+            val updated = affinityFor(npcId) ?: return@forEach
+            SceneTriggerDetector.detectStageCrossing(npcId, old.affinity, updated.affinity)?.let { trigger ->
+                evaluateScene(trigger, message = {
+                    PromptBuilder.buildScene2UserMessage(
+                        npcName = name,
+                        npcIdentity = npcStates[npcId]?.identity ?: "居民",
+                        oldAffinity = old.affinity,
+                        newAffinity = updated.affinity,
+                        boundary = trigger.detail["boundary"] ?: "",
+                        needs = npc.currentNeed ?: "",
+                        memories = npc.lastInteractionSummary ?: "",
+                        timeline = "",
+                        memosFragments = "",
+                        playerLoc = data.header.location,
+                        oldStage = trigger.detail["oldStage"]
+                            ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: "",
+                        newStage = trigger.detail["newStage"]
+                            ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: ""
+                    )
+                })
+            }
+        }
+
         // V3.0: 好感度变化触发NPC提取（文档 NPC§2.2 条件1）
         update.npcUpdate?.forEach { npc ->
             if (npc.name != null && npc.affinityDelta != null && kotlin.math.abs(npc.affinityDelta) >= 10) {
@@ -837,37 +869,6 @@ class GameRepository(
                         "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
                         source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
                 }
-            }
-        }
-
-        // 场景 2：好感度跨越关系阶段（ponytail: 暂用 AI 的 affinityDelta 作为来源，
-        // 好感度权威重构后改为模拟层事件驱动）
-        update.npcUpdate?.forEach { npc ->
-            val name = npc.name ?: return@forEach
-            val delta = v3DeltaFromLegacy(npc.affinityDelta ?: return@forEach)
-            val oldAffinity = npcRelationAffinity[name] ?: 0
-            val newAffinity = (oldAffinity + delta).coerceIn(-100, 100)
-            npcRelationAffinity[name] = newAffinity
-            SceneTriggerDetector.detectStageCrossing(name, oldAffinity, newAffinity)?.let { trigger ->
-                evaluateScene(trigger, message = {
-                    PromptBuilder.buildScene2UserMessage(
-                    npcName = name,
-                    // NpcUpdate 没有 identity 字段，这里用性格标签兜底
-                    npcIdentity = npc.personalityTags?.joinToString("、")?.ifBlank { "居民" } ?: "居民",
-                    oldAffinity = oldAffinity,
-                    newAffinity = newAffinity,
-                    boundary = trigger.detail["boundary"] ?: "",
-                    needs = npc.currentNeed ?: "",
-                    memories = npc.lastInteractionSummary ?: "",
-                    timeline = "",
-                    memosFragments = "",
-                    playerLoc = data.header.location,
-                    oldStage = trigger.detail["oldStage"]
-                        ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: "",
-                    newStage = trigger.detail["newStage"]
-                        ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: ""
-                )
-                })
             }
         }
 
@@ -1572,7 +1573,7 @@ class GameRepository(
     }
 
     // === V3.0 NPC提取 ===
-    private fun tryV3NpcExtraction(result: com.ei8z.endworld.data.model.ActionResult, action: ActionParsed, gameDay: Int) {
+    private suspend fun tryV3NpcExtraction(result: com.ei8z.endworld.data.model.ActionResult, action: ActionParsed, gameDay: Int) {
         val target = action.target ?: return
         if (target.isBlank()) return
         // 检查提取条件（文档 NPC§2.2 的 4 条规则，好感度变化由 GameResponse.statusUpdate.npcUpdate 提供，在 syncGameData 后检查）
@@ -1586,7 +1587,11 @@ class GameRepository(
         if (npcStates.containsKey(npcId)) return // 已是接触NPC
         val loc = action.location.ifBlank { "R01" }
         val factionId = regions[loc]?.controllingFactionId
-        val baseAttitude = if (factionId != null) 0 else -10
+        // legacy 好感度只在这里读一次：首次提取时作为初始值，之后一律以 npcAffinities 为准。
+        val legacyAffinity = npcDao.getAllNpcs().first()
+            .firstOrNull { it.name == target }?.affinity
+            ?.let(::v3AffinityFromLegacy)
+        val baseAttitude = legacyAffinity ?: if (factionId != null) 0 else -10
         val npc = npcEngine.initializeNewNpc(npcId, target, "居民", loc, factionId, baseAttitude)
         npcStates[npcId] = npc
         npcNeeds[npcId] = npcEngine.initializeNeeds(factionFoodShortage = false, regionHighThreat = (regions[loc]?.threatLevel ?: 0) > 50)

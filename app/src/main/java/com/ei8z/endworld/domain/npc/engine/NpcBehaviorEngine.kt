@@ -14,6 +14,9 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
     companion object {
         /** 外出探索的预期窗口（游戏日）。 */
         const val DEPARTURE_WINDOW_DAYS = 3
+
+        /** 单次互动允许 AI 建议的好感度增量上限（V3 量纲）。 */
+        private const val MAX_AI_AFFINITY_DELTA = 20
     }
 
     // === 需求推进（每日结算） ===
@@ -108,6 +111,21 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
         }
 
         return newState to crossed
+    }
+
+    /**
+     * AI 只提供增量建议；由模拟层夹取、重算阶段并记录互动（§2.2 好感度仅模拟层可修改）。
+     * 单次最多 ±20，结果钳制在 -100..100。
+     */
+    fun applyAffinityDelta(current: AffinityState, delta: Int, gameDay: Int): AffinityState {
+        val capped = delta.coerceIn(-MAX_AI_AFFINITY_DELTA, MAX_AI_AFFINITY_DELTA)
+        val affinity = (current.affinity + capped).coerceIn(-100, 100)
+        return current.copy(
+            affinity = affinity,
+            relationshipStage = affinity.toRelationshipStage(),
+            interactionCount = current.interactionCount + 1,
+            lastInteractionGameDay = gameDay
+        )
     }
 
     // === 记忆管理 ===

@@ -16,6 +16,10 @@ import com.ei8z.endworld.data.remote.model.ChunkChoice
 import com.ei8z.endworld.data.remote.model.ChunkDelta
 import com.ei8z.endworld.data.remote.model.Choice
 import com.ei8z.endworld.data.remote.model.Usage
+import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
+import com.ei8z.endworld.domain.npc.model.CombatRole
+import com.ei8z.endworld.domain.npc.model.NpcState
+import com.ei8z.endworld.domain.npc.model.RelationshipStage
 import com.ei8z.endworld.domain.world.dao.*
 import com.ei8z.endworld.domain.world.model.GlobalEvent
 import com.ei8z.endworld.domain.world.model.GlobalEventType
@@ -92,6 +96,12 @@ class GameRepositoryTest {
     fun tearDown() = clearAllMocks()
 
     private fun createRepo() = GameRepository(db, api, memosApi, "test-api-key", "test-memos-key", context)
+
+    private fun npcState(id: String, name: String) = NpcState(
+        npcId = id, name = name, identity = "居民", combatRole = CombatRole.NON_COMBATANT,
+        currentLocationId = "R01", factionId = null, personalityTags = emptyList(),
+        statusTags = mutableListOf()
+    )
 
     // region Exposed Flows
 
@@ -384,7 +394,7 @@ class GameRepositoryTest {
     // endregion
     // region 主线集成
 
-    private fun stubMainlineApis() {
+    private fun stubMainlineApis(narrativeSummary: String = "你被划伤了") {
         stubV3Daos()
         every { prefs.getString("gm_strategy", null) } returns null
         every { playerDao.getPlayer() } returns flowOf(testPlayer())
@@ -399,7 +409,7 @@ class GameRepositoryTest {
         val actionResult = """
             {"actionResult":{"result":"部分成功","dcValue":50,"rollValue":60,"totalValue":55,
             "modifiersBreakdown":"","resourceChanges":[],"injuriesApplied":["中度割伤"],
-            "injuriesRecovered":[],"narrativeSummary":"你被划伤了","eventTriggered":null}}
+            "injuriesRecovered":[],"narrativeSummary":"$narrativeSummary","eventTriggered":null}}
         """.trimIndent()
         coEvery { api.getChatCompletions(any(), any()) } returns ChatResponse(
             "t", "m", listOf(Choice(ChatMessage("assistant", actionResult), "stop", 0)), Usage(1, 1, 2)
@@ -426,6 +436,23 @@ class GameRepositoryTest {
         val sse = "data: ${Gson().toJson(chunk)}\n\ndata: [DONE]\n\n"
         coEvery { api.getChatCompletionsStream(any(), any()) } returns
             sse.toResponseBody("text/event-stream".toMediaType())
+    }
+
+    @Test
+    fun `legacy relation seeds affinity only when the npc is first extracted`() = runTest {
+        stubMainlineApis(narrativeSummary = "老张向你透露了避难所的情报")
+        every { npcDao.getAllNpcs() } returns flowOf(
+            listOf(com.ei8z.endworld.data.local.entity.NpcRelation("老张", "邻居", affinity = 100))
+        )
+
+        val repo = createRepo()
+        repo.sendActionStream(
+            "询问老张",
+            ActionParsed("社交", "询问", "老张", "避难所", "", "低", 10)
+        ).toList()
+
+        assertEquals("老张", repo.npcStates["npc_老张_1"]?.name)
+        assertEquals(100, repo.npcAffinities["npc_老张_1"]?.affinity)
     }
 
     @Test
@@ -484,6 +511,38 @@ class GameRepositoryTest {
     }
 
     // endregion
+
+    // region 好感度权威
+
+    @Test
+    fun `applyInteractionAffinity caps the delta and accumulates interactions`() {
+        val repo = createRepo()
+        repo.npcStates["n1"] = npcState("n1", "老张")
+        repo.npcAffinities["n1"] = NpcBehaviorEngine().initializeAffinity(0)
+
+        assertEquals("n1", repo.applyInteractionAffinity("老张", 300))
+        assertEquals("n1", repo.applyInteractionAffinity("老张", 10))
+
+        val affinity = repo.affinityFor("n1")
+        assertNotNull(affinity)
+        assertEquals(30, affinity?.affinity)
+        assertEquals(RelationshipStage.FAMILIAR, affinity?.relationshipStage)
+        assertEquals(3, affinity?.interactionCount)
+        assertEquals(repo.currentGameDay, affinity?.lastInteractionGameDay)
+    }
+
+    @Test
+    fun `unknown npc name neither creates affinity nor returns a scene 2 target`() {
+        val repo = createRepo()
+
+        assertNull(repo.affinityFor("ghost"))
+        assertNull(repo.applyInteractionAffinity("幽灵", 50))
+        assertTrue(repo.npcAffinities.isEmpty())
+        assertTrue(repo.npcStates.isEmpty())
+    }
+
+    // endregion
+
     @Test
     fun `legacy affinity and delta convert to v3 scale`() {
         val repo = createRepo()
