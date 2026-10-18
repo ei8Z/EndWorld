@@ -34,7 +34,6 @@ import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NpcState
-import com.ei8z.endworld.domain.npc.model.NpcTier
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
 import com.ei8z.endworld.domain.npc.model.toDisplayName
 import com.ei8z.endworld.domain.npc.model.toRelationshipStage
@@ -1283,16 +1282,23 @@ class GameRepository(
                     npcName = npc.name, npcIdentity = npc.identity, battleName = casualty.battleId,
                     affinity = npcAffinities[npc.npcId]?.affinity ?: 0,
                     stage = npcAffinities[npc.npcId]?.relationshipStage?.name ?: "NEUTRAL",
-                    registered = npc.tier == NpcTier.KEY,
+                    // §5.6 剧情保护（注册且未完成节点 → 强制 spare）未实现：PlotManager 无该查询接口，留 3C。
+                    registered = false,
                     hasUnfinishedNode = false,
                     factionA = factions.firstOrNull { it.factionId == casualty.factionId }?.name ?: casualty.factionId,
                     factionB = "", casualtyA = "", casualtyB = "",
                     combatRole = npc.combatRole.name, inNewInjuries = npc.statusTags.joinToString("、")
                 )
                 sceneEvaluator.evaluate(trigger, message)?.let { decision ->
-                    val outcome = decision.getAsJsonObject("decision")?.get("outcome")?.asString
-                    if (outcome == "dead") {
-                        npcDepartures[npc.npcId] = DepartureInfo(DepartureStatus.DEAD, "战斗死亡")
+                    val outcome = decision.getAsJsonObject("decision")
+                        ?.get("outcome")
+                        ?.takeIf { it.isJsonPrimitive }
+                        ?.asString
+                    when (mapScene3Outcome(outcome)) {
+                        Scene3Effect.DEAD ->
+                            npcDepartures[npc.npcId] = DepartureInfo(DepartureStatus.DEAD, "战斗死亡")
+                        Scene3Effect.SEVERE_INJURY -> if ("重伤" !in npc.statusTags) npc.statusTags.add("重伤")
+                        Scene3Effect.NONE -> Unit
                     }
                     decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let {
                         synchronized(pendingSceneNotes) { pendingSceneNotes.add(it) }

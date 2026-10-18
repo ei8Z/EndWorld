@@ -1030,6 +1030,10 @@ $branchConstraint
         appendLine("好感度：$affinity($stage) | 剧情注册：$registered | 未完成节点：$hasUnfinishedNode")
         appendLine("战斗：$factionA vs $factionB | 战损：A=$casualtyA B=$casualtyB | 角色：$combatRole | newInjuries：$inNewInjuries")
         appendLine("请判定该关键NPC是否死亡。")
+        appendLine()
+        appendLine("【输出要求】：只输出 JSON，不要额外文字。")
+        appendLine("decision.npcId=\"$npcName\"；decision.outcome 只能是 \"kill\" | \"spare\" | \"severe_injury\"；decision.narrativeHint 为一句话判定理由。")
+        appendLine("示例：{\"decision\":{\"npcId\":\"$npcName\",\"outcome\":\"spare\",\"narrativeHint\":\"他在关键时刻被同伴拖走\"},\"rationale\":\"...\",\"suggestedNarrativeAngle\":\"...\"}")
     }
 
     fun buildScene4UserMessage(npcName: String, mutationType: String, needs: String,
