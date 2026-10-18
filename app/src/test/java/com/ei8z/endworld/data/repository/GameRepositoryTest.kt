@@ -478,6 +478,8 @@ class GameRepositoryTest {
         repo.lastMidnightSettlementDay = 2
         repo.sendActionStream("再次询问老张", ask).toList()
 
+        // 前提钉死：第二次行动必须真的落在第 2 天，否则用例退化成同日早退
+        assertEquals(2, repo.currentGameDay)
         assertEquals(1, repo.npcRuntime.size)
         assertEquals(1, repo.npcRuntime.values.count { it.state.name == "老张" })
         assertEquals(listOf("npc_老张"), repo.npcRuntime.keys.toList())
@@ -486,7 +488,10 @@ class GameRepositoryTest {
 
     @Test
     fun `legacy npc id keeps working instead of spawning a same-name npc`() = runTest {
-        stubMainlineApis(narrativeSummary = "老张向你透露了避难所的情报")
+        stubMainlineApis(
+            narrativeSummary = "老张向你透露了避难所的情报",
+            npcUpdateJson = """[{"name":"老张","relation":"邻居","affinityDelta":10,"lastInteractionSummary":"聊了聊"}]"""
+        )
         val worldFlow = MutableStateFlow<WorldInfo?>(
             testWorld().copy(totalGameMinutes = 24 * 60 + 360)
         )
@@ -504,7 +509,8 @@ class GameRepositoryTest {
         ).toList()
 
         assertEquals(listOf("npc_老张_1"), repo.npcRuntime.keys.toList())
-        assertEquals(0, repo.npcRuntime.getValue("npc_老张_1").affinity.affinity)
+        // 旧 id 上的好感度确实吃了本轮增量（0 + 10×2）
+        assertEquals(20, repo.npcRuntime.getValue("npc_老张_1").affinity.affinity)
     }
 
     @Test
