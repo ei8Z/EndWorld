@@ -174,4 +174,28 @@ class SceneTriggerTest {
 
         assertEquals(listOf(14), triggerDays)
     }
+
+    @Test
+    fun `anomaly duration counts from the first mismatched day`() {
+        assertEquals(0, SceneTriggerDetector.anomalyDuration(currentDay = 10, since = null))
+        assertEquals(0, SceneTriggerDetector.anomalyDuration(currentDay = 10, since = 10))
+        assertEquals(3, SceneTriggerDetector.anomalyDuration(currentDay = 13, since = 10))
+    }
+
+    @Test
+    fun `anomaly since day is recorded on first mismatch, kept while ongoing, cleared on recovery`() {
+        // 第 10 天首次异常：记录起始日，此刻应触发一次 AI 评估
+        val first = SceneTriggerDetector.nextAnomalySinceDay(gameDay = 10, isAnomalous = true, previousSinceDay = null)
+        assertEquals(10, first)
+        // 第 11、12 天持续异常：起始日不变 → 不重复评估，duration 递增
+        assertEquals(10, SceneTriggerDetector.nextAnomalySinceDay(gameDay = 11, isAnomalous = true, previousSinceDay = first))
+        assertEquals(10, SceneTriggerDetector.nextAnomalySinceDay(gameDay = 12, isAnomalous = true, previousSinceDay = 10))
+        assertEquals(3, SceneTriggerDetector.anomalyDuration(currentDay = 13, since = 10))
+        // 第 13 天位置恢复：清零，下次异常重新从当天算起
+        assertNull(SceneTriggerDetector.nextAnomalySinceDay(gameDay = 13, isAnomalous = false, previousSinceDay = 10))
+        assertEquals(
+            13,
+            SceneTriggerDetector.nextAnomalySinceDay(gameDay = 13, isAnomalous = true, previousSinceDay = null)
+        )
+    }
 }

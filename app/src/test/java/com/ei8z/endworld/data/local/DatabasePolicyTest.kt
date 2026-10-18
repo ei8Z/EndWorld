@@ -25,9 +25,7 @@ class DatabasePolicyTest {
      * 期望值取自 KSP 导出的 schema JSON（Room 校验时用的同一份真值），不是重抄迁移代码。
      */
     @Test
-    fun `database is version 11 and migration 10 to 11 creates exactly the npc_schedules table Room expects`() {
-        assertEquals(11, DatabasePolicy.VERSION)
-
+    fun `database is version 12 and migration 10 to 11 creates exactly the npc_schedules table Room expects`() {
         val database = schemaJson(version = 11).getAsJsonObject("database")
         assertEquals(11, database.get("version").asInt)
         val expectedSql = database.getAsJsonArray("entities")
@@ -46,6 +44,40 @@ class DatabasePolicyTest {
         migration.migrate(db)
 
         assertEquals(listOf(expectedSql.trim()), executed.map { it.trim() })
+    }
+
+    /**
+     * v12 只给 npc_schedules 加一列可空整数：升级时旧时间表行保留，新列默认 null。
+     * 列类型/可空性以 KSP 导出的 12.json 为准，迁移 SQL 必须与之一致。
+     */
+    @Test
+    fun `database is version 12 and migration 11 to 12 adds the nullable anomalySinceDay column`() {
+        assertEquals(12, DatabasePolicy.VERSION)
+
+        val database = schemaJson(version = 12).getAsJsonObject("database")
+        assertEquals(12, database.get("version").asInt)
+        val column = database.getAsJsonArray("entities")
+            .map { it.asJsonObject }
+            .first { it.get("tableName").asString == "npc_schedules" }
+            .getAsJsonArray("fields")
+            .map { it.asJsonObject }
+            .first { it.get("columnName").asString == "anomalySinceDay" }
+        assertEquals("INTEGER", column.get("affinity").asString)
+        assertFalse(column.get("notNull").asBoolean)
+
+        val migration = DatabasePolicy.migration11To12()
+        assertEquals(11, migration.startVersion)
+        assertEquals(12, migration.endVersion)
+
+        val executed = mutableListOf<String>()
+        val db = mockk<SupportSQLiteDatabase>(relaxed = true)
+        every { db.execSQL(any<String>()) } answers { executed += firstArg<String>() }
+        migration.migrate(db)
+
+        assertEquals(
+            listOf("ALTER TABLE `npc_schedules` ADD COLUMN `anomalySinceDay` INTEGER"),
+            executed.map { it.trim() }
+        )
     }
 
     private fun schemaJson(version: Int): JsonObject {

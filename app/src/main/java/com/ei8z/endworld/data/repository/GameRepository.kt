@@ -1368,6 +1368,50 @@ class GameRepository(
                 npcStates[npcId] = npc.copy(currentLocationId = move.targetLocationId)
                 npc = npcStates[npcId] ?: continue
             }
+
+            // 场景7：实际位置与时间表不符。只在首次异常当天调用一次 AI（起始日持久化去重），
+            // 位置恢复时清零，下次异常重新从当天算起。
+            val departureStatus = npcDepartures[npcId]?.status
+            if (departureStatus == null || departureStatus == DepartureStatus.PRESENT) {
+                val expected = engine.getCurrentLocation(schedule, stateMachine.clock.currentHour)
+                val trigger = SceneTriggerDetector.detectScheduleAnomaly(
+                    npcId, npc.currentLocationId, expected, schedule.overrideUntilDay, currentGameDay
+                )
+                val nextSince = SceneTriggerDetector.nextAnomalySinceDay(
+                    gameDay = currentGameDay,
+                    isAnomalous = trigger != null,
+                    previousSinceDay = schedule.anomalySinceDay
+                )
+                if (nextSince != schedule.anomalySinceDay) {
+                    npcSchedules[npcId] = schedule.copy(anomalySinceDay = nextSince)
+                }
+                if (trigger != null && schedule.anomalySinceDay == null) {
+                    repositoryScope.launch {
+                        try {
+                            val message = PromptBuilder.buildScene7UserMessage(
+                                npcName = npc.name,
+                                currentLoc = npc.currentLocationId,
+                                expectedLoc = expected,
+                                anomalyType = "位置与时间表不符",
+                                triggerSource = "每日结算时间表校验",
+                                durationDays = SceneTriggerDetector.anomalyDuration(currentGameDay, nextSince),
+                                npcState = "${npc.identity}｜${npc.statusTags.joinToString("、")}"
+                            )
+                            sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                                decision.get("suggestedNarrativeAngle")?.asString
+                                    ?.takeIf { it.isNotBlank() }?.let { hint ->
+                                        synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+                                    }
+                            }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.e(TAG, "场景7评估失败: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+
             // 场景4：需求跨入饱和 → 生存状态突变（§5.7 的重伤/失去庇护所/失去重要的人信号
             // 尚未建模，这里用需求饱和作为近似；只在跨越当次触发，避免每日重复评估）
             SceneTriggerDetector.detectNeedsMutation(npcId, needs, newNeeds)?.let { trigger ->

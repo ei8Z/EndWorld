@@ -136,14 +136,16 @@ object V3StateMapper {
             }
             .toMap(),
         overriddenBy = e.overriddenBy,
-        overrideUntilDay = e.overrideUntilDay
+        overrideUntilDay = e.overrideUntilDay,
+        anomalySinceDay = e.anomalySinceDay
     )
 
     fun scheduleEntity(npcId: String, schedule: Schedule): NpcScheduleEntity = NpcScheduleEntity(
         npcId = npcId,
         timeSlotsJson = gson.toJson(schedule.timeSlots.mapKeys { it.key.name }),
         overriddenBy = schedule.overriddenBy,
-        overrideUntilDay = schedule.overrideUntilDay
+        overrideUntilDay = schedule.overrideUntilDay,
+        anomalySinceDay = schedule.anomalySinceDay
     )
 
     private inline fun <reified E : Enum<E>> enumOrNull(name: String): E? =
