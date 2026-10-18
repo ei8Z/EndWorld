@@ -125,4 +125,35 @@ class StorytellerApiClientTest {
         assertTrue(events.any { it is StorytellerEvent.Error })
         assertTrue(events.none { it is StorytellerEvent.FinalResponse })
     }
+    @Test
+    fun `data line without space is parsed`() = runBlocking {
+        val payload = validJson("无空格")
+        val chunk = mapOf(
+            "choices" to listOf(
+                mapOf("delta" to mapOf("content" to payload), "finish_reason" to null, "index" to 0)
+            )
+        )
+        val sse = "data:" + Gson().toJson(chunk) + "\n\ndata: [DONE]\n\n"
+
+        val events = StorytellerApiClient(serviceReturning(sse), "Bearer test")
+            .tell("s", "u", "u1").toList()
+
+        assertEquals("无空格", events.filterIsInstance<StorytellerEvent.FinalResponse>().single().response.story)
+    }
+
+    @Test
+    fun `oversized stream emits error`() = runBlocking {
+        val chunk = mapOf(
+            "choices" to listOf(
+                mapOf("delta" to mapOf("content" to "x".repeat(50)), "finish_reason" to null, "index" to 0)
+            )
+        )
+        val sse = "data: " + Gson().toJson(chunk) + "\n\n"
+
+        val events = StorytellerApiClient(serviceReturning(sse), "Bearer test", maxContentChars = 20)
+            .tell("s", "u", "u1").toList()
+
+        assertTrue(events.any { it is StorytellerEvent.Error })
+        assertTrue(events.none { it is StorytellerEvent.FinalResponse })
+    }
 }

@@ -26,9 +26,13 @@ import kotlinx.coroutines.flow.callbackFlow
  *
  * 流式事件通过回调 Flow 发射 StorytellerEvent，由 GameViewModel 消费并渲染。
  */
+private class SseContentLimitException(message: String) : Exception(message)
+
 class StorytellerApiClient(
     private val apiService: DeepSeekApiService,
-    private val authHeader: String
+    private val authHeader: String,
+    /** 单次叙事流的字符上限，防止异常响应撑爆内存。 */
+    private val maxContentChars: Int = 2_000_000
 ) {
     companion object {
         private const val TAG = "StorytellerApi"
@@ -118,8 +122,8 @@ class StorytellerApiClient(
             var line: String?
             while (reader.readLine().also { line = it } != null) {
                 val row = line ?: ""
-                if (!row.startsWith("data: ")) continue
-                val data = row.substring(6)
+                if (!row.startsWith("data:")) continue
+                val data = row.removePrefix("data:").trimStart()
                 if (data == "[DONE]") {
                     sawDone = true
                     break
@@ -133,9 +137,14 @@ class StorytellerApiClient(
                     val choice = chunk.choices.firstOrNull()
                     choice?.finishReason?.let { lastFinish = it }
                     choice?.delta?.content?.let {
+                        if (fullContent.length + it.length > maxContentChars) {
+                            throw SseContentLimitException("叙事流内容超过上限: $maxContentChars")
+                        }
                         fullContent.append(it)
                         onDelta(it)
                     }
+                } catch (e: SseContentLimitException) {
+                    throw e
                 } catch (e: Exception) {
                     // 忽略单条 chunk 解析失败
                 }

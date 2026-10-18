@@ -53,5 +53,6 @@ internal fun buildOkHttpClient(debug: Boolean): OkHttpClient =
         }
         .connectTimeout(60, TimeUnit.SECONDS)
         .readTimeout(120, TimeUnit.SECONDS)
+        .callTimeout(180, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
