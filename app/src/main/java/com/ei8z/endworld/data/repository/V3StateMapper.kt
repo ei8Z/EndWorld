@@ -7,7 +7,7 @@ import com.ei8z.endworld.domain.world.model.*
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
-/** Room 实体 → V3 域模型。写入方向仍在 GameRepository.persistV3State。 */
+/** Room 实体 → V3 域模型；写入方向在 [V3WorldStateStore.save]。 */
 object V3StateMapper {
 
     private val gson = Gson()

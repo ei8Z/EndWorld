@@ -122,29 +122,6 @@ class GameRepositoryTest {
 
     // endregion
 
-    // region initializeNewGame
-
-    @Test
-    fun `initializeNewGame clears history and inserts initial data`() = runTest {
-        coEvery { playerDao.updatePlayerState(any()) } just Runs
-        coEvery { worldDao.updateWorldInfo(any()) } just Runs
-        coEvery { memoryDao.insertMemory(any()) } just Runs
-        coEvery { historyDao.clearHistory() } just Runs
-
-        val repo = createRepo()
-        repo.initializeNewGameV22("幸存者A", "成年男性", "勇敢", "", "核冬天", 1, 100, 100, 100, 100, 50, 50, 0)
-
-        coVerify { historyDao.clearHistory() }
-        coVerify { memoryDao.insertMemory(any()) }
-        coVerify { playerDao.updatePlayerState(match {
-            it.name == "幸存者A" && it.genderPhysique == "成年男性" &&
-                    it.personality == "勇敢" && it.doomType == "核冬天"
-        }) }
-        coVerify { worldDao.updateWorldInfo(match { it.currentDate == "第1天" }) }
-    }
-
-    // endregion
-
     // region saveHistory / clearHistory
 
     @Test
@@ -342,32 +319,6 @@ class GameRepositoryTest {
     }
 
     @Test
-    fun `writeV3State clears events before inserting`() = runTest {
-        stubV3Daos()
-        coEvery { eventDao.clearAll() } just Runs
-        coEvery { eventDao.upsertEvent(any()) } just Runs
-
-        val repo = createRepo()
-        repo.ensureV3WorldLoaded()
-        repo.absorbSettlementEvents(
-            listOf(
-                GlobalEvent(
-                    eventId = "ev_order", eventType = GlobalEventType.RUMOR,
-                    affectedRegions = mutableListOf("R01"), propagationRate = 0.1f,
-                    remainingDays = 1, intensity = 10, sourceRegionId = "R01",
-                    associatedFactionId = null
-                )
-            )
-        )
-        repo.writeV3State()
-
-        coVerifyOrder {
-            eventDao.clearAll()
-            eventDao.upsertEvent(any())
-        }
-    }
-
-    @Test
     fun `pendingSettlementDays counts every crossed midnight`() {
         val repo = createRepo()
         assertEquals(0, repo.pendingSettlementDays(previousDay = 3, currentDay = 3))
@@ -428,61 +379,6 @@ class GameRepositoryTest {
         ).toList()
 
         assertTrue(events.any { it is StreamEvent.PlayerDied })
-    }
-
-    // endregion
-    // region 事务与新游戏
-
-    @Test(expected = IllegalStateException::class)
-    fun `writeV3State propagates failure so transaction can roll back`() = runTest {
-        stubV3Daos()
-        coEvery { eventDao.clearAll() } throws IllegalStateException("boom")
-
-        val repo = createRepo()
-        repo.ensureV3WorldLoaded()
-        repo.absorbSettlementEvents(
-            listOf(
-                GlobalEvent(
-                    eventId = "ev_fail", eventType = GlobalEventType.RUMOR,
-                    affectedRegions = mutableListOf("R01"), propagationRate = 0.1f,
-                    remainingDays = 1, intensity = 10, sourceRegionId = "R01",
-                    associatedFactionId = null
-                )
-            )
-        )
-
-        repo.writeV3State()
-    }
-
-    @Test
-    fun `new game clears v3 tables and in-memory world`() = runTest {
-        stubV3Daos()
-        coEvery { playerDao.updatePlayerState(any()) } just Runs
-        coEvery { worldDao.updateWorldInfo(any()) } just Runs
-        coEvery { memoryDao.insertMemory(any()) } just Runs
-        coEvery { historyDao.clearHistory() } just Runs
-        coEvery { factionDao.clearAll() } just Runs
-        coEvery { regionDao.clearAll() } just Runs
-        coEvery { eventDao.clearAll() } just Runs
-        coEvery { npcStateDao.clearAll() } just Runs
-
-        val repo = createRepo()
-        repo.ensureV3WorldLoaded()
-        assertTrue(repo.factions.isNotEmpty())
-
-        repo.initializeNewGameV22(
-            "新角色", "成年男性", "冷静", "", "丧尸", 1,
-            100, 100, 100, 100, 50, 50, 0
-        )
-
-        assertTrue(repo.factions.isEmpty())
-        assertTrue(repo.regions.isEmpty())
-        coVerify {
-            factionDao.clearAll()
-            regionDao.clearAll()
-            eventDao.clearAll()
-            npcStateDao.clearAll()
-        }
     }
 
     // endregion

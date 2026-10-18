@@ -4,7 +4,6 @@ import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
 import java.util.Locale
 import android.content.Context
 import android.util.Log
-import androidx.room.withTransaction
 import com.ei8z.endworld.BuildConfig
 import com.ei8z.endworld.data.local.AppDatabase
 import com.ei8z.endworld.data.local.entity.*
@@ -89,11 +88,8 @@ class GameRepository(
     private val npcDao = database.npcDao()
     private val historyDao = database.historyDao()
 
-    private val factionDao = database.factionDao()
-    private val regionDao = database.regionDao()
-    private val eventDao = database.globalEventDao()
-    private val npcStateDao = database.npcStateDao()
-    private val npcScheduleDao = database.npcScheduleDao()
+    /** V3 五张表只有一个读写出口；事务所有权在 store 内。 */
+    private val v3Store by lazy { V3WorldStateStore(database) }
 
     private var v3Loaded = false
 
@@ -944,10 +940,10 @@ class GameRepository(
 
     private val persistMutex = Mutex()
 
-    /** 事务 + 串行：清空事件与批量写入要么全成，要么全不成。 */
+    /** 串行 + 事务：快照要么全写进去，要么全不写；事务由 [V3WorldStateStore] 持有。 */
     suspend fun persistV3State() = persistMutex.withLock {
         try {
-            database.withTransaction { writeV3State() }
+            v3Store.save(snapshotV3State())
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -955,20 +951,26 @@ class GameRepository(
         }
     }
 
-    /** 新游戏：清空 V3 五张表。单独抽出来便于单测（mock 的 withTransaction 不执行 lambda）。 */
+    /** 把内存 map 复制成快照，避免写入过程中被其它线程改到一半。 */
+    private fun snapshotV3State() = V3WorldSnapshot(
+        factions = factions.toList(),
+        regions = regions.toMap(),
+        events = activeEvents.toList(),
+        npcs = npcStates.toMap(),
+        needs = npcNeeds.toMap(),
+        affinities = npcAffinities.toMap(),
+        memories = npcMemories.toMap(),
+        departures = npcDepartures.toMap(),
+        schedules = npcSchedules.toMap()
+    )
+
+    /** 新游戏：清空 V3 五张表（store 内是事务）。 */
     internal suspend fun clearV3Tables() {
-        factionDao.clearAll()
-        regionDao.clearAll()
-        eventDao.clearAll()
-        npcStateDao.clearAll()
-        npcScheduleDao.clearAll()
+        v3Store.clear()
     }
 
     /** 清表 + 清内存 + 复位初始化标记；下一次 ensure 会重建默认世界。 */
     private suspend fun resetV3World() {
-        // ponytail: 5 表顺序删除非原子（Room 的 withTransaction 在 mock 数据库上会挂起，
-        // 无法在单测中覆盖）；新开局是低频操作，中途失败留下的孤儿行会在下次新开局时再清。
-        // 升级路径：给 DAO 增加一个 @Transaction 的 clearAllV3() 方法。
         clearV3Tables()
         factions.clear()
         regions.clear()
@@ -982,55 +984,6 @@ class GameRepository(
         memosExtractor.clearPauseState()
         lastMidnightSettlementDay = 1
         v3Loaded = false
-    }
-
-    /** 把 V3 内存状态写入 Room。异常必须抛出，事务才能回滚。 */
-    internal suspend fun writeV3State() {
-        factions.forEach { f ->
-            factionDao.upsertFaction(com.ei8z.endworld.domain.world.dao.FactionEntity(
-                f.factionId, f.name, f.factionType.name, f.population, f.militaryStrength,
-                f.armamentRate, f.unitCombatCoefficient, gson.toJson(f.controlledRegions),
-                gson.toJson(f.relationshipMatrix.mapValues { (_, v) -> v.name }),
-                f.leaderPersonality.name, f.factionGoal.name, gson.toJson(f.stateTags),
-                f.resources.foodReserve, f.resources.waterReserve, f.resources.medicalSupplies,
-                f.resources.ammunitionReserve, f.resources.morale))
-        }
-        regions.values.forEach { r ->
-            regionDao.upsertRegion(com.ei8z.endworld.domain.world.dao.RegionEntity(
-                r.regionId, r.name, r.terrainType.name, r.resourceAbundance, r.threatLevel,
-                r.controllingFactionId, gson.toJson(r.adjacentRegions),
-                gson.toJson(r.connectionStrength.mapValues { (_, v) -> v.name }),
-                r.doomLevelCoefficient, gson.toJson(r.stateTags)))
-        }
-        eventDao.clearAll()
-        activeEvents.forEach { e ->
-            eventDao.upsertEvent(com.ei8z.endworld.domain.world.dao.GlobalEventEntity(
-                e.eventId, e.eventType.name, gson.toJson(e.affectedRegions),
-                e.propagationRate, e.remainingDays, e.intensity, e.sourceRegionId, e.associatedFactionId))
-        }
-        npcStates.values.forEach { npc ->
-            val aff = npcAffinities[npc.npcId]
-            val nd = npcNeeds[npc.npcId]
-            val mem = npcMemories[npc.npcId]
-            val dep = npcDepartures[npc.npcId]
-            npcStateDao.upsertNpc(com.ei8z.endworld.domain.world.dao.NpcStateEntity(
-                npc.npcId, npc.name, npc.identity, npc.combatRole.name, npc.currentLocationId,
-                npc.factionId, gson.toJson(npc.personalityTags), gson.toJson(npc.statusTags),
-                npc.tier.name, aff?.affinity ?: 0, aff?.relationshipStage?.name ?: "NEUTRAL",
-                gson.toJson(aff?.emotionalTags ?: emptyList<String>()),
-                aff?.interactionCount ?: 0, aff?.lastInteractionGameDay ?: 0,
-                nd?.foodUrgency ?: 30, nd?.waterUrgency ?: 30, nd?.medicalUrgency ?: 0,
-                nd?.safetyUrgency ?: 30, nd?.socialUrgency ?: 30,
-                gson.toJson(mem?.detailedMemories?.map {
-                    mapOf("t" to it.timestamp, "l" to it.location, "s" to it.summary, "a" to it.affinityChange, "e" to (it.emotionalTag ?: ""), "src" to it.source.name)
-                } ?: emptyList<Map<String, Any>>()),
-                mem?.remoteSummary ?: "", dep?.status?.name ?: "PRESENT",
-                dep?.reason ?: "", dep?.expectedReturnDay))
-        }
-        npcScheduleDao.clearAll()
-        npcSchedules.forEach { (npcId, schedule) ->
-            npcScheduleDao.upsert(V3StateMapper.scheduleEntity(npcId, schedule))
-        }
     }
 
     // ======================== 持久化辅助 ========================
@@ -1209,39 +1162,35 @@ class GameRepository(
      */
     suspend fun ensureV3WorldLoaded() {
         if (v3Loaded) return
-        val storedFactions = factionDao.getAllFactions().first()
-        val storedRegions = regionDao.getAllRegions().first()
-        val storedEvents = eventDao.getAllEvents().first()
-        val storedNpcs = npcStateDao.getAllNpcs().first()
-        val storedSchedules = npcScheduleDao.getAll().first()
+        val snapshot = v3Store.load()
 
         npcSchedules.clear()
-        storedSchedules.forEach { npcSchedules[it.npcId] = V3StateMapper.schedule(it) }
+        snapshot.schedules.forEach { (npcId, schedule) -> npcSchedules[npcId] = schedule }
 
-        if (storedFactions.isEmpty() && storedRegions.isEmpty()) {
+        if (snapshot.factions.isEmpty() && snapshot.regions.isEmpty()) {
             initV3World()
         } else {
             factions.clear()
-            factions.addAll(storedFactions.map(V3StateMapper::faction))
+            factions.addAll(snapshot.factions)
             regions.clear()
-            regions.putAll(storedRegions.associate { it.regionId to V3StateMapper.region(it) })
+            regions.putAll(snapshot.regions)
             activeEvents.clear()
-            activeEvents.addAll(storedEvents.map(V3StateMapper::event))
+            activeEvents.addAll(snapshot.events)
             npcStates.clear()
             npcNeeds.clear()
             npcAffinities.clear()
             npcMemories.clear()
             npcDepartures.clear()
-            storedNpcs.forEach { e ->
-                npcStates[e.npcId] = V3StateMapper.npc(e)
-                npcNeeds[e.npcId] = V3StateMapper.needs(e)
-                npcAffinities[e.npcId] = V3StateMapper.affinity(e)
-                npcMemories[e.npcId] = V3StateMapper.memory(e)
-                npcDepartures[e.npcId] = V3StateMapper.departure(e)
+            snapshot.npcs.forEach { (npcId, npc) ->
+                npcStates[npcId] = npc
+                npcNeeds[npcId] = snapshot.needs.getValue(npcId)
+                npcAffinities[npcId] = snapshot.affinities.getValue(npcId)
+                npcMemories[npcId] = snapshot.memories.getValue(npcId)
+                npcDepartures[npcId] = snapshot.departures.getValue(npcId)
                 // 旧存档没有时间表行：按当前位置补默认表，既不丢 NPC 也不立刻报场景7
-                npcSchedules.getOrPut(e.npcId) {
+                npcSchedules.getOrPut(npcId) {
                     npcEngine.initializeSchedule(
-                        e.identity, e.currentLocationId, workLocationFor(e.currentLocationId)
+                        npc.identity, npc.currentLocationId, workLocationFor(npc.currentLocationId)
                     )
                 }
             }
