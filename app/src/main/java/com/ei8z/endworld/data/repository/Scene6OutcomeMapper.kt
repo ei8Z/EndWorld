@@ -4,6 +4,7 @@ import com.ei8z.endworld.domain.npc.engine.BattleCasualtyEngine
 import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
+import com.ei8z.endworld.domain.npc.model.NpcRecord
 import com.ei8z.endworld.domain.npc.model.NpcState
 
 /** 场景6 §5.9 的合法 outcome 对应的离队状态变化。 */
@@ -24,17 +25,18 @@ fun scene6ElapsedDays(currentDay: Int, expectedReturnDay: Int, windowDays: Int =
 fun applyScene6Effect(
     effect: Scene6Effect,
     npc: NpcState,
-    departures: MutableMap<String, DepartureInfo>,
+    runtime: MutableMap<String, NpcRecord>,
     newFaction: String?
 ) {
-    val current = departures[npc.npcId] ?: return
-    when (effect) {
+    val record = runtime[npc.npcId] ?: return
+    val current = record.departure
+    val updated = when (effect) {
         Scene6Effect.DEAD ->
-            departures[npc.npcId] = current.copy(status = DepartureStatus.DEAD, reason = "失踪判定：死亡")
+            current.copy(status = DepartureStatus.DEAD, reason = "失踪判定：死亡")
         Scene6Effect.CAPTURED ->
-            departures[npc.npcId] = current.copy(status = DepartureStatus.CAPTURED, reason = "失踪判定：被俘")
+            current.copy(status = DepartureStatus.CAPTURED, reason = "失踪判定：被俘")
         Scene6Effect.JOINED_OTHER_FACTION ->
-            departures[npc.npcId] = current.copy(
+            current.copy(
                 status = DepartureStatus.MIGRATED,
                 reason = "失踪判定：加入其他势力",
                 newFactionId = newFaction
@@ -43,8 +45,9 @@ fun applyScene6Effect(
             BattleCasualtyEngine.tagsFor(CasualtySeverity.WOUNDED)
                 .filterNot { it in npc.statusTags }
                 .forEach { npc.statusTags.add(it) }
-            departures[npc.npcId] = DepartureInfo(DepartureStatus.PRESENT)
+            DepartureInfo(DepartureStatus.PRESENT)
         }
-        Scene6Effect.NONE -> Unit
+        Scene6Effect.NONE -> return
     }
+    runtime[npc.npcId] = record.copy(departure = updated)
 }

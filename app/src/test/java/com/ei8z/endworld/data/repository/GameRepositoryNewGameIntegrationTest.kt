@@ -82,12 +82,14 @@ class GameRepositoryNewGameIntegrationTest {
     @Test
     fun `affinity delta is persisted and survives a repository reopen`() = runTest {
         repo.ensureV3WorldLoaded()
-        repo.npcStates["n1"] = NpcState(
-            npcId = "n1", name = "老张", identity = "居民",
-            combatRole = CombatRole.NON_COMBATANT, currentLocationId = "R01",
-            factionId = null, personalityTags = emptyList(), statusTags = mutableListOf()
+        repo.npcRuntime["n1"] = npcRecord(
+            NpcState(
+                npcId = "n1", name = "老张", identity = "居民",
+                combatRole = CombatRole.NON_COMBATANT, currentLocationId = "R01",
+                factionId = null, personalityTags = emptyList(), statusTags = mutableListOf()
+            ),
+            affinity = NpcBehaviorEngine().initializeAffinity(0)
         )
-        repo.npcAffinities["n1"] = NpcBehaviorEngine().initializeAffinity(0)
 
         repo.applyInteractionAffinity("n1", 300)
         repo.persistV3State()
@@ -98,7 +100,7 @@ class GameRepositoryNewGameIntegrationTest {
         )
         reopened.ensureV3WorldLoaded()
 
-        val affinity = reopened.npcAffinities["n1"]
+        val affinity = reopened.npcRuntime["n1"]?.affinity
         assertEquals(20, affinity?.affinity)
         assertEquals(RelationshipStage.FAMILIAR, affinity?.relationshipStage)
         assertEquals(2, affinity?.interactionCount)
@@ -107,7 +109,10 @@ class GameRepositoryNewGameIntegrationTest {
     @Test
     fun `new game clears loaded v3 world from memory`() = runTest {
         repo.ensureV3WorldLoaded()
-        repo.npcSchedules["n1"] = Schedule(mapOf(TimeSlot.MORNING to "R02"))
+        repo.npcRuntime["n1"] = npcRecord(
+            NpcBehaviorEngine().initializeNewNpc("n1", "老张", "居民", "R01", null),
+            schedule = Schedule(mapOf(TimeSlot.MORNING to "R02"))
+        )
         repo.activeEvents.add(
             com.ei8z.endworld.domain.world.model.GlobalEvent(
                 eventId = "ev1", eventType = com.ei8z.endworld.domain.world.model.GlobalEventType.RUMOR,
@@ -125,6 +130,6 @@ class GameRepositoryNewGameIntegrationTest {
         assertTrue(repo.factions.isEmpty())
         assertTrue(repo.regions.isEmpty())
         assertTrue(repo.activeEvents.isEmpty())
-        assertTrue(repo.npcSchedules.isEmpty())
+        assertTrue(repo.npcRuntime.isEmpty())
     }
 }

@@ -312,9 +312,9 @@ class GameRepositoryTest {
         assertEquals(1, repo.factions.size)
         assertEquals("红松营地", repo.factions[0].name)
         assertEquals(1, repo.regions.size)
-        assertEquals(1, repo.npcStates.size)
-        assertEquals(24, repo.npcAffinities["npc_老张_1"]?.affinity)
-        assertEquals(40, repo.npcNeeds["npc_老张_1"]?.foodUrgency)
+        assertEquals(1, repo.npcRuntime.size)
+        assertEquals(24, repo.npcRuntime["npc_老张_1"]?.affinity?.affinity)
+        assertEquals(40, repo.npcRuntime["npc_老张_1"]?.needs?.foodUrgency)
     }
 
     @Test
@@ -451,8 +451,8 @@ class GameRepositoryTest {
             ActionParsed("社交", "询问", "老张", "避难所", "", "低", 10)
         ).toList()
 
-        assertEquals("老张", repo.npcStates["npc_老张_1"]?.name)
-        assertEquals(100, repo.npcAffinities["npc_老张_1"]?.affinity)
+        assertEquals("老张", repo.npcRuntime["npc_老张_1"]?.state?.name)
+        assertEquals(100, repo.npcRuntime["npc_老张_1"]?.affinity?.affinity)
     }
 
     @Test
@@ -517,8 +517,7 @@ class GameRepositoryTest {
     @Test
     fun `applyInteractionAffinity caps the delta and accumulates interactions`() {
         val repo = createRepo()
-        repo.npcStates["n1"] = npcState("n1", "老张")
-        repo.npcAffinities["n1"] = NpcBehaviorEngine().initializeAffinity(0)
+        repo.npcRuntime["n1"] = npcRecord(npcState("n1", "老张"), affinity = NpcBehaviorEngine().initializeAffinity(0))
 
         assertEquals(20, repo.applyInteractionAffinity("n1", 300)?.affinity)
         assertEquals(30, repo.applyInteractionAffinity("n1", 10)?.affinity)
@@ -537,8 +536,7 @@ class GameRepositoryTest {
 
         assertNull(repo.affinityFor("ghost"))
         assertNull(repo.applyInteractionAffinity("ghost", 50))
-        assertTrue(repo.npcAffinities.isEmpty())
-        assertTrue(repo.npcStates.isEmpty())
+        assertTrue(repo.npcRuntime.isEmpty())
     }
 
     // endregion

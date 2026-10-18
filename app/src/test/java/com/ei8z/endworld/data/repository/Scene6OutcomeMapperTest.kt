@@ -16,6 +16,8 @@ class Scene6OutcomeMapperTest {
         factionId = null, personalityTags = emptyList(), statusTags = mutableListOf()
     )
 
+    private fun missing() = DepartureInfo(DepartureStatus.MISSING, "超时未归", 13)
+
     @Test
     fun `elapsed days use the three day window not the absolute day`() {
         assertEquals(4, scene6ElapsedDays(currentDay = 14, expectedReturnDay = 13))
@@ -24,21 +26,22 @@ class Scene6OutcomeMapperTest {
 
     @Test
     fun `death and capture update departure status`() {
-        val departures = mutableMapOf("n1" to DepartureInfo(DepartureStatus.MISSING, "超时未归", 13))
-        applyScene6Effect(Scene6Effect.DEAD, npc(), departures, newFaction = null)
-        assertEquals(DepartureStatus.DEAD, departures["n1"]?.status)
+        val npc = npc()
+        val runtime = mutableMapOf(npc.npcId to npcRecord(npc, departure = missing()))
+        applyScene6Effect(Scene6Effect.DEAD, npc, runtime, newFaction = null)
+        assertEquals(DepartureStatus.DEAD, runtime["n1"]?.departure?.status)
 
-        departures["n1"] = DepartureInfo(DepartureStatus.MISSING, "超时未归", 13)
-        applyScene6Effect(Scene6Effect.CAPTURED, npc(), departures, newFaction = null)
-        assertEquals(DepartureStatus.CAPTURED, departures["n1"]?.status)
+        runtime[npc.npcId] = npcRecord(npc, departure = missing())
+        applyScene6Effect(Scene6Effect.CAPTURED, npc, runtime, newFaction = null)
+        assertEquals(DepartureStatus.CAPTURED, runtime["n1"]?.departure?.status)
     }
 
     @Test
     fun `return injured brings the npc back with an injury tag`() {
         val npc = npc()
-        val departures = mutableMapOf("n1" to DepartureInfo(DepartureStatus.MISSING, "超时未归", 13))
-        applyScene6Effect(Scene6Effect.RETURN_INJURED, npc, departures, newFaction = null)
-        assertEquals(DepartureStatus.PRESENT, departures["n1"]?.status)
+        val runtime = mutableMapOf(npc.npcId to npcRecord(npc, departure = missing()))
+        applyScene6Effect(Scene6Effect.RETURN_INJURED, npc, runtime, newFaction = null)
+        assertEquals(DepartureStatus.PRESENT, runtime["n1"]?.departure?.status)
         assertTrue(npc.statusTags.contains("受伤"))
     }
 

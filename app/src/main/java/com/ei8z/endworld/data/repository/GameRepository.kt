@@ -34,9 +34,9 @@ import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
 import com.ei8z.endworld.domain.npc.model.AffinityState
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
+import com.ei8z.endworld.domain.npc.model.NpcRecord
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
-import com.ei8z.endworld.domain.npc.model.Schedule
 import com.ei8z.endworld.domain.npc.model.toDisplayName
 import com.ei8z.endworld.domain.npc.model.toRelationshipStage
 import com.ei8z.endworld.domain.state.BranchClassifier
@@ -165,16 +165,16 @@ class GameRepository(
     }
 
     /** 指定 NPC 的好感度权威状态；未提取的 NPC 返回 null（不新建）。 */
-    internal fun affinityFor(npcId: String): AffinityState? = npcAffinities[npcId]
+    internal fun affinityFor(npcId: String): AffinityState? = npcRuntime[npcId]?.affinity
 
     /**
      * AI 只提供好感度增量；由模拟层统一落地（±20 单次夹取、-100..100 钳制、阶段重算）。
      * 名字找不到对应 NPC 时返回 null：不新建好感度，也不给场景 2 触发点。
      */
     internal fun applyInteractionAffinity(npcId: String, delta: Int): AffinityState? {
-        val old = npcAffinities[npcId] ?: return null
-        val updated = npcEngine.applyAffinityDelta(old, delta, currentGameDay)
-        npcAffinities[npcId] = updated
+        val record = npcRuntime[npcId] ?: return null
+        val updated = npcEngine.applyAffinityDelta(record.affinity, delta, currentGameDay)
+        npcRuntime[npcId] = record.copy(affinity = updated)
         return updated
     }
 
@@ -808,7 +808,7 @@ class GameRepository(
         }
 
         update.npcUpdate?.forEach { npc ->
-            // legacy 好感度冻结为迁移快照：AI 增量只走 npcAffinities，避免经 V2 表洗白（§2.2）
+            // legacy 好感度冻结为迁移快照：AI 增量只走 npcRuntime，避免经 V2 表洗白（§2.2）
             npcDao.upsertNpcDepth(
                 name = npc.name ?: "",
                 relation = npc.relation ?: "",
@@ -831,19 +831,23 @@ class GameRepository(
         update.npcUpdate?.forEach { npc ->
             if (npc.name != null && npc.affinityDelta != null && kotlin.math.abs(npc.affinityDelta) >= 10) {
                 val npcId = "npc_${npc.name}_$currentGameDay"
-                if (!npcStates.containsKey(npcId)) {
+                if (!npcRuntime.containsKey(npcId)) {
                     val loc = data.header.location
                     val fid = regions[loc]?.controllingFactionId
                     val n = npcEngine.initializeNewNpc(npcId, npc.name, "居民", loc, fid, 0)
-                    npcStates[npcId] = n
-                    npcNeeds[npcId] = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50)
                     // 只建基准；AI 增量在场景2 统一落地一次，避免重复计数
-                    npcAffinities[npcId] = npcEngine.initializeAffinity(baseAttitudeFor(npc.name, fid))
-                    npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
-                    npcSchedules[npcId] = npcEngine.initializeSchedule(
-                        n.currentLocationId, workLocationFor(n.currentLocationId)
+                    val memory = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
+                    npcRuntime[npcId] = NpcRecord(
+                        state = n,
+                        needs = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50),
+                        affinity = npcEngine.initializeAffinity(baseAttitudeFor(npc.name, fid)),
+                        memory = memory,
+                        departure = DepartureInfo(DepartureStatus.PRESENT),
+                        schedule = npcEngine.initializeSchedule(
+                            n.currentLocationId, workLocationFor(n.currentLocationId)
+                        )
                     )
-                    npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
+                    npcEngine.addMemory(memory, com.ei8z.endworld.domain.npc.model.MemoryEntry(
                         "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
                         source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
                 }
@@ -856,14 +860,14 @@ class GameRepository(
             val name = npc.name ?: return@forEach
             val rawDelta = npc.affinityDelta ?: return@forEach
             if (rawDelta == 0) return@forEach
-            val npcId = npcStates.values.firstOrNull { it.name == name }?.npcId ?: return@forEach
-            val old = npcAffinities[npcId] ?: return@forEach
+            val npcId = npcRuntime.values.firstOrNull { it.state.name == name }?.state?.npcId ?: return@forEach
+            val old = npcRuntime[npcId]?.affinity ?: return@forEach
             val updated = applyInteractionAffinity(npcId, v3DeltaFromLegacy(rawDelta)) ?: return@forEach
             SceneTriggerDetector.detectStageCrossing(npcId, old.affinity, updated.affinity)?.let { trigger ->
                 evaluateScene(trigger, message = {
                     PromptBuilder.buildScene2UserMessage(
                         npcName = name,
-                        npcIdentity = npcStates[npcId]?.identity ?: "居民",
+                        npcIdentity = npcRuntime[npcId]?.state?.identity ?: "居民",
                         oldAffinity = old.affinity,
                         newAffinity = updated.affinity,
                         boundary = trigger.detail["boundary"] ?: "",
@@ -962,17 +966,17 @@ class GameRepository(
         }
     }
 
-    /** 把内存 map 复制成快照，避免写入过程中被其它线程改到一半。 */
+    /** 把内存记录拆成快照，避免写入过程中被其它线程改到一半。 */
     private fun snapshotV3State() = V3WorldSnapshot(
         factions = factions.toList(),
         regions = regions.toMap(),
         events = activeEvents.toList(),
-        npcs = npcStates.toMap(),
-        needs = npcNeeds.toMap(),
-        affinities = npcAffinities.toMap(),
-        memories = npcMemories.toMap(),
-        departures = npcDepartures.toMap(),
-        schedules = npcSchedules.toMap()
+        npcs = npcRuntime.mapValues { it.value.state },
+        needs = npcRuntime.mapValues { it.value.needs },
+        affinities = npcRuntime.mapValues { it.value.affinity },
+        memories = npcRuntime.mapValues { it.value.memory },
+        departures = npcRuntime.mapValues { it.value.departure },
+        schedules = npcRuntime.mapValues { it.value.schedule }
     )
 
     /** 清表 + 清内存 + 复位初始化标记；下一次 ensure 会重建默认世界。 */
@@ -981,12 +985,7 @@ class GameRepository(
         factions.clear()
         regions.clear()
         activeEvents.clear()
-        npcStates.clear()
-        npcNeeds.clear()
-        npcAffinities.clear()
-        npcMemories.clear()
-        npcDepartures.clear()
-        npcSchedules.clear()
+        npcRuntime.clear()
         memosExtractor.clearPauseState()
         lastMidnightSettlementDay = 1
         v3Loaded = false
@@ -1121,12 +1120,8 @@ class GameRepository(
     val factions = mutableListOf<com.ei8z.endworld.domain.world.model.Faction>()
     val regions = mutableMapOf<String, com.ei8z.endworld.domain.world.model.Region>()
     val activeEvents = mutableListOf<com.ei8z.endworld.domain.world.model.GlobalEvent>()
-    val npcStates = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.NpcState>()
-    val npcNeeds = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.NeedState>()
-    val npcAffinities = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.AffinityState>()
-    val npcMemories = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.MemoryQueue>()
-    val npcDepartures = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.DepartureInfo>()
-    val npcSchedules = mutableMapOf<String, Schedule>()
+    /** 六部分聚合为一条记录；插入序与旧 map 一致，快照与持久化顺序不变。 */
+    internal val npcRuntime = linkedMapOf<String, NpcRecord>()
 
     val currentGameDay: Int get() = stateMachine.clock.currentDay
     var isAccelerating: Boolean = false
@@ -1170,9 +1165,6 @@ class GameRepository(
         if (v3Loaded) return
         val snapshot = v3Store.load()
 
-        npcSchedules.clear()
-        snapshot.schedules.forEach { (npcId, schedule) -> npcSchedules[npcId] = schedule }
-
         if (snapshot.factions.isEmpty() && snapshot.regions.isEmpty()) {
             initV3World()
         } else {
@@ -1182,23 +1174,19 @@ class GameRepository(
             regions.putAll(snapshot.regions)
             activeEvents.clear()
             activeEvents.addAll(snapshot.events)
-            npcStates.clear()
-            npcNeeds.clear()
-            npcAffinities.clear()
-            npcMemories.clear()
-            npcDepartures.clear()
+            npcRuntime.clear()
             snapshot.npcs.forEach { (npcId, npc) ->
-                npcStates[npcId] = npc
-                npcNeeds[npcId] = snapshot.needs.getValue(npcId)
-                npcAffinities[npcId] = snapshot.affinities.getValue(npcId)
-                npcMemories[npcId] = snapshot.memories.getValue(npcId)
-                npcDepartures[npcId] = snapshot.departures.getValue(npcId)
-                // 旧存档没有时间表行：按当前位置补默认表，既不丢 NPC 也不立刻报场景7
-                npcSchedules.getOrPut(npcId) {
-                    npcEngine.initializeSchedule(
+                npcRuntime[npcId] = NpcRecord(
+                    state = npc,
+                    needs = snapshot.needs.getValue(npcId),
+                    affinity = snapshot.affinities.getValue(npcId),
+                    memory = snapshot.memories.getValue(npcId),
+                    departure = snapshot.departures.getValue(npcId),
+                    // 旧存档没有时间表行：按当前位置补默认表，既不丢 NPC 也不立刻报场景7
+                    schedule = snapshot.schedules[npcId] ?: npcEngine.initializeSchedule(
                         npc.currentLocationId, workLocationFor(npc.currentLocationId)
                     )
-                }
+                )
             }
         }
         v3Loaded = true
@@ -1213,12 +1201,12 @@ class GameRepository(
         val casualtyEngine = BattleCasualtyEngine()
         val casualties = result.battleResults.flatMapIndexed { index, battle ->
             casualtyEngine.roll(
-                npcStates.values, battle,
+                npcRuntime.values.map { it.state }, battle,
                 "${battle.attackerFactionId}-${battle.defenderFactionId}-d$currentGameDay-b$index"
             )
         }
         for (casualty in casualties) {
-            val npc = npcStates[casualty.npcId] ?: continue
+            val npc = npcRuntime[casualty.npcId]?.state ?: continue
             BattleCasualtyEngine.tagsFor(casualty.severity)
                 .filterNot { it in npc.statusTags }
                 .forEach { npc.statusTags.add(it) }
@@ -1264,8 +1252,8 @@ class GameRepository(
         evaluateScene(trigger, message = {
             PromptBuilder.buildScene3UserMessage(
             npcName = npc.name, npcIdentity = npc.identity, battleName = casualty.battleId,
-            affinity = npcAffinities[npc.npcId]?.affinity ?: 0,
-            stage = npcAffinities[npc.npcId]?.relationshipStage?.name ?: "NEUTRAL",
+            affinity = npcRuntime[npc.npcId]?.affinity?.affinity ?: 0,
+            stage = npcRuntime[npc.npcId]?.affinity?.relationshipStage?.name ?: "NEUTRAL",
             // §5.6 剧情保护（注册且未完成节点 → 强制 spare）未实现：PlotManager 无该查询接口，留 3C。
             registered = false,
             hasUnfinishedNode = false,
@@ -1278,7 +1266,7 @@ class GameRepository(
                 ?.get("outcome")
                 ?.takeIf { it.isJsonPrimitive }
                 ?.asString
-            applyScene3Effect(mapScene3Outcome(outcome), npc, npcDepartures)
+            applyScene3Effect(mapScene3Outcome(outcome), npc, npcRuntime)
         }
     }
 
@@ -1288,34 +1276,34 @@ class GameRepository(
 
     private suspend fun resolveNpcSettlement() {
         val engine = npcEngine
-        for (npcId in npcStates.keys.toList()) {
-            var npc = npcStates[npcId] ?: continue
-            if (npcDepartures[npcId]?.status == com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD) continue
-            val needs = npcNeeds[npcId] ?: continue
+        for (npcId in npcRuntime.keys.toList()) {
+            var record = npcRuntime[npcId] ?: continue
+            var npc = record.state
+            if (record.departure.status == com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD) continue
+            val needs = record.needs
             val threat = regions[npc.currentLocationId]?.threatLevel ?: 0
             val injured = npc.statusTags.any { "受伤" in it }
             val survivalOk = needs.foodUrgency < 80 && needs.waterUrgency < 80
             val newNeeds = engine.advanceNeeds(needs, injured, threat, survivalOk)
-            npcNeeds[npcId] = newNeeds
+            record = record.copy(needs = newNeeds)
+            npcRuntime[npcId] = record
 
             val deathCause = engine.checkNeedOverloadDeath(newNeeds)
             if (deathCause != null) {
-                npcDepartures[npcId] = com.ei8z.endworld.domain.npc.model.DepartureInfo(
-                    com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD, deathCause)
+                npcRuntime[npcId] = record.copy(departure = com.ei8z.endworld.domain.npc.model.DepartureInfo(
+                    com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD, deathCause))
                 continue
             }
             // 时间表移动：健康且在场的 NPC 按当前时段去工作点/回家。
             // 移动后立刻重新取快照，保证当天后续逻辑（异常校验、离队、互动）看到新位置。
-            val schedule = npcSchedules[npcId] ?: npcEngine.initializeSchedule(
-                npc.currentLocationId, workLocationFor(npc.currentLocationId)
-            ).also { npcSchedules[npcId] = it }
             val move = npcMovementEngine.decide(
-                schedule, stateMachine.clock.currentHour, npc.currentLocationId,
-                injured, npcDepartures[npcId]?.status
+                record.schedule, stateMachine.clock.currentHour, npc.currentLocationId,
+                injured, record.departure.status
             )
             if (move.moved) {
-                npcStates[npcId] = npc.copy(currentLocationId = move.targetLocationId)
-                npc = npcStates[npcId] ?: continue
+                npc = npc.copy(currentLocationId = move.targetLocationId)
+                record = record.copy(state = npc)
+                npcRuntime[npcId] = record
             }
             // 场景4：需求跨入饱和 → 生存状态突变（§5.7 的重伤/失去庇护所/失去重要的人信号
             // 尚未建模，这里用需求饱和作为近似；只在跨越当次触发，避免每日重复评估）
@@ -1334,19 +1322,24 @@ class GameRepository(
 
             val factionDead = npc.factionId?.let { fid -> factions.none { it.factionId == fid } } ?: false
             // 已离队（EXPLORING/MISSING/MIGRATED 等）不再每日重派，否则超时状态会被覆盖
-            if (engine.canInitiateDeparture(npcDepartures[npcId])) {
+            if (engine.canInitiateDeparture(record.departure)) {
                 val dep = engine.shouldDepart(
-                    npc, newNeeds, npcAffinities[npcId] ?: engine.initializeAffinity(0),
+                    npc, newNeeds, record.affinity,
                     threat, factionDead, injured, currentGameDay
                 )
-                if (dep != null) npcDepartures[npcId] = dep
+                if (dep != null) {
+                    record = record.copy(departure = dep)
+                    npcRuntime[npcId] = record
+                }
             }
 
             // 场景6：外出探索超过预期归来日 → 标记 MISSING，只评估一次
-            val departure = npcDepartures[npcId] ?: continue
+            val departure = record.departure
             SceneTriggerDetector.detectDepartureTimeout(npcId, departure, currentGameDay)?.let { trigger ->
                 if (departure.status == DepartureStatus.EXPLORING) {
-                    npcDepartures[npcId] = departure.copy(status = DepartureStatus.MISSING, reason = "超时未归")
+                    npcRuntime[npcId] = record.copy(
+                        departure = departure.copy(status = DepartureStatus.MISSING, reason = "超时未归")
+                    )
                 }
                 val expectedDay = trigger.detail["expectedReturnDay"]?.toIntOrNull() ?: currentGameDay
                 evaluateScene(trigger, message = {
@@ -1365,27 +1358,35 @@ class GameRepository(
                     )
                     val newFaction = decisionObj?.get("newFaction")
                         ?.takeIf { it.isJsonPrimitive }?.asString
-                    applyScene6Effect(effect, npc, npcDepartures, newFaction)
+                    applyScene6Effect(effect, npc, npcRuntime, newFaction)
                 }
             }
         }
         // NPC上限检查（30个接触NPC限制）
-        val contactNpcs = npcStates.values.filter { it.tier == com.ei8z.endworld.domain.npc.model.NpcTier.CONTACT &&
-            npcDepartures[it.npcId]?.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
+        val contactNpcs = npcRuntime.values.filter { it.state.tier == com.ei8z.endworld.domain.npc.model.NpcTier.CONTACT &&
+            it.departure.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
         if (contactNpcs.size > 30) {
-            val toDemote = contactNpcs.sortedByDescending { npcAffinities[it.npcId]?.lastInteractionGameDay ?: 0 }.drop(30)
-            toDemote.forEach { npcDepartures[it.npcId] = com.ei8z.endworld.domain.npc.model.DepartureInfo(com.ei8z.endworld.domain.npc.model.DepartureStatus.DEMOTED, "超过接触NPC上限")
-                npcMemories.remove(it.npcId) }
+            val toDemote = contactNpcs.sortedByDescending { it.affinity.lastInteractionGameDay }.drop(30)
+            toDemote.forEach {
+                npcRuntime[it.state.npcId] = it.copy(
+                    departure = com.ei8z.endworld.domain.npc.model.DepartureInfo(
+                        com.ei8z.endworld.domain.npc.model.DepartureStatus.DEMOTED, "超过接触NPC上限"),
+                    // 旧实现在降级时删掉记忆表条目；聚合后等价于清空该 NPC 的记忆队列
+                    memory = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
+                )
+            }
         }
 
         // NPC互动
-        val byLoc = npcStates.values.filter { npcDepartures[it.npcId]?.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
+        val byLoc = npcRuntime.values
+            .filter { it.departure.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
+            .map { it.state }
             .groupBy { it.currentLocationId }
         for ((_, list) in byLoc) {
             for (i in list.indices) for (j in i + 1 until list.size) {
-                val r = engine.resolveNpcInteraction(list[i], npcNeeds[list[i].npcId] ?: continue,
-                    list[j], npcNeeds[list[j].npcId] ?: continue) ?: continue
-                npcMemories[list[i].npcId]?.let { engine.addMemory(it,
+                val r = engine.resolveNpcInteraction(list[i], npcRuntime[list[i].npcId]?.needs ?: continue,
+                    list[j], npcRuntime[list[j].npcId]?.needs ?: continue) ?: continue
+                npcRuntime[list[i].npcId]?.let { engine.addMemory(it.memory,
                     com.ei8z.endworld.domain.npc.model.MemoryEntry("[Day $currentGameDay]", list[i].currentLocationId,
                         r.description, source = com.ei8z.endworld.domain.npc.model.MemorySource.NPC_SOCIAL_SNAPSHOT)) }
 
@@ -1471,18 +1472,23 @@ class GameRepository(
             val c = f.controlledRegions.mapNotNull { regions[it] }
             worldEngine.batchCatchupResources(f, c, fullDays, partial)
         }
-        for ((id, nd) in npcNeeds) {
-            val npc = npcStates[id] ?: continue
+        for (npcId in npcRuntime.keys.toList()) {
+            val record = npcRuntime[npcId] ?: continue
+            val npc = record.state
             val r = npcEngine.batchAdvanceNeeds(
-                nd, fullDays, npc.statusTags.any { "受伤" in it },
+                record.needs, fullDays, npc.statusTags.any { "受伤" in it },
                 regions[npc.currentLocationId]?.threatLevel ?: 0
             )
-            npcNeeds[id] = r.finalNeeds
-            if (r.diedOnDay != null) {
-                npcDepartures[id] = com.ei8z.endworld.domain.npc.model.DepartureInfo(
-                    com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD,
-                    "加速期间${r.deathCause}"
+            npcRuntime[npcId] = if (r.diedOnDay != null) {
+                record.copy(
+                    needs = r.finalNeeds,
+                    departure = com.ei8z.endworld.domain.npc.model.DepartureInfo(
+                        com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD,
+                        "加速期间${r.deathCause}"
+                    )
                 )
+            } else {
+                record.copy(needs = r.finalNeeds)
             }
         }
         val scene = buildString {
@@ -1518,7 +1524,8 @@ class GameRepository(
 
     fun inheritWorld(player: PlayerState): Map<String, Int> {
         val transferred = mutableMapOf<String, Int>()
-        for ((id, aff) in npcAffinities) {
+        for ((id, record) in npcRuntime) {
+            val aff = record.affinity
             if (kotlin.math.abs(aff.affinity) >= 20) {
                 val t = (aff.affinity * 0.3f).toInt().coerceIn(-80, 80)
                 transferred[id] = t; aff.affinity = t
@@ -1568,15 +1575,16 @@ class GameRepository(
     }
 
     private suspend fun buildV3NpcDepthContext(player: PlayerState, snapshot: WorldSnapshot): String {
-        val v3Npcs = npcStates.values.filter { it.currentLocationId == snapshot.location && npcDepartures[it.npcId]?.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
-        val v3Names = v3Npcs.map { it.name }.toSet()
+        val v3Npcs = npcRuntime.values.filter { it.state.currentLocationId == snapshot.location && it.departure.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
+        val v3Names = v3Npcs.map { it.state.name }.toSet()
         // V3 已有权威好感度的 NPC 不再出现在 V2 上下文，避免提示词里两套数值
         val v2Ctx = buildNpcDepthContext(player, snapshot.nearbyNpcs.filterNot { it in v3Names })
         if (v3Npcs.isEmpty()) return v2Ctx
-        val v3Ctx = v3Npcs.joinToString("\n") { npc ->
-            val aff = npcAffinities[npc.npcId]; val nd = npcNeeds[npc.npcId]
-            val daysSince = aff?.let { currentGameDay - it.lastInteractionGameDay } ?: 99
-            "【V3-NPC:${npc.name}(${npc.identity})】好感:${aff?.affinity?:0} 阶段:${aff?.relationshipStage?.name?:"NEUTRAL"} 需求:食物${nd?.foodUrgency?:0}/水${nd?.waterUrgency?:0}/安全${nd?.safetyUrgency?:0} 互动:${if(daysSince>3)"${daysSince}天前" else "最近"}"
+        val v3Ctx = v3Npcs.joinToString("\n") { record ->
+            val npc = record.state
+            val aff = record.affinity; val nd = record.needs
+            val daysSince = currentGameDay - aff.lastInteractionGameDay
+            "【V3-NPC:${npc.name}(${npc.identity})】好感:${aff.affinity} 阶段:${aff.relationshipStage.name} 需求:食物${nd.foodUrgency}/水${nd.waterUrgency}/安全${nd.safetyUrgency} 互动:${if(daysSince>3)"${daysSince}天前" else "最近"}"
         }
         return if (v2Ctx.isNotBlank()) "$v2Ctx\n$v3Ctx" else v3Ctx
     }
@@ -1593,20 +1601,24 @@ class GameRepository(
         if (!shouldExtract) return
         // 创建NPC
         val npcId = "npc_${target}_${gameDay}"
-        if (npcStates.containsKey(npcId)) return // 已是接触NPC
+        if (npcRuntime.containsKey(npcId)) return // 已是接触NPC
         val loc = action.location.ifBlank { "R01" }
         val factionId = regions[loc]?.controllingFactionId
-        // legacy 好感度只在这里读一次：首次提取时作为初始值，之后一律以 npcAffinities 为准。
+        // legacy 好感度只在这里读一次：首次提取时作为初始值，之后一律以 npcRuntime 为准。
         val baseAttitude = baseAttitudeFor(target, factionId)
         val npc = npcEngine.initializeNewNpc(npcId, target, "居民", loc, factionId, baseAttitude)
-        npcStates[npcId] = npc
-        npcNeeds[npcId] = npcEngine.initializeNeeds(factionFoodShortage = false, regionHighThreat = (regions[loc]?.threatLevel ?: 0) > 50)
-        npcAffinities[npcId] = npcEngine.initializeAffinity(baseAttitude, 5)
-        npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
-        npcSchedules[npcId] = npcEngine.initializeSchedule(
-            npc.currentLocationId, workLocationFor(npc.currentLocationId)
+        val memory = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
+        npcRuntime[npcId] = NpcRecord(
+            state = npc,
+            needs = npcEngine.initializeNeeds(factionFoodShortage = false, regionHighThreat = (regions[loc]?.threatLevel ?: 0) > 50),
+            affinity = npcEngine.initializeAffinity(baseAttitude, 5),
+            memory = memory,
+            departure = DepartureInfo(DepartureStatus.PRESENT),
+            schedule = npcEngine.initializeSchedule(
+                npc.currentLocationId, workLocationFor(npc.currentLocationId)
+            )
         )
-        npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
+        npcEngine.addMemory(memory, com.ei8z.endworld.domain.npc.model.MemoryEntry(
             "[Day $gameDay]", loc, "与玩家首次互动", 5, source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
         Log.d(TAG, "V3 NPC提取: $target → $npcId")
     }

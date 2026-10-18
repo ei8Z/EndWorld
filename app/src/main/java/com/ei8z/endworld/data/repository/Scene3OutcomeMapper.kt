@@ -4,6 +4,7 @@ import com.ei8z.endworld.domain.npc.engine.BattleCasualtyEngine
 import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
+import com.ei8z.endworld.domain.npc.model.NpcRecord
 import com.ei8z.endworld.domain.npc.model.NpcState
 
 /** 场景3 裁决结果对应的状态效果。 */
@@ -19,15 +20,17 @@ fun mapScene3Outcome(outcome: String?): Scene3Effect = when (outcome) {
     else -> Scene3Effect.NONE
 }
 
-/** 把场景3 的效果落到状态与离队表；独立出来便于单测。 */
+/** 把场景3 的效果落到 NPC 记录上；独立出来便于单测。 */
 fun applyScene3Effect(
     effect: Scene3Effect,
     npc: NpcState,
-    departures: MutableMap<String, DepartureInfo>
+    runtime: MutableMap<String, NpcRecord>
 ) {
     when (effect) {
         Scene3Effect.DEAD ->
-            departures[npc.npcId] = DepartureInfo(DepartureStatus.DEAD, "战斗死亡")
+            runtime[npc.npcId]?.let { record ->
+                runtime[npc.npcId] = record.copy(departure = DepartureInfo(DepartureStatus.DEAD, "战斗死亡"))
+            }
         Scene3Effect.SEVERE_INJURY ->
             BattleCasualtyEngine.tagsFor(CasualtySeverity.SEVERE)
                 .filterNot { it in npc.statusTags }

@@ -1,7 +1,6 @@
 package com.ei8z.endworld.data.repository
 
 import com.ei8z.endworld.domain.npc.model.CombatRole
-import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NpcState
 import org.junit.Assert.assertEquals
@@ -38,9 +37,10 @@ class Scene3OutcomeMapperTest {
 
     @Test
     fun `kill writes a dead departure`() {
-        val departures = mutableMapOf<String, DepartureInfo>()
-        applyScene3Effect(Scene3Effect.DEAD, npc(), departures)
-        assertEquals(DepartureStatus.DEAD, departures["k1"]?.status)
+        val npc = npc()
+        val runtime = mutableMapOf(npc.npcId to npcRecord(npc))
+        applyScene3Effect(Scene3Effect.DEAD, npc, runtime)
+        assertEquals(DepartureStatus.DEAD, runtime["k1"]?.departure?.status)
     }
 
     @Test
