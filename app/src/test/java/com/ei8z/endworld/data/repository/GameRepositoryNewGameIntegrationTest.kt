@@ -6,6 +6,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.ei8z.endworld.data.local.AppDatabase
 import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.MemosApiService
+import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
+import com.ei8z.endworld.domain.npc.model.CombatRole
+import com.ei8z.endworld.domain.npc.model.NpcState
+import com.ei8z.endworld.domain.npc.model.RelationshipStage
 import com.ei8z.endworld.domain.npc.model.Schedule
 import com.ei8z.endworld.domain.npc.model.TimeSlot
 import io.mockk.clearAllMocks
@@ -73,6 +77,31 @@ class GameRepositoryNewGameIntegrationTest {
         assertTrue(db.globalEventDao().getAllEvents().first().isEmpty())
         assertTrue(db.npcStateDao().getAllNpcs().first().isEmpty())
         assertTrue(db.npcScheduleDao().getAll().first().isEmpty())
+    }
+
+    @Test
+    fun `affinity delta is persisted and survives a repository reopen`() = runTest {
+        repo.ensureV3WorldLoaded()
+        repo.npcStates["n1"] = NpcState(
+            npcId = "n1", name = "老张", identity = "居民",
+            combatRole = CombatRole.NON_COMBATANT, currentLocationId = "R01",
+            factionId = null, personalityTags = emptyList(), statusTags = mutableListOf()
+        )
+        repo.npcAffinities["n1"] = NpcBehaviorEngine().initializeAffinity(0)
+
+        repo.applyInteractionAffinity("n1", 300)
+        repo.persistV3State()
+
+        val reopened = GameRepository(
+            db, mockk<DeepSeekApiService>(relaxed = true),
+            mockk<MemosApiService>(relaxed = true), "key", "key", context
+        )
+        reopened.ensureV3WorldLoaded()
+
+        val affinity = reopened.npcAffinities["n1"]
+        assertEquals(20, affinity?.affinity)
+        assertEquals(RelationshipStage.FAMILIAR, affinity?.relationshipStage)
+        assertEquals(2, affinity?.interactionCount)
     }
 
     @Test

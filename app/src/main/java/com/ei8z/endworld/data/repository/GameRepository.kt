@@ -154,7 +154,15 @@ class GameRepository(
     internal fun v3AffinityFromLegacy(legacy: Int): Int = ((legacy - 50) * 2).coerceIn(-100, 100)
 
     /** AI 的 affinityDelta 是 0..100 量纲的增量，换算到 -100..100 直接 ×2。 */
-    internal fun v3DeltaFromLegacy(delta: Int): Int = (delta * 2).coerceIn(-100, 100)
+    internal fun v3DeltaFromLegacy(delta: Int): Int = delta * 2
+
+    /** 首次建 NPC 的好感度基准：legacy 只在这里读一次；没有 legacy 记录时按阵营给 0/-10。 */
+    private suspend fun baseAttitudeFor(name: String, factionId: String?): Int {
+        val legacy = npcDao.getAllNpcs().first()
+            .firstOrNull { it.name == name }?.affinity
+            ?.let(::v3AffinityFromLegacy)
+        return legacy ?: if (factionId != null) 0 else -10
+    }
 
     /** 指定 NPC 的好感度权威状态；未提取的 NPC 返回 null（不新建）。 */
     internal fun affinityFor(npcId: String): AffinityState? = npcAffinities[npcId]
@@ -163,11 +171,11 @@ class GameRepository(
      * AI 只提供好感度增量；由模拟层统一落地（±20 单次夹取、-100..100 钳制、阶段重算）。
      * 名字找不到对应 NPC 时返回 null：不新建好感度，也不给场景 2 触发点。
      */
-    internal fun applyInteractionAffinity(npcName: String, delta: Int): String? {
-        val npcId = npcStates.values.firstOrNull { it.name == npcName }?.npcId ?: return null
-        val old = npcAffinities[npcId] ?: npcEngine.initializeAffinity(0)
-        npcAffinities[npcId] = npcEngine.applyAffinityDelta(old, delta, currentGameDay)
-        return npcId
+    internal fun applyInteractionAffinity(npcId: String, delta: Int): AffinityState? {
+        val old = npcAffinities[npcId] ?: return null
+        val updated = npcEngine.applyAffinityDelta(old, delta, currentGameDay)
+        npcAffinities[npcId] = updated
+        return updated
     }
 
     /** 场景评估结果，供下一轮叙事注入。 */
@@ -800,10 +808,11 @@ class GameRepository(
         }
 
         update.npcUpdate?.forEach { npc ->
+            // legacy 好感度冻结为迁移快照：AI 增量只走 npcAffinities，避免经 V2 表洗白（§2.2）
             npcDao.upsertNpcDepth(
                 name = npc.name ?: "",
                 relation = npc.relation ?: "",
-                delta = npc.affinityDelta ?: 0,
+                delta = 0,
                 personalityTags = npc.personalityTags ?: emptyList(),
                 currentNeed = npc.currentNeed,
                 lastInteractionSummary = npc.lastInteractionSummary
@@ -818,16 +827,38 @@ class GameRepository(
             }
         }
 
+        // V3.0: 好感度变化触发NPC提取（文档 NPC§2.2 条件1）
+        update.npcUpdate?.forEach { npc ->
+            if (npc.name != null && npc.affinityDelta != null && kotlin.math.abs(npc.affinityDelta) >= 10) {
+                val npcId = "npc_${npc.name}_$currentGameDay"
+                if (!npcStates.containsKey(npcId)) {
+                    val loc = data.header.location
+                    val fid = regions[loc]?.controllingFactionId
+                    val n = npcEngine.initializeNewNpc(npcId, npc.name, "居民", loc, fid, 0)
+                    npcStates[npcId] = n
+                    npcNeeds[npcId] = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50)
+                    // 只建基准；AI 增量在场景2 统一落地一次，避免重复计数
+                    npcAffinities[npcId] = npcEngine.initializeAffinity(baseAttitudeFor(npc.name, fid))
+                    npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
+                    npcSchedules[npcId] = npcEngine.initializeSchedule(
+                        n.currentLocationId, workLocationFor(n.currentLocationId)
+                    )
+                    npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
+                        "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
+                        source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
+                }
+            }
+        }
+
         // 场景 2：好感度跨越关系阶段。AI 只提供增量，由模拟层统一落地（±20 单次夹取、
-        // 阶段重算）；未知名字不建 NPC、不触发。NPC 提取放在下一段，避免同一轮
-        // 新提取的 NPC 被当成"已知 NPC"而误触发场景 2。
+        // 阶段重算）；未知名字不建 NPC、不触发。提取在前一段完成，因此新 NPC 首轮也能判跨越。
         update.npcUpdate?.forEach { npc ->
             val name = npc.name ?: return@forEach
-            val delta = v3DeltaFromLegacy(npc.affinityDelta ?: return@forEach)
+            val rawDelta = npc.affinityDelta ?: return@forEach
+            if (rawDelta == 0) return@forEach
             val npcId = npcStates.values.firstOrNull { it.name == name }?.npcId ?: return@forEach
-            val old = affinityFor(npcId) ?: npcEngine.initializeAffinity(0)
-            applyInteractionAffinity(name, delta) ?: return@forEach
-            val updated = affinityFor(npcId) ?: return@forEach
+            val old = npcAffinities[npcId] ?: return@forEach
+            val updated = applyInteractionAffinity(npcId, v3DeltaFromLegacy(rawDelta)) ?: return@forEach
             SceneTriggerDetector.detectStageCrossing(npcId, old.affinity, updated.affinity)?.let { trigger ->
                 evaluateScene(trigger, message = {
                     PromptBuilder.buildScene2UserMessage(
@@ -847,28 +878,6 @@ class GameRepository(
                             ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: ""
                     )
                 })
-            }
-        }
-
-        // V3.0: 好感度变化触发NPC提取（文档 NPC§2.2 条件1）
-        update.npcUpdate?.forEach { npc ->
-            if (npc.name != null && npc.affinityDelta != null && kotlin.math.abs(npc.affinityDelta) >= 10) {
-                val npcId = "npc_${npc.name}_$currentGameDay"
-                if (!npcStates.containsKey(npcId)) {
-                    val loc = data.header.location
-                    val fid = regions[loc]?.controllingFactionId
-                    val n = npcEngine.initializeNewNpc(npcId, npc.name, "居民", loc, fid, 0)
-                    npcStates[npcId] = n
-                    npcNeeds[npcId] = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50)
-                    npcAffinities[npcId] = npcEngine.initializeAffinity(0, npc.affinityDelta)
-                    npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
-                    npcSchedules[npcId] = npcEngine.initializeSchedule(
-                        n.currentLocationId, workLocationFor(n.currentLocationId)
-                    )
-                    npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
-                        "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
-                        source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
-                }
             }
         }
 
@@ -1202,8 +1211,11 @@ class GameRepository(
 
         // 战斗伤亡抽取：只给状态标签，KEY NPC 交给场景3 裁决生死
         val casualtyEngine = BattleCasualtyEngine()
-        val casualties = result.battleResults.flatMap { battle ->
-            casualtyEngine.roll(npcStates.values, battle, currentGameDay)
+        val casualties = result.battleResults.flatMapIndexed { index, battle ->
+            casualtyEngine.roll(
+                npcStates.values, battle,
+                "${battle.attackerFactionId}-${battle.defenderFactionId}-d$currentGameDay-b$index"
+            )
         }
         for (casualty in casualties) {
             val npc = npcStates[casualty.npcId] ?: continue
@@ -1556,8 +1568,10 @@ class GameRepository(
     }
 
     private suspend fun buildV3NpcDepthContext(player: PlayerState, snapshot: WorldSnapshot): String {
-        val v2Ctx = buildNpcDepthContext(player, snapshot.nearbyNpcs)
         val v3Npcs = npcStates.values.filter { it.currentLocationId == snapshot.location && npcDepartures[it.npcId]?.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
+        val v3Names = v3Npcs.map { it.name }.toSet()
+        // V3 已有权威好感度的 NPC 不再出现在 V2 上下文，避免提示词里两套数值
+        val v2Ctx = buildNpcDepthContext(player, snapshot.nearbyNpcs.filterNot { it in v3Names })
         if (v3Npcs.isEmpty()) return v2Ctx
         val v3Ctx = v3Npcs.joinToString("\n") { npc ->
             val aff = npcAffinities[npc.npcId]; val nd = npcNeeds[npc.npcId]
@@ -1583,10 +1597,7 @@ class GameRepository(
         val loc = action.location.ifBlank { "R01" }
         val factionId = regions[loc]?.controllingFactionId
         // legacy 好感度只在这里读一次：首次提取时作为初始值，之后一律以 npcAffinities 为准。
-        val legacyAffinity = npcDao.getAllNpcs().first()
-            .firstOrNull { it.name == target }?.affinity
-            ?.let(::v3AffinityFromLegacy)
-        val baseAttitude = legacyAffinity ?: if (factionId != null) 0 else -10
+        val baseAttitude = baseAttitudeFor(target, factionId)
         val npc = npcEngine.initializeNewNpc(npcId, target, "居民", loc, factionId, baseAttitude)
         npcStates[npcId] = npc
         npcNeeds[npcId] = npcEngine.initializeNeeds(factionFoodShortage = false, regionHighThreat = (regions[loc]?.threatLevel ?: 0) > 50)

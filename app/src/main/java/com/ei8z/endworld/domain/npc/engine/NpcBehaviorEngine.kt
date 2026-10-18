@@ -120,12 +120,19 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
     fun applyAffinityDelta(current: AffinityState, delta: Int, gameDay: Int): AffinityState {
         val capped = delta.coerceIn(-MAX_AI_AFFINITY_DELTA, MAX_AI_AFFINITY_DELTA)
         val affinity = (current.affinity + capped).coerceIn(-100, 100)
-        return current.copy(
+        val newStage = affinity.toRelationshipStage()
+        val updated = current.copy(
             affinity = affinity,
-            relationshipStage = affinity.toRelationshipStage(),
+            relationshipStage = newStage,
             interactionCount = current.interactionCount + 1,
             lastInteractionGameDay = gameDay
         )
+        if (newStage != current.relationshipStage) {
+            updated.stageCrossingHistory.add(
+                StageCrossingEvent(gameDay, current.relationshipStage, newStage, affinity, "AI增量")
+            )
+        }
+        return updated
     }
 
     // === 记忆管理 ===

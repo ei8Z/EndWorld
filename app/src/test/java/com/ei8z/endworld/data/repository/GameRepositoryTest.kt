@@ -520,8 +520,8 @@ class GameRepositoryTest {
         repo.npcStates["n1"] = npcState("n1", "老张")
         repo.npcAffinities["n1"] = NpcBehaviorEngine().initializeAffinity(0)
 
-        assertEquals("n1", repo.applyInteractionAffinity("老张", 300))
-        assertEquals("n1", repo.applyInteractionAffinity("老张", 10))
+        assertEquals(20, repo.applyInteractionAffinity("n1", 300)?.affinity)
+        assertEquals(30, repo.applyInteractionAffinity("n1", 10)?.affinity)
 
         val affinity = repo.affinityFor("n1")
         assertNotNull(affinity)
@@ -536,7 +536,7 @@ class GameRepositoryTest {
         val repo = createRepo()
 
         assertNull(repo.affinityFor("ghost"))
-        assertNull(repo.applyInteractionAffinity("幽灵", 50))
+        assertNull(repo.applyInteractionAffinity("ghost", 50))
         assertTrue(repo.npcAffinities.isEmpty())
         assertTrue(repo.npcStates.isEmpty())
     }

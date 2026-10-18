@@ -33,6 +33,14 @@ class AffinityAuthorityTest {
     }
 
     @Test
+    fun `stage crossing is appended to history`() {
+        val updated = engine.applyAffinityDelta(engine.initializeAffinity(5), delta = 20, gameDay = 9)
+        assertEquals(25, updated.affinity)
+        assertEquals(1, updated.stageCrossingHistory.size)
+        assertEquals(9, updated.stageCrossingHistory.single().gameDay)
+    }
+
+    @Test
     fun `affinity stays within bounds`() {
         assertEquals(100, engine.applyAffinityDelta(engine.initializeAffinity(99), 20, 1).affinity)
         assertEquals(-100, engine.applyAffinityDelta(engine.initializeAffinity(-99), -20, 1).affinity)
