@@ -331,7 +331,7 @@ class GameRepository(
             )
         } catch (e: ReasonerUnavailableException) {
             Log.w(TAG, "裁决服务不可用: ${e.message}")
-            trySend(StreamEvent.Error("裁决服务不可用，请重试", retryable = true))
+            trySend(StreamEvent.Error("裁决服务不可用，请重试", retryable = e.retryable))
             return
         }
         saveJsonToDebugFile(gson.toJson(actionResult), "action_result")

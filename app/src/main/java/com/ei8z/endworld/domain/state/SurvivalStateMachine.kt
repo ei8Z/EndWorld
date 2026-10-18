@@ -172,7 +172,9 @@ class SurvivalStateMachine(
             val curMeasure = if (isContinuous) {
                 change.newValue.safeCoerce(0f, safeMax)
             } else 1f
-            val totalM = if (isContinuous) safeMax else change.maxValue ?: 1f
+            val totalM = if (isContinuous) {
+                if (safeMax.isFinite() && safeMax > 0f) safeMax else 1f
+            } else change.maxValue ?: 1f
 
             // 从 ItemTemplate 库查找物品预设属性（name 精确匹配，失败回退到 id 匹配）
             val tmpl = itemTemplates[change.itemName]

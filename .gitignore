@@ -22,3 +22,6 @@ local.properties
 
 # 二进制垃圾
 profileInstalled
+
+# IDE 本地配置（整目录）
+/.idea/

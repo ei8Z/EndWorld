@@ -29,7 +29,8 @@ import org.json.JSONObject
 /** 裁决服务不可用（网络/超时/5xx）。与"模型给出了失败结果"不同，调用方应中止并允许重试。 */
 class ReasonerUnavailableException(
     message: String,
-    cause: Throwable? = null
+    cause: Throwable? = null,
+    val retryable: Boolean = true
 ) : Exception(message, cause)
 
 class ReasonerApiClient(
@@ -105,6 +106,11 @@ class ReasonerApiClient(
             buildFallbackResult(userMessage)
         } catch (e: CancellationException) {
             throw e
+        } catch (e: retrofit2.HttpException) {
+            // 4xx 是请求本身的问题（schema/参数），重试也不会成功
+            throw ReasonerUnavailableException(
+                "裁决服务不可用，请重试", e, retryable = e.code() !in 400..499
+            )
         } catch (e: Exception) {
             // 网络/协议失败不是"行动失败"：中止并允许上层重试
             throw ReasonerUnavailableException("裁决服务不可用，请重试", e)

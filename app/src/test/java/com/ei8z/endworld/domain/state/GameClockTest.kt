@@ -2,6 +2,7 @@ package com.ei8z.endworld.domain.state
 
 import org.junit.Assert.*
 import org.junit.Test
+import java.util.Locale
 
 class GameClockTest {
 
@@ -81,5 +82,15 @@ class GameClockTest {
     @Test(expected = IllegalArgumentException::class)
     fun `advance with negative minutes throws`() {
         GameClock().advance(-1)
+    }
+    @Test
+    fun `time format stays ascii digits under a non latin locale`() {
+        val previous = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("ar-EG"))
+            assertEquals("第1天 06:00", GameClock().currentDateTime)
+        } finally {
+            Locale.setDefault(previous)
+        }
     }
 }

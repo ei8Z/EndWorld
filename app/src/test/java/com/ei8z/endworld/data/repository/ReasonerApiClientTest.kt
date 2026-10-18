@@ -10,7 +10,9 @@ import com.ei8z.endworld.data.remote.model.ToolCall
 import com.ei8z.endworld.data.remote.model.Usage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -185,5 +187,17 @@ class ReasonerApiClientTest {
         val r = ReasonerApiClient(api, "Bearer test").reason("s", "u", "u1", tools = ToolRegistry.getActiveTools())
         assertEquals("失败", r.result)
         assertEquals(2, calls)
+    }
+    @Test
+    fun `http 4xx is not marked retryable`() = runBlocking {
+        val httpError = retrofit2.HttpException(
+            retrofit2.Response.error<Any>(400, "".toResponseBody("application/json".toMediaType()))
+        )
+        try {
+            clientThatThrows(httpError).reason("s", "u", "u1")
+            fail("expected ReasonerUnavailableException")
+        } catch (e: ReasonerUnavailableException) {
+            assertFalse("4xx 不应重试", e.retryable)
+        }
     }
 }
