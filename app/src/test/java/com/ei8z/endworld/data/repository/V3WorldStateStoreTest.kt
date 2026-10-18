@@ -11,6 +11,7 @@ import com.ei8z.endworld.domain.npc.model.NpcTier
 import com.ei8z.endworld.domain.npc.model.Schedule
 import com.ei8z.endworld.domain.npc.model.TimeSlot
 import com.ei8z.endworld.domain.world.dao.GlobalEventEntity
+import com.ei8z.endworld.domain.world.dao.NpcStateEntity
 import com.ei8z.endworld.domain.world.model.ConnectionStrength
 import com.ei8z.endworld.domain.world.model.Faction
 import com.ei8z.endworld.domain.world.model.FactionGoal
@@ -59,12 +60,7 @@ class V3WorldStateStoreTest {
         )
         db.npcScheduleDao().upsert(NpcScheduleEntity("stale_npc", "{}", null, null))
 
-        store.save(
-            V3WorldSnapshot(
-                events = listOf(event("fresh")),
-                schedules = mapOf("n1" to Schedule(mapOf(TimeSlot.MORNING to "R02")))
-            )
-        )
+        store.save(snapshot(eventId = "fresh"))
 
         assertEquals(
             listOf("fresh"),
@@ -74,6 +70,29 @@ class V3WorldStateStoreTest {
             listOf("n1"),
             db.npcScheduleDao().getAll().first().map { it.npcId }
         )
+    }
+
+    @Test
+    fun `load leaves npcs without a schedule row with an empty schedule`() = runTest {
+        // 旧存档只有 NPC 行、没有时间表行：记录照常回读，时间表留空由仓库回填
+        db.npcStateDao().upsertNpc(
+            NpcStateEntity(
+                npcId = "n2", name = "老李", identity = "居民", combatRole = "NON_COMBATANT",
+                currentLocationId = "R01", factionId = null,
+                personalityTagsJson = "[]", statusTagsJson = "[]", tier = "CONTACT",
+                affinity = 0, relationshipStage = "NEUTRAL", emotionalTagsJson = "[]",
+                interactionCount = 0, lastInteractionGameDay = 0,
+                foodUrgency = 30, waterUrgency = 30, medicalUrgency = 0,
+                safetyUrgency = 30, socialUrgency = 30,
+                detailedMemoriesJson = "[]", remoteSummary = "",
+                departureStatus = "PRESENT", departureReason = "", expectedReturnDay = null
+            )
+        )
+
+        val loaded = store.load()
+
+        assertTrue(loaded.npcs.getValue("n2").schedule.timeSlots.isEmpty())
+        assertTrue(db.npcScheduleDao().getAll().first().isEmpty())
     }
 
     @Test
@@ -89,7 +108,7 @@ class V3WorldStateStoreTest {
         assertTrue(db.npcScheduleDao().getAll().first().isEmpty())
     }
 
-    private fun snapshot() = V3WorldSnapshot(
+    private fun snapshot(eventId: String = "E01") = V3WorldSnapshot(
         factions = listOf(
             Faction(
                 factionId = "F01", name = "红松营地", factionType = FactionType.SURVIVOR_SETTLEMENT,
@@ -109,15 +128,17 @@ class V3WorldStateStoreTest {
                 doomLevelCoefficient = 1.0f, stateTags = mutableListOf()
             )
         ),
-        events = listOf(event("E01")),
+        events = listOf(event(eventId)),
         npcs = mapOf(
-            "n1" to NpcState(
-                npcId = "n1", name = "老张", identity = "哨兵", combatRole = CombatRole.COMBATANT,
-                currentLocationId = "R01", factionId = "F01", personalityTags = emptyList(),
-                statusTags = mutableListOf(), tier = NpcTier.CONTACT
+            "n1" to npcRecord(
+                state = NpcState(
+                    npcId = "n1", name = "老张", identity = "哨兵", combatRole = CombatRole.COMBATANT,
+                    currentLocationId = "R01", factionId = "F01", personalityTags = emptyList(),
+                    statusTags = mutableListOf(), tier = NpcTier.CONTACT
+                ),
+                schedule = Schedule(mapOf(TimeSlot.MORNING to "R02"))
             )
-        ),
-        schedules = mapOf("n1" to Schedule(mapOf(TimeSlot.MORNING to "R02")))
+        )
     )
 
     private fun event(id: String) = GlobalEvent(

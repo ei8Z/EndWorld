@@ -22,7 +22,7 @@ class MemosExtractionManager(
     /** 新开局清空暂停状态。 */
     fun clearPauseState() = store.clearAll()
 
-    /** 连续失败 5 次后暂停 30 个游戏日（不是永久停用）。 */
+    /** 连续 5 个游戏日失败后暂停 30 个游戏日（不是永久停用）。 */
     fun isExtractionPaused(npcId: String, gameDay: Int): Boolean {
         val until = store.pausedUntil(npcId) ?: return false
         return gameDay < until
@@ -65,6 +65,7 @@ class MemosExtractionManager(
             }
             store.setFailures(npcId, 0)
             store.setPausedUntil(npcId, null)
+            store.setLastFailureDay(npcId, null)
             data.memories.orEmpty().map { m ->
                 MemoryEntry(
                     timestamp = timestamp,
@@ -82,7 +83,10 @@ class MemosExtractionManager(
         }
     }
 
+    /** §6.4 是"连续 5 日"：同一游戏日内重试多次只记一次失败。 */
     private fun recordFailure(npcId: String, gameDay: Int) {
+        if (store.lastFailureDay(npcId) == gameDay) return
+        store.setLastFailureDay(npcId, gameDay)
         val failures = store.failures(npcId) + 1
         store.setFailures(npcId, failures)
         if (failures >= 5) {

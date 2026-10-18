@@ -1019,12 +1019,7 @@ class GameRepository(
         factions = factions.toList(),
         regions = regions.toMap(),
         events = activeEvents.toList(),
-        npcs = npcRuntime.mapValues { it.value.state },
-        needs = npcRuntime.mapValues { it.value.needs },
-        affinities = npcRuntime.mapValues { it.value.affinity },
-        memories = npcRuntime.mapValues { it.value.memory },
-        departures = npcRuntime.mapValues { it.value.departure },
-        schedules = npcRuntime.mapValues { it.value.schedule }
+        npcs = npcRuntime.toMap()
     )
 
     /** 清表 + 清内存 + 复位初始化标记；下一次 ensure 会重建默认世界。 */
@@ -1230,18 +1225,16 @@ class GameRepository(
             activeEvents.clear()
             activeEvents.addAll(snapshot.events)
             npcRuntime.clear()
-            snapshot.npcs.forEach { (npcId, npc) ->
-                npcRuntime[npcId] = newNpcRecord(
-                    state = npc,
-                    needs = snapshot.needs.getValue(npcId),
-                    affinity = snapshot.affinities.getValue(npcId),
-                    memory = snapshot.memories.getValue(npcId),
-                    departure = snapshot.departures.getValue(npcId),
-                    // 旧存档没有时间表行：按当前位置补默认表，既不丢 NPC 也不立刻报场景7
-                    schedule = snapshot.schedules[npcId] ?: npcEngine.initializeSchedule(
-                        npc.currentLocationId, workLocationFor(npc.currentLocationId)
+            snapshot.npcs.forEach { (npcId, record) ->
+                // 旧存档没有时间表行：按当前位置补默认表，既不丢 NPC 也不立刻报场景7
+                npcRuntime[npcId] = if (record.schedule.timeSlots.isEmpty()) {
+                    val locationId = record.state.currentLocationId
+                    record.copy(
+                        schedule = npcEngine.initializeSchedule(locationId, workLocationFor(locationId))
                     )
-                )
+                } else {
+                    record
+                }
             }
         }
         v3Loaded = true

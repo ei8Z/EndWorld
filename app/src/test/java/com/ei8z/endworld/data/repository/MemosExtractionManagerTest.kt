@@ -17,18 +17,55 @@ import org.junit.Test
 class MemosExtractionManagerTest {
 
     @Test
-    fun `pauses for 30 game days after five failures then retries`() = runTest {
+    fun `pauses for 30 game days after five consecutive daily failures then retries`() = runTest {
         val api = mockk<MemosApiService>(relaxed = true)
         coEvery { api.extractMemory(any(), any()) } returns MemosExtractResponse(1, "fail", null)
         val manager = MemosExtractionManager(api, "Token t")
 
-        repeat(5) { manager.extractMemories("n1", listOf("a", "b"), "[Day 1]", "R01", gameDay = 1) }
-        assertTrue(manager.isExtractionPaused("n1", gameDay = 1))
+        repeat(5) { i ->
+            manager.extractMemories("n1", listOf("a", "b"), "[Day ${i + 1}]", "R01", gameDay = i + 1)
+        }
+        assertTrue(manager.isExtractionPaused("n1", gameDay = 5))
 
-        // 30 游戏日之内仍暂停
-        assertTrue(manager.isExtractionPaused("n1", gameDay = 30))
+        // 第 5 天起算的 30 游戏日之内仍暂停
+        assertTrue(manager.isExtractionPaused("n1", gameDay = 34))
         // 满 30 日后解除
-        assertFalse(manager.isExtractionPaused("n1", gameDay = 31))
+        assertFalse(manager.isExtractionPaused("n1", gameDay = 35))
+    }
+
+    /** NPC 文档 §6.4 是"连续 5 日"：同一天重试多少次都只算一次失败。 */
+    @Test
+    fun `same-day retries count as one failure and never pause`() = runTest {
+        val api = mockk<MemosApiService>(relaxed = true)
+        coEvery { api.extractMemory(any(), any()) } returns MemosExtractResponse(1, "fail", null)
+        val store = InMemoryMemosPauseStore()
+        val manager = MemosExtractionManager(api, "Token t", store)
+
+        repeat(5) { manager.extractMemories("n1", listOf("a"), "[Day 3]", "R01", gameDay = 3) }
+
+        assertEquals(1, store.failures("n1"))
+        assertEquals(3, store.lastFailureDay("n1"))
+        assertFalse(manager.isExtractionPaused("n1", gameDay = 3))
+    }
+
+    @Test
+    fun `success clears failures and last failure day`() = runTest {
+        val api = mockk<MemosApiService>(relaxed = true)
+        var response = MemosExtractResponse(1, "fail", null)
+        coEvery { api.extractMemory(any(), any()) } answers { response }
+        val store = InMemoryMemosPauseStore()
+        val manager = MemosExtractionManager(api, "Token t", store)
+
+        manager.extractMemories("n1", listOf("a"), "[Day 1]", "R01", gameDay = 1)
+        assertEquals(1, store.failures("n1"))
+        assertEquals(1, store.lastFailureDay("n1"))
+
+        response = MemosExtractResponse(0, "ok", MemosExtractData(emptyList(), null))
+        manager.extractMemories("n1", listOf("a"), "[Day 2]", "R01", gameDay = 2)
+
+        assertEquals(0, store.failures("n1"))
+        assertNull(store.lastFailureDay("n1"))
+        assertNull(store.pausedUntil("n1"))
     }
     @Test
     fun `successful extraction maps memories and clears failures`() = runTest {
@@ -59,10 +96,27 @@ class MemosExtractionManagerTest {
         coEvery { api.extractMemory(any(), any()) } returns MemosExtractResponse(1, "fail", null)
 
         val manager = MemosExtractionManager(api, "Token t", store)
-        repeat(5) { manager.extractMemories("n1", listOf("a"), "[Day 1]", "R01", gameDay = 1) }
+        repeat(5) { i ->
+            manager.extractMemories("n1", listOf("a"), "[Day ${i + 1}]", "R01", gameDay = i + 1)
+        }
 
         val restarted = MemosExtractionManager(api, "Token t", store)
-        assertTrue(restarted.isExtractionPaused("n1", gameDay = 2))
+        assertTrue(restarted.isExtractionPaused("n1", gameDay = 6))
+    }
+
+    @Test
+    fun `prefs store keeps last failure day and clearAll removes it`() {
+        val prefs = FakeSharedPreferences()
+        val store = PrefsMemosPauseStore(prefs)
+        store.setLastFailureDay("n1", 3)
+        prefs.edit().putString("stable_user_id", "u1").apply()
+
+        assertEquals(3, PrefsMemosPauseStore(prefs).lastFailureDay("n1"))
+
+        store.clearAll()
+
+        assertNull(PrefsMemosPauseStore(prefs).lastFailureDay("n1"))
+        assertEquals("u1", prefs.getString("stable_user_id", null))
     }
 
     /** GameRepository 用的是 Prefs 实现：跨进程重启的真值来自 SharedPreferences。 */

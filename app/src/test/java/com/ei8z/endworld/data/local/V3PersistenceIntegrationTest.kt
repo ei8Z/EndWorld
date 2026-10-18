@@ -5,6 +5,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.ei8z.endworld.data.repository.V3WorldSnapshot
 import com.ei8z.endworld.data.repository.V3WorldStateStore
+import com.ei8z.endworld.data.repository.npcRecord
 import com.ei8z.endworld.domain.npc.model.AffinityState
 import com.ei8z.endworld.domain.npc.model.CombatRole
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
@@ -83,13 +84,14 @@ class V3PersistenceIntegrationTest {
         assertEquals("红松营地", loaded.factions.single().name)
         assertEquals("避难所", loaded.regions.getValue("R01").name)
         assertEquals("E01", loaded.events.single().eventId)
-        assertEquals("老张", loaded.npcs.getValue("n1").name)
-        assertEquals(44, loaded.needs.getValue("n1").foodUrgency)
-        assertEquals(24, loaded.affinities.getValue("n1").affinity)
-        assertEquals("并肩作战", loaded.memories.getValue("n1").detailedMemories.single().summary)
-        assertEquals(DepartureStatus.EXPLORING, loaded.departures.getValue("n1").status)
-        assertEquals("R02", loaded.schedules.getValue("n1").timeSlots[TimeSlot.MORNING])
-        assertEquals("剧情：护送商队", loaded.schedules.getValue("n1").overriddenBy)
+        val npc = loaded.npcs.getValue("n1")
+        assertEquals("老张", npc.state.name)
+        assertEquals(44, npc.needs.foodUrgency)
+        assertEquals(24, npc.affinity.affinity)
+        assertEquals("并肩作战", npc.memory.detailedMemories.single().summary)
+        assertEquals(DepartureStatus.EXPLORING, npc.departure.status)
+        assertEquals("R02", npc.schedule.timeSlots[TimeSlot.MORNING])
+        assertEquals("剧情：护送商队", npc.schedule.overriddenBy)
 
         // 再直接查 DAO，确认五张表都真的写了
         assertEquals(1, db.factionDao().getAllFactions().first().size)
@@ -124,7 +126,7 @@ class V3PersistenceIntegrationTest {
         val loaded = store.load()
         assertEquals("红松营地", loaded.factions.single().name)
         assertEquals("E01", loaded.events.single().eventId)
-        assertEquals("老张", loaded.npcs.getValue("n1").name)
+        assertEquals("老张", loaded.npcs.getValue("n1").state.name)
         assertEquals(1, db.factionDao().getAllFactions().first().size)
         assertEquals(1, db.globalEventDao().getAllEvents().first().size)
     }
@@ -163,34 +165,30 @@ class V3PersistenceIntegrationTest {
             )
         ),
         npcs = mapOf(
-            "n1" to NpcState(
-                npcId = "n1", name = "老张", identity = "哨兵", combatRole = CombatRole.COMBATANT,
-                currentLocationId = "R01", factionId = "F01", personalityTags = listOf("谨慎"),
-                statusTags = mutableListOf("受伤"), tier = NpcTier.CONTACT
-            )
-        ),
-        needs = mapOf("n1" to NeedState(44, 33, 11, 55, 22)),
-        affinities = mapOf(
-            "n1" to AffinityState(
-                affinity = 24, relationshipStage = RelationshipStage.FAMILIAR,
-                emotionalTags = mutableListOf("感激"), interactionCount = 3,
-                lastInteractionGameDay = 2, stageCrossingHistory = mutableListOf()
-            )
-        ),
-        memories = mapOf(
-            "n1" to MemoryQueue(
-                detailedMemories = mutableListOf(
-                    MemoryEntry("[Day 2]", "R01", "并肩作战", 5, "感激", MemorySource.PLAYER_INTERACTION)
+            "n1" to npcRecord(
+                state = NpcState(
+                    npcId = "n1", name = "老张", identity = "哨兵", combatRole = CombatRole.COMBATANT,
+                    currentLocationId = "R01", factionId = "F01", personalityTags = listOf("谨慎"),
+                    statusTags = mutableListOf("受伤"), tier = NpcTier.CONTACT
                 ),
-                remoteSummary = ""
-            )
-        ),
-        departures = mapOf("n1" to DepartureInfo(DepartureStatus.EXPLORING, "探索", 8)),
-        schedules = mapOf(
-            "n1" to Schedule(
-                timeSlots = mapOf(TimeSlot.MORNING to "R02"),
-                overriddenBy = "剧情：护送商队",
-                overrideUntilDay = 9
+                needs = NeedState(44, 33, 11, 55, 22),
+                affinity = AffinityState(
+                    affinity = 24, relationshipStage = RelationshipStage.FAMILIAR,
+                    emotionalTags = mutableListOf("感激"), interactionCount = 3,
+                    lastInteractionGameDay = 2, stageCrossingHistory = mutableListOf()
+                ),
+                memory = MemoryQueue(
+                    detailedMemories = mutableListOf(
+                        MemoryEntry("[Day 2]", "R01", "并肩作战", 5, "感激", MemorySource.PLAYER_INTERACTION)
+                    ),
+                    remoteSummary = ""
+                ),
+                departure = DepartureInfo(DepartureStatus.EXPLORING, "探索", 8),
+                schedule = Schedule(
+                    timeSlots = mapOf(TimeSlot.MORNING to "R02"),
+                    overriddenBy = "剧情：护送商队",
+                    overrideUntilDay = 9
+                )
             )
         )
     )

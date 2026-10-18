@@ -2,12 +2,9 @@ package com.ei8z.endworld.data.repository
 
 import androidx.room.withTransaction
 import com.ei8z.endworld.data.local.AppDatabase
-import com.ei8z.endworld.domain.npc.model.AffinityState
-import com.ei8z.endworld.domain.npc.model.DepartureInfo
-import com.ei8z.endworld.domain.npc.model.MemoryQueue
-import com.ei8z.endworld.domain.npc.model.NeedState
-import com.ei8z.endworld.domain.npc.model.NpcState
+import com.ei8z.endworld.domain.npc.model.NpcRecord
 import com.ei8z.endworld.domain.npc.model.Schedule
+import com.ei8z.endworld.domain.npc.model.newNpcRecord
 import com.ei8z.endworld.domain.world.dao.FactionEntity
 import com.ei8z.endworld.domain.world.dao.GlobalEventEntity
 import com.ei8z.endworld.domain.world.dao.NpcStateEntity
@@ -18,17 +15,12 @@ import com.ei8z.endworld.domain.world.model.Region
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.first
 
-/** 一次完整的 V3 世界状态快照；九个字段与内存 map 一一对应。 */
+/** 一次完整的 V3 世界状态快照；NPC 的六部分随 [NpcRecord] 一起走，不再有六张平行 map。 */
 data class V3WorldSnapshot(
     val factions: List<Faction> = emptyList(),
     val regions: Map<String, Region> = emptyMap(),
     val events: List<GlobalEvent> = emptyList(),
-    val npcs: Map<String, NpcState> = emptyMap(),
-    val needs: Map<String, NeedState> = emptyMap(),
-    val affinities: Map<String, AffinityState> = emptyMap(),
-    val memories: Map<String, MemoryQueue> = emptyMap(),
-    val departures: Map<String, DepartureInfo> = emptyMap(),
-    val schedules: Map<String, Schedule> = emptyMap()
+    val npcs: Map<String, NpcRecord> = emptyMap()
 )
 
 /**
@@ -56,17 +48,23 @@ class V3WorldStateStore(private val db: AppDatabase) {
         val storedEvents = eventDao.getAllEvents().first()
         val storedNpcs = npcStateDao.getAllNpcs().first()
         val storedSchedules = npcScheduleDao.getAll().first()
+        val schedulesByNpc = storedSchedules.associate { it.npcId to V3StateMapper.schedule(it) }
 
         return V3WorldSnapshot(
             factions = storedFactions.map(V3StateMapper::faction),
             regions = storedRegions.associate { it.regionId to V3StateMapper.region(it) },
             events = storedEvents.map(V3StateMapper::event),
-            npcs = storedNpcs.associate { it.npcId to V3StateMapper.npc(it) },
-            needs = storedNpcs.associate { it.npcId to V3StateMapper.needs(it) },
-            affinities = storedNpcs.associate { it.npcId to V3StateMapper.affinity(it) },
-            memories = storedNpcs.associate { it.npcId to V3StateMapper.memory(it) },
-            departures = storedNpcs.associate { it.npcId to V3StateMapper.departure(it) },
-            schedules = storedSchedules.associate { it.npcId to V3StateMapper.schedule(it) }
+            npcs = storedNpcs.associate { entity ->
+                entity.npcId to newNpcRecord(
+                    state = V3StateMapper.npc(entity),
+                    needs = V3StateMapper.needs(entity),
+                    affinity = V3StateMapper.affinity(entity),
+                    memory = V3StateMapper.memory(entity),
+                    departure = V3StateMapper.departure(entity),
+                    // 旧存档没有时间表行：留空表，由 GameRepository 按当前位置回填
+                    schedule = schedulesByNpc[entity.npcId] ?: Schedule(timeSlots = mutableMapOf())
+                )
+            }
         )
     }
 
@@ -108,35 +106,34 @@ class V3WorldStateStore(private val db: AppDatabase) {
                     )
                 )
             }
-            snapshot.npcs.values.forEach { npc ->
-                val aff = snapshot.affinities[npc.npcId]
-                val nd = snapshot.needs[npc.npcId]
-                val mem = snapshot.memories[npc.npcId]
-                val dep = snapshot.departures[npc.npcId]
+            npcScheduleDao.clearAll()
+            snapshot.npcs.values.forEach { record ->
+                val npc = record.state
+                val aff = record.affinity
+                val nd = record.needs
+                val mem = record.memory
+                val dep = record.departure
                 npcStateDao.upsertNpc(
                     NpcStateEntity(
                         npc.npcId, npc.name, npc.identity, npc.combatRole.name, npc.currentLocationId,
                         npc.factionId, gson.toJson(npc.personalityTags), gson.toJson(npc.statusTags),
-                        npc.tier.name, aff?.affinity ?: 0, aff?.relationshipStage?.name ?: "NEUTRAL",
-                        gson.toJson(aff?.emotionalTags ?: emptyList<String>()),
-                        aff?.interactionCount ?: 0, aff?.lastInteractionGameDay ?: 0,
-                        nd?.foodUrgency ?: 30, nd?.waterUrgency ?: 30, nd?.medicalUrgency ?: 0,
-                        nd?.safetyUrgency ?: 30, nd?.socialUrgency ?: 30,
-                        gson.toJson(mem?.detailedMemories?.map {
+                        npc.tier.name, aff.affinity, aff.relationshipStage.name,
+                        gson.toJson(aff.emotionalTags),
+                        aff.interactionCount, aff.lastInteractionGameDay,
+                        nd.foodUrgency, nd.waterUrgency, nd.medicalUrgency,
+                        nd.safetyUrgency, nd.socialUrgency,
+                        gson.toJson(mem.detailedMemories.map {
                             mapOf(
                                 "t" to it.timestamp, "l" to it.location, "s" to it.summary,
                                 "a" to it.affinityChange, "e" to (it.emotionalTag ?: ""),
                                 "src" to it.source.name
                             )
-                        } ?: emptyList<Map<String, Any>>()),
-                        mem?.remoteSummary ?: "", dep?.status?.name ?: "PRESENT",
-                        dep?.reason ?: "", dep?.expectedReturnDay
+                        }),
+                        mem.remoteSummary, dep.status.name,
+                        dep.reason, dep.expectedReturnDay
                     )
                 )
-            }
-            npcScheduleDao.clearAll()
-            snapshot.schedules.forEach { (npcId, schedule) ->
-                npcScheduleDao.upsert(V3StateMapper.scheduleEntity(npcId, schedule))
+                npcScheduleDao.upsert(V3StateMapper.scheduleEntity(npc.npcId, record.schedule))
             }
         }
     }
