@@ -394,7 +394,10 @@ class GameRepositoryTest {
     // endregion
     // region 主线集成
 
-    private fun stubMainlineApis(narrativeSummary: String = "你被划伤了") {
+    private fun stubMainlineApis(
+        narrativeSummary: String = "你被划伤了",
+        npcUpdateJson: String = "[]"
+    ) {
         stubV3Daos()
         every { prefs.getString("gm_strategy", null) } returns null
         every { playerDao.getPlayer() } returns flowOf(testPlayer())
@@ -421,7 +424,8 @@ class GameRepositoryTest {
             "statusUpdate":{"player":{"stateTags":["AI幻觉"],"innerThought":"","equipment":[]},
             "world":{"doomLevel":1,"macroSituation":""},
             "resources":{"knownPoints":[],"inventory":{"items":[]}},
-            "memoryUpdate":{"newTempMemory":null,"newPermanentPlot":null}}}
+            "memoryUpdate":{"newTempMemory":null,"newPermanentPlot":null},
+            "npcUpdate":$npcUpdateJson}}
         """.trimIndent()
         val chunk = ChatChunkResponse(
             id = "1",
@@ -434,8 +438,10 @@ class GameRepositoryTest {
             )
         )
         val sse = "data: ${Gson().toJson(chunk)}\n\ndata: [DONE]\n\n"
-        coEvery { api.getChatCompletionsStream(any(), any()) } returns
+        // 每次调用都返回新的 body：ResponseBody 只能读一次，跨天测试会二次调用
+        coEvery { api.getChatCompletionsStream(any(), any()) } answers {
             sse.toResponseBody("text/event-stream".toMediaType())
+        }
     }
 
     @Test
@@ -451,8 +457,76 @@ class GameRepositoryTest {
             ActionParsed("社交", "询问", "老张", "避难所", "", "低", 10)
         ).toList()
 
-        assertEquals("老张", repo.npcRuntime["npc_老张_1"]?.state?.name)
-        assertEquals(100, repo.npcRuntime["npc_老张_1"]?.affinity?.affinity)
+        assertEquals("老张", repo.npcRuntime["npc_老张"]?.state?.name)
+        assertEquals(100, repo.npcRuntime["npc_老张"]?.affinity?.affinity)
+    }
+
+    @Test
+    fun `same npc name keeps one record across game days`() = runTest {
+        stubMainlineApis(narrativeSummary = "老张向你透露了避难所的情报")
+        // repo 在构造时捕获世界 Flow：用可变 Flow 模拟跨天后的持久化时钟
+        val worldFlow = MutableStateFlow<WorldInfo?>(testWorld())
+        every { worldDao.getWorldInfo() } returns worldFlow
+        val repo = createRepo()
+        val ask = ActionParsed("社交", "询问", "老张", "避难所", "", "低", 10)
+
+        repo.sendActionStream("询问老张", ask).toList()
+        val affinityOnFirstDay = repo.npcRuntime.getValue("npc_老张").affinity.affinity
+
+        // 第 2 天结算视为已完成，聚焦身份行为
+        worldFlow.value = testWorld().copy(totalGameMinutes = 24 * 60 + 360)
+        repo.lastMidnightSettlementDay = 2
+        repo.sendActionStream("再次询问老张", ask).toList()
+
+        assertEquals(1, repo.npcRuntime.size)
+        assertEquals(1, repo.npcRuntime.values.count { it.state.name == "老张" })
+        assertEquals(listOf("npc_老张"), repo.npcRuntime.keys.toList())
+        assertEquals(affinityOnFirstDay, repo.npcRuntime.getValue("npc_老张").affinity.affinity)
+    }
+
+    @Test
+    fun `legacy npc id keeps working instead of spawning a same-name npc`() = runTest {
+        stubMainlineApis(narrativeSummary = "老张向你透露了避难所的情报")
+        val worldFlow = MutableStateFlow<WorldInfo?>(
+            testWorld().copy(totalGameMinutes = 24 * 60 + 360)
+        )
+        every { worldDao.getWorldInfo() } returns worldFlow
+        val repo = createRepo()
+        repo.lastMidnightSettlementDay = 2
+        repo.npcRuntime["npc_老张_1"] = npcRecord(
+            npcState("npc_老张_1", "老张"),
+            affinity = NpcBehaviorEngine().initializeAffinity(0)
+        )
+
+        repo.sendActionStream(
+            "询问老张",
+            ActionParsed("社交", "询问", "老张", "避难所", "", "低", 10)
+        ).toList()
+
+        assertEquals(listOf("npc_老张_1"), repo.npcRuntime.keys.toList())
+        assertEquals(0, repo.npcRuntime.getValue("npc_老张_1").affinity.affinity)
+    }
+
+    @Test
+    fun `affinity extraction reuses the same npc across game days`() = runTest {
+        stubMainlineApis(
+            npcUpdateJson = """[{"name":"老张","relation":"邻居","affinityDelta":10,"lastInteractionSummary":"聊了聊"}]"""
+        )
+        val worldFlow = MutableStateFlow<WorldInfo?>(testWorld())
+        every { worldDao.getWorldInfo() } returns worldFlow
+        val repo = createRepo()
+        val chat = ActionParsed("社交", "聊天", "老张", "避难所", "", "低", 10)
+
+        repo.sendActionStream("找老张聊天", chat).toList()
+        assertEquals(listOf("npc_老张"), repo.npcRuntime.keys.toList())
+        val affinityOnFirstDay = repo.npcRuntime.getValue("npc_老张").affinity.affinity
+
+        worldFlow.value = testWorld().copy(totalGameMinutes = 24 * 60 + 360)
+        repo.lastMidnightSettlementDay = 2
+        repo.sendActionStream("再找老张聊天", chat).toList()
+
+        assertEquals(1, repo.npcRuntime.size)
+        assertEquals(affinityOnFirstDay + 20, repo.npcRuntime.getValue("npc_老张").affinity.affinity)
     }
 
     @Test

@@ -164,6 +164,10 @@ class GameRepository(
         return legacy ?: if (factionId != null) 0 else -10
     }
 
+    /** 同名 NPC 的唯一身份：旧存档 id 形如 npc_名_日，新 id 为 npc_名。 */
+    private fun npcIdForName(name: String): String? =
+        npcRuntime.entries.firstOrNull { it.value.state.name == name }?.key
+
     /** 指定 NPC 的好感度权威状态；未提取的 NPC 返回 null（不新建）。 */
     internal fun affinityFor(npcId: String): AffinityState? = npcRuntime[npcId]?.affinity
 
@@ -830,8 +834,9 @@ class GameRepository(
         // V3.0: 好感度变化触发NPC提取（文档 NPC§2.2 条件1）
         update.npcUpdate?.forEach { npc ->
             if (npc.name != null && npc.affinityDelta != null && kotlin.math.abs(npc.affinityDelta) >= 10) {
-                val npcId = "npc_${npc.name}_$currentGameDay"
-                if (!npcRuntime.containsKey(npcId)) {
+                // 同名唯一：已有同名记录（含旧存档 npc_名_日）就复用，不按游戏日新建
+                if (npcIdForName(npc.name) == null) {
+                    val npcId = "npc_${npc.name}"
                     val loc = data.header.location
                     val fid = regions[loc]?.controllingFactionId
                     val n = npcEngine.initializeNewNpc(npcId, npc.name, "居民", loc, fid, 0)
@@ -860,7 +865,7 @@ class GameRepository(
             val name = npc.name ?: return@forEach
             val rawDelta = npc.affinityDelta ?: return@forEach
             if (rawDelta == 0) return@forEach
-            val npcId = npcRuntime.values.firstOrNull { it.state.name == name }?.state?.npcId ?: return@forEach
+            val npcId = npcIdForName(name) ?: return@forEach
             val old = npcRuntime[npcId]?.affinity ?: return@forEach
             val updated = applyInteractionAffinity(npcId, v3DeltaFromLegacy(rawDelta)) ?: return@forEach
             SceneTriggerDetector.detectStageCrossing(npcId, old.affinity, updated.affinity)?.let { trigger ->
@@ -1602,9 +1607,10 @@ class GameRepository(
         val hasCommitment = action.primaryType == "社交" && (action.subType.contains("承诺") || action.subType.contains("委托") || action.subType.contains("要求"))
         val shouldExtract = hasItemTransfer || hasInfoReveal || hasCommitment
         if (!shouldExtract) return
-        // 创建NPC
-        val npcId = "npc_${target}_${gameDay}"
-        if (npcRuntime.containsKey(npcId)) return // 已是接触NPC
+        // 创建NPC：同名唯一，旧存档的 npc_名_日 直接复用，不按游戏日新建
+        val existing = npcIdForName(target)
+        if (existing != null) return // 已是接触NPC
+        val npcId = "npc_$target"
         val loc = action.location.ifBlank { "R01" }
         val factionId = regions[loc]?.controllingFactionId
         // legacy 好感度只在这里读一次：首次提取时作为初始值，之后一律以 npcRuntime 为准。
