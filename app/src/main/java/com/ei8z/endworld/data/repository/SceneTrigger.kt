@@ -115,6 +115,26 @@ object SceneTriggerDetector {
         )
     }
 
+    /**
+     * 场景7：NPC 实际位置与时间表预期位置不符。
+     * overrideUntilDay 是时间表被剧情/事件覆盖的到期日，当天及之前不算异常。
+     */
+    fun detectScheduleAnomaly(
+        npcId: String,
+        actualLocationId: String,
+        expectedLocationId: String,
+        overrideUntilDay: Int?,
+        gameDay: Int
+    ): SceneTrigger? {
+        if (overrideUntilDay != null && gameDay <= overrideUntilDay) return null
+        if (expectedLocationId.isBlank() || actualLocationId == expectedLocationId) return null
+        return SceneTrigger(
+            type = SceneType.SCHEDULE_ANOMALY,
+            npcId = npcId,
+            detail = mapOf("actual" to actualLocationId, "expected" to expectedLocationId)
+        )
+    }
+
     /** 阶段下界：HATRED -100 / HOSTILITY -60 / NEUTRAL -20 / FAMILIAR +20 / TRUST +50 / INTIMATE +80 */
     private val lowerBound = mapOf(
         RelationshipStage.HATRED to -100,

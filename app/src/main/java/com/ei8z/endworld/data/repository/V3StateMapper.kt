@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.data.local.entity.NpcScheduleEntity
 import com.ei8z.endworld.domain.npc.model.*
 import com.ei8z.endworld.domain.world.dao.*
 import com.ei8z.endworld.domain.world.model.*
@@ -126,6 +127,31 @@ object V3StateMapper {
         reason = e.departureReason,
         expectedReturnDay = e.expectedReturnDay
     )
+
+    /** [NpcScheduleEntity.timeSlotsJson] 是「时间段枚举名 → 位置ID」的 JSON 对象；未知时间段丢弃。 */
+    fun schedule(e: NpcScheduleEntity): Schedule = Schedule(
+        timeSlots = parse<Map<String, String>>(e.timeSlotsJson, emptyMap())
+            .mapNotNull { (slotName, locationId) ->
+                enumOrOrNull<TimeSlot>(slotName)?.let { it to locationId }
+            }
+            .toMap(),
+        overriddenBy = e.overriddenBy,
+        overrideUntilDay = e.overrideUntilDay
+    )
+
+    fun scheduleEntity(npcId: String, schedule: Schedule): NpcScheduleEntity = NpcScheduleEntity(
+        npcId = npcId,
+        timeSlotsJson = gson.toJson(schedule.timeSlots.mapKeys { it.key.name }),
+        overriddenBy = schedule.overriddenBy,
+        overrideUntilDay = schedule.overrideUntilDay
+    )
+
+    private inline fun <reified E : Enum<E>> enumOrOrNull(name: String): E? =
+        try {
+            enumValueOf<E>(name)
+        } catch (e: Exception) {
+            null
+        }
 
     private data class MemoryWire(
         val t: String? = null,

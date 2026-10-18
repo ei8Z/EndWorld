@@ -127,6 +127,29 @@ class SceneTriggerTest {
     }
 
     @Test
+    fun `npc at expected location does not trigger scene 7`() {
+        assertNull(SceneTriggerDetector.detectScheduleAnomaly("n1", "R01", "R01", null, gameDay = 5))
+    }
+
+    @Test
+    fun `npc away from expected location triggers scene 7 with both locations`() {
+        val trigger = SceneTriggerDetector.detectScheduleAnomaly("n1", "R02", "R01", null, gameDay = 5)
+        assertEquals(SceneType.SCHEDULE_ANOMALY, trigger?.type)
+        assertEquals("n1", trigger?.npcId)
+        assertEquals("R02", trigger?.detail?.get("actual"))
+        assertEquals("R01", trigger?.detail?.get("expected"))
+    }
+
+    @Test
+    fun `override still in effect suppresses scene 7`() {
+        assertNull(SceneTriggerDetector.detectScheduleAnomaly("n1", "R02", "R01", overrideUntilDay = 7, gameDay = 7))
+        assertEquals(
+            SceneType.SCHEDULE_ANOMALY,
+            SceneTriggerDetector.detectScheduleAnomaly("n1", "R02", "R01", overrideUntilDay = 7, gameDay = 8)?.type
+        )
+    }
+
+    @Test
     fun `overdue departure is evaluated once and not redispatched`() {
         val engine = NpcBehaviorEngine()
         val needs = NeedState(

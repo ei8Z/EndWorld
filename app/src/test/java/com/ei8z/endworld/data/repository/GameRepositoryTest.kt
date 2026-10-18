@@ -47,6 +47,7 @@ class GameRepositoryTest {
     private lateinit var regionDao: RegionDao
     private lateinit var eventDao: GlobalEventDao
     private lateinit var npcStateDao: NpcStateDao
+    private lateinit var npcScheduleDao: NpcScheduleDao
     private lateinit var prefs: SharedPreferences
     private lateinit var prefsEdit: SharedPreferences.Editor
 
@@ -69,6 +70,7 @@ class GameRepositoryTest {
         regionDao = mockk(relaxed = true)
         eventDao = mockk(relaxed = true)
         npcStateDao = mockk(relaxed = true)
+        npcScheduleDao = mockk(relaxed = true)
 
         every { db.playerDao() } returns playerDao
         every { db.inventoryDao() } returns inventoryDao
@@ -76,6 +78,8 @@ class GameRepositoryTest {
         every { db.worldDao() } returns worldDao
         every { db.npcDao() } returns npcDao
         every { db.historyDao() } returns historyDao
+        every { db.npcScheduleDao() } returns npcScheduleDao
+        every { npcScheduleDao.getAll() } returns flowOf(emptyList())
 
         every { context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE) } returns prefs
         every { prefs.getString("stable_user_id", null) } returns "user_existing_id"
@@ -275,6 +279,8 @@ class GameRepositoryTest {
         every { db.regionDao() } returns regionDao
         every { db.globalEventDao() } returns eventDao
         every { db.npcStateDao() } returns npcStateDao
+        every { db.npcScheduleDao() } returns npcScheduleDao
+        every { npcScheduleDao.getAll() } returns flowOf(emptyList())
         every { factionDao.getAllFactions() } returns flowOf(listOfNotNull(faction))
         every { regionDao.getAllRegions() } returns flowOf(listOfNotNull(region))
         every { eventDao.getAllEvents() } returns flowOf(emptyList())

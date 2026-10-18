@@ -36,6 +36,7 @@ import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
+import com.ei8z.endworld.domain.npc.model.Schedule
 import com.ei8z.endworld.domain.npc.model.toDisplayName
 import com.ei8z.endworld.domain.npc.model.toRelationshipStage
 import com.ei8z.endworld.domain.state.BranchClassifier
@@ -91,6 +92,7 @@ class GameRepository(
     private val regionDao = database.regionDao()
     private val eventDao = database.globalEventDao()
     private val npcStateDao = database.npcStateDao()
+    private val npcScheduleDao = database.npcScheduleDao()
 
     private var v3Loaded = false
 
@@ -818,6 +820,7 @@ class GameRepository(
                     npcNeeds[npcId] = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50)
                     npcAffinities[npcId] = npcEngine.initializeAffinity(0, npc.affinityDelta)
                     npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
+                    npcSchedules[npcId] = npcEngine.initializeSchedule(n.identity, n.currentLocationId)
                     npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
                         "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
                         source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
@@ -949,17 +952,18 @@ class GameRepository(
         }
     }
 
-    /** 新游戏：清空 V3 四张表。单独抽出来便于单测（mock 的 withTransaction 不执行 lambda）。 */
+    /** 新游戏：清空 V3 五张表。单独抽出来便于单测（mock 的 withTransaction 不执行 lambda）。 */
     internal suspend fun clearV3Tables() {
         factionDao.clearAll()
         regionDao.clearAll()
         eventDao.clearAll()
         npcStateDao.clearAll()
+        npcScheduleDao.clearAll()
     }
 
     /** 清表 + 清内存 + 复位初始化标记；下一次 ensure 会重建默认世界。 */
     private suspend fun resetV3World() {
-        // ponytail: 4 表顺序删除非原子（Room 的 withTransaction 在 mock 数据库上会挂起，
+        // ponytail: 5 表顺序删除非原子（Room 的 withTransaction 在 mock 数据库上会挂起，
         // 无法在单测中覆盖）；新开局是低频操作，中途失败留下的孤儿行会在下次新开局时再清。
         // 升级路径：给 DAO 增加一个 @Transaction 的 clearAllV3() 方法。
         clearV3Tables()
@@ -971,6 +975,7 @@ class GameRepository(
         npcAffinities.clear()
         npcMemories.clear()
         npcDepartures.clear()
+        npcSchedules.clear()
         lastMidnightSettlementDay = 1
         v3Loaded = false
     }
@@ -1017,6 +1022,9 @@ class GameRepository(
                 } ?: emptyList<Map<String, Any>>()),
                 mem?.remoteSummary ?: "", dep?.status?.name ?: "PRESENT",
                 dep?.reason ?: "", dep?.expectedReturnDay))
+        }
+        npcSchedules.forEach { (npcId, schedule) ->
+            npcScheduleDao.upsert(V3StateMapper.scheduleEntity(npcId, schedule))
         }
     }
 
@@ -1153,6 +1161,7 @@ class GameRepository(
     val npcAffinities = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.AffinityState>()
     val npcMemories = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.MemoryQueue>()
     val npcDepartures = mutableMapOf<String, com.ei8z.endworld.domain.npc.model.DepartureInfo>()
+    val npcSchedules = mutableMapOf<String, Schedule>()
 
     val currentGameDay: Int get() = stateMachine.clock.currentDay
     var isAccelerating: Boolean = false
@@ -1198,6 +1207,10 @@ class GameRepository(
         val storedRegions = regionDao.getAllRegions().first()
         val storedEvents = eventDao.getAllEvents().first()
         val storedNpcs = npcStateDao.getAllNpcs().first()
+        val storedSchedules = npcScheduleDao.getAll().first()
+
+        npcSchedules.clear()
+        storedSchedules.forEach { npcSchedules[it.npcId] = V3StateMapper.schedule(it) }
 
         if (storedFactions.isEmpty() && storedRegions.isEmpty()) {
             initV3World()
@@ -1219,6 +1232,10 @@ class GameRepository(
                 npcAffinities[e.npcId] = V3StateMapper.affinity(e)
                 npcMemories[e.npcId] = V3StateMapper.memory(e)
                 npcDepartures[e.npcId] = V3StateMapper.departure(e)
+                // 旧存档没有时间表行：按当前位置补默认表，既不丢 NPC 也不立刻报场景7
+                npcSchedules.getOrPut(e.npcId) {
+                    npcEngine.initializeSchedule(e.identity, e.currentLocationId)
+                }
             }
         }
         v3Loaded = true
@@ -1326,6 +1343,42 @@ class GameRepository(
                     com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD, deathCause)
                 continue
             }
+            // 场景7：实际位置与时间表预期位置不符。离队期间位置本就是"不正常"的，
+            // 不判定；时间表被剧情覆盖且未到期的也不判定。
+            val schedule = npcSchedules[npcId]
+            val departureStatus = npcDepartures[npcId]?.status
+            if (schedule != null && (departureStatus == null || departureStatus == DepartureStatus.PRESENT)) {
+                val expectedLocation = engine.getCurrentLocation(schedule, stateMachine.clock.currentHour)
+                SceneTriggerDetector.detectScheduleAnomaly(
+                    npcId, npc.currentLocationId, expectedLocation, schedule.overrideUntilDay, currentGameDay
+                )?.let { trigger ->
+                    repositoryScope.launch {
+                        try {
+                            val message = PromptBuilder.buildScene7UserMessage(
+                                npcName = npc.name,
+                                currentLoc = npc.currentLocationId,
+                                expectedLoc = expectedLocation,
+                                anomalyType = "位置与时间表不符",
+                                triggerSource = "每日结算时间表校验",
+                                // 尚未记录异常起始日，只能说明"本次结算发现"；持续天数留 3C
+                                durationDays = 0,
+                                npcState = "${npc.identity}｜${npc.statusTags.joinToString("、")}"
+                            )
+                            sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                                decision.get("suggestedNarrativeAngle")?.asString
+                                    ?.takeIf { it.isNotBlank() }?.let { hint ->
+                                        synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+                                    }
+                            }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.e(TAG, "场景7评估失败: ${e.message}", e)
+                        }
+                    }
+                }
+            }
+
             // 场景 4：需求跨入饱和 → 生存状态突变（§5.7 的重伤/失去庇护所/失去重要的人信号
             // 尚未建模，这里用需求饱和作为近似；只在跨越当次触发，避免每日重复评估）
             SceneTriggerDetector.detectNeedsMutation(npcId, needs, newNeeds)?.let { trigger ->
@@ -1642,6 +1695,7 @@ class GameRepository(
         npcNeeds[npcId] = npcEngine.initializeNeeds(factionFoodShortage = false, regionHighThreat = (regions[loc]?.threatLevel ?: 0) > 50)
         npcAffinities[npcId] = npcEngine.initializeAffinity(baseAttitude, 5)
         npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
+        npcSchedules[npcId] = npcEngine.initializeSchedule(npc.identity, npc.currentLocationId)
         npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
             "[Day $gameDay]", loc, "与玩家首次互动", 5, source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
         Log.d(TAG, "V3 NPC提取: $target → $npcId")
