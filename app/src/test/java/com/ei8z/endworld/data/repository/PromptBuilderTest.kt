@@ -42,4 +42,13 @@ class PromptBuilderTest {
         assertEquals("中立或陌生", RelationshipStage.NEUTRAL.toDisplayName())
         assertEquals("熟悉", RelationshipStage.FAMILIAR.toDisplayName())
     }
+    @Test
+    fun `branch prompt uses its own word count not the main 1000 word rule`() {
+        val branch = PromptBuilder.buildStorytellerBranchSystemPrompt()
+        assertTrue("支线必须给出自己的字数要求", branch.contains("300-400字"))
+        assertTrue("支线不应残留主线的 ≥1000 字约束", !branch.contains("≥1000字"))
+
+        val main = PromptBuilder.buildStorytellerSystemPrompt()
+        assertTrue("主线仍应保留 ≥1000 字", main.contains("≥1000字"))
+    }
 }

@@ -657,6 +657,11 @@ $JSON_CONSTRAINT
         val richnessNote = when (strategy.descriptionRichness) {
             "简洁" -> "200-300字"; "丰富" -> "400-500字"; else -> "300-400字"
         }
+        // 支线是轻量行动：用支线自己的字数替换共享约束里的主线"≥1000字"，避免指令矛盾
+        val branchConstraint = JSON_CONSTRAINT.replace(
+            "\"story\": \"第一人称叙事文本（字数≥1000字）\"",
+            "\"story\": \"第一人称叙事文本（$richnessNote）\""
+        )
 
         return """
 # Role
@@ -678,7 +683,7 @@ $adultNote
 # 输出格式
 你必须只返回以下JSON结构：
 
-$JSON_CONSTRAINT
+$branchConstraint
         """.trimIndent()
     }
 
