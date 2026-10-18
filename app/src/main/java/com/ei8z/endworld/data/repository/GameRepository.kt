@@ -43,6 +43,7 @@ import com.ei8z.endworld.domain.state.BranchClassifier
 import com.ei8z.endworld.domain.state.ClientDiceRoller
 import com.ei8z.endworld.domain.state.SurvivalStateMachine
 import com.google.gson.Gson
+import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -175,7 +176,20 @@ class GameRepository(
     /** 场景评估结果，供下一轮叙事注入。 */
     private val pendingSceneNotes = mutableListOf<String>()
 
-    private val sceneEvaluator by lazy { SceneEvaluator(reasonerClient) }
+    private val sceneEvaluation by lazy {
+        SceneEvaluationService(SceneEvaluator(reasonerClient), repositoryScope)
+    }
+
+    /** 场景评估入口：统一在后台线程评估，hint 归入下一轮叙事注入。 */
+    private fun evaluateScene(
+        trigger: SceneTrigger,
+        message: String,
+        onDecision: ((JsonObject) -> Unit)? = null
+    ) {
+        sceneEvaluation.evaluate(trigger, message, onDecision = onDecision) { hint ->
+            synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+        }
+    }
 
     /** 当日玩家与 NPC 的交互文本，供每日 MemOS 抽取使用。 */
     private val lastPlayerNpcInteractions = mutableMapOf<String, MutableList<String>>()
@@ -839,37 +853,24 @@ class GameRepository(
             val newAffinity = (oldAffinity + delta).coerceIn(-100, 100)
             npcRelationAffinity[name] = newAffinity
             SceneTriggerDetector.detectStageCrossing(name, oldAffinity, newAffinity)?.let { trigger ->
-                repositoryScope.launch {
-                    try {
-                        val message = PromptBuilder.buildScene2UserMessage(
-                            npcName = name,
-                            // NpcUpdate 没有 identity 字段，这里用性格标签兜底
-                            npcIdentity = npc.personalityTags?.joinToString("、")?.ifBlank { "居民" } ?: "居民",
-                            oldAffinity = oldAffinity,
-                            newAffinity = newAffinity,
-                            boundary = trigger.detail["boundary"] ?: "",
-                            needs = npc.currentNeed ?: "",
-                            memories = npc.lastInteractionSummary ?: "",
-                            timeline = "",
-                            memosFragments = "",
-                            playerLoc = data.header.location,
-                            oldStage = trigger.detail["oldStage"]
-                                ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: "",
-                            newStage = trigger.detail["newStage"]
-                                ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: ""
-                        )
-                        sceneEvaluator.evaluate(trigger, message)?.let { decision ->
-                            val hint = decision.get("suggestedNarrativeAngle")?.asString
-                            if (!hint.isNullOrBlank()) {
-                                synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
-                            }
-                        }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e(TAG, "场景2评估失败: ${e.message}", e)
-                    }
-                }
+                val message = PromptBuilder.buildScene2UserMessage(
+                    npcName = name,
+                    // NpcUpdate 没有 identity 字段，这里用性格标签兜底
+                    npcIdentity = npc.personalityTags?.joinToString("、")?.ifBlank { "居民" } ?: "居民",
+                    oldAffinity = oldAffinity,
+                    newAffinity = newAffinity,
+                    boundary = trigger.detail["boundary"] ?: "",
+                    needs = npc.currentNeed ?: "",
+                    memories = npc.lastInteractionSummary ?: "",
+                    timeline = "",
+                    memosFragments = "",
+                    playerLoc = data.header.location,
+                    oldStage = trigger.detail["oldStage"]
+                        ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: "",
+                    newStage = trigger.detail["newStage"]
+                        ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: ""
+                )
+                evaluateScene(trigger, message)
             }
         }
 
@@ -1302,34 +1303,23 @@ class GameRepository(
 
     /** 场景3：KEY NPC 战斗伤亡的生死裁决（异步，结果供下一轮叙事注入）。 */
     private fun evaluateScene3(npc: NpcState, casualty: Casualty, trigger: SceneTrigger) {
-        repositoryScope.launch {
-            try {
-                val message = PromptBuilder.buildScene3UserMessage(
-                    npcName = npc.name, npcIdentity = npc.identity, battleName = casualty.battleId,
-                    affinity = npcAffinities[npc.npcId]?.affinity ?: 0,
-                    stage = npcAffinities[npc.npcId]?.relationshipStage?.name ?: "NEUTRAL",
-                    // §5.6 剧情保护（注册且未完成节点 → 强制 spare）未实现：PlotManager 无该查询接口，留 3C。
-                    registered = false,
-                    hasUnfinishedNode = false,
-                    factionA = factions.firstOrNull { it.factionId == casualty.factionId }?.name ?: casualty.factionId,
-                    factionB = "", casualtyA = "", casualtyB = "",
-                    combatRole = npc.combatRole.name, inNewInjuries = npc.statusTags.joinToString("、")
-                )
-                sceneEvaluator.evaluate(trigger, message)?.let { decision ->
-                    val outcome = decision.getAsJsonObject("decision")
-                        ?.get("outcome")
-                        ?.takeIf { it.isJsonPrimitive }
-                        ?.asString
-                    applyScene3Effect(mapScene3Outcome(outcome), npc, npcDepartures)
-                    decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let {
-                        synchronized(pendingSceneNotes) { pendingSceneNotes.add(it) }
-                    }
-                }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (e: Exception) {
-                Log.e(TAG, "场景3评估失败: ${e.message}", e)
-            }
+        val message = PromptBuilder.buildScene3UserMessage(
+            npcName = npc.name, npcIdentity = npc.identity, battleName = casualty.battleId,
+            affinity = npcAffinities[npc.npcId]?.affinity ?: 0,
+            stage = npcAffinities[npc.npcId]?.relationshipStage?.name ?: "NEUTRAL",
+            // §5.6 剧情保护（注册且未完成节点 → 强制 spare）未实现：PlotManager 无该查询接口，留 3C。
+            registered = false,
+            hasUnfinishedNode = false,
+            factionA = factions.firstOrNull { it.factionId == casualty.factionId }?.name ?: casualty.factionId,
+            factionB = "", casualtyA = "", casualtyB = "",
+            combatRole = npc.combatRole.name, inNewInjuries = npc.statusTags.joinToString("、")
+        )
+        evaluateScene(trigger, message) { decision ->
+            val outcome = decision.getAsJsonObject("decision")
+                ?.get("outcome")
+                ?.takeIf { it.isJsonPrimitive }
+                ?.asString
+            applyScene3Effect(mapScene3Outcome(outcome), npc, npcDepartures)
         }
     }
 
@@ -1371,27 +1361,15 @@ class GameRepository(
             // 场景4：需求跨入饱和 → 生存状态突变（§5.7 的重伤/失去庇护所/失去重要的人信号
             // 尚未建模，这里用需求饱和作为近似；只在跨越当次触发，避免每日重复评估）
             SceneTriggerDetector.detectNeedsMutation(npcId, needs, newNeeds)?.let { trigger ->
-                repositoryScope.launch {
-                    try {
-                        val message = PromptBuilder.buildScene4UserMessage(
-                            npcName = npc.name,
-                            mutationType = trigger.detail["mutation"] ?: "",
-                            needs = "食物${newNeeds.foodUrgency} 水${newNeeds.waterUrgency} 医疗${newNeeds.medicalUrgency}",
-                            location = npc.currentLocationId,
-                            memories = "",
-                            combatRole = npc.combatRole.name
-                        )
-                        sceneEvaluator.evaluate(trigger, message)?.let { decision ->
-                            decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let { hint ->
-                                synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
-                            }
-                        }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e(TAG, "场景4评估失败: ${e.message}", e)
-                    }
-                }
+                val message = PromptBuilder.buildScene4UserMessage(
+                    npcName = npc.name,
+                    mutationType = trigger.detail["mutation"] ?: "",
+                    needs = "食物${newNeeds.foodUrgency} 水${newNeeds.waterUrgency} 医疗${newNeeds.medicalUrgency}",
+                    location = npc.currentLocationId,
+                    memories = "",
+                    combatRole = npc.combatRole.name
+                )
+                evaluateScene(trigger, message)
             }
 
             val factionDead = npc.factionId?.let { fid -> factions.none { it.factionId == fid } } ?: false
@@ -1410,34 +1388,23 @@ class GameRepository(
                 if (departure.status == DepartureStatus.EXPLORING) {
                     npcDepartures[npcId] = departure.copy(status = DepartureStatus.MISSING, reason = "超时未归")
                 }
-                repositoryScope.launch {
-                    try {
-                        val expectedDay = trigger.detail["expectedReturnDay"]?.toIntOrNull() ?: currentGameDay
-                        val message = PromptBuilder.buildScene6UserMessage(
-                            npcName = npc.name, npcIdentity = npc.identity,
-                            expectedDays = NpcBehaviorEngine.DEPARTURE_WINDOW_DAYS,
-                            elapsedDays = scene6ElapsedDays(currentGameDay, expectedDay),
-                            needDrive = "", startState = npc.statusTags.joinToString("、"),
-                            threatLevel = regions[npc.currentLocationId]?.threatLevel ?: 0,
-                            activeEventsOnRoute = activeEvents.joinToString("、") { it.eventType.name }
-                        )
-                        sceneEvaluator.evaluate(trigger, message)?.let { decision ->
-                            val decisionObj = decision.getAsJsonObject("decision")
-                            val effect = mapScene6Outcome(
-                                decisionObj?.get("outcome")?.takeIf { it.isJsonPrimitive }?.asString
-                            )
-                            val newFaction = decisionObj?.get("newFaction")
-                                ?.takeIf { it.isJsonPrimitive }?.asString
-                            applyScene6Effect(effect, npc, npcDepartures, newFaction)
-                            decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let {
-                                synchronized(pendingSceneNotes) { pendingSceneNotes.add(it) }
-                            }
-                        }
-                    } catch (e: kotlinx.coroutines.CancellationException) {
-                        throw e
-                    } catch (e: Exception) {
-                        Log.e(TAG, "场景6评估失败: ${e.message}", e)
-                    }
+                val expectedDay = trigger.detail["expectedReturnDay"]?.toIntOrNull() ?: currentGameDay
+                val message = PromptBuilder.buildScene6UserMessage(
+                    npcName = npc.name, npcIdentity = npc.identity,
+                    expectedDays = NpcBehaviorEngine.DEPARTURE_WINDOW_DAYS,
+                    elapsedDays = scene6ElapsedDays(currentGameDay, expectedDay),
+                    needDrive = "", startState = npc.statusTags.joinToString("、"),
+                    threatLevel = regions[npc.currentLocationId]?.threatLevel ?: 0,
+                    activeEventsOnRoute = activeEvents.joinToString("、") { it.eventType.name }
+                )
+                evaluateScene(trigger, message) { decision ->
+                    val decisionObj = decision.getAsJsonObject("decision")
+                    val effect = mapScene6Outcome(
+                        decisionObj?.get("outcome")?.takeIf { it.isJsonPrimitive }?.asString
+                    )
+                    val newFaction = decisionObj?.get("newFaction")
+                        ?.takeIf { it.isJsonPrimitive }?.asString
+                    applyScene6Effect(effect, npc, npcDepartures, newFaction)
                 }
             }
         }
@@ -1463,28 +1430,15 @@ class GameRepository(
 
                 // 场景5：破坏性互动或关键NPC参与 → 异步评估，结果供下一轮叙事注入
                 SceneTriggerDetector.detectRareInteraction(list[i], list[j], r.interactionType)?.let { trigger ->
-                    repositoryScope.launch {
-                        try {
-                            val message = PromptBuilder.buildScene5UserMessage(
-                                npcA = list[i].name,
-                                npcB = list[j].name,
-                                interactionType = trigger.detail["reason"] ?: r.interactionType.name,
-                                aState = "${list[i].identity}｜${list[i].statusTags.joinToString("、")}",
-                                bState = "${list[j].identity}｜${list[j].statusTags.joinToString("、")}",
-                                background = r.description
-                            )
-                            sceneEvaluator.evaluate(trigger, message)?.let { decision ->
-                                decision.get("suggestedNarrativeAngle")?.asString
-                                    ?.takeIf { it.isNotBlank() }?.let { hint ->
-                                        synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
-                                    }
-                            }
-                        } catch (e: kotlinx.coroutines.CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.e(TAG, "场景5评估失败: ${e.message}", e)
-                        }
-                    }
+                    val message = PromptBuilder.buildScene5UserMessage(
+                        npcA = list[i].name,
+                        npcB = list[j].name,
+                        interactionType = trigger.detail["reason"] ?: r.interactionType.name,
+                        aState = "${list[i].identity}｜${list[i].statusTags.joinToString("、")}",
+                        bState = "${list[j].identity}｜${list[j].statusTags.joinToString("、")}",
+                        background = r.description
+                    )
+                    evaluateScene(trigger, message)
                 }
             }
         }

@@ -9,12 +9,12 @@ import com.google.gson.JsonParser
  * 提示词 → 裁决客户端（非流式）→ 原始 JSON → LightweightAIValidator 白名单校验。
  * 校验失败返回 null，调用方按 §5.12 降级策略处理。
  */
-class SceneEvaluator(private val reasoner: ReasonerApiClient) {
+class SceneEvaluator(private val reasoner: ReasonerApiClient) : SceneDecisionSource {
 
-    suspend fun evaluate(trigger: SceneTrigger, userMessage: String): JsonObject? {
+    override suspend fun evaluate(trigger: SceneTrigger, message: String): JsonObject? {
         val raw = reasoner.completeRaw(
             systemPrompt = PromptBuilder.buildLightweightEvalSystemPrompt(),
-            userMessage = userMessage,
+            userMessage = message,
             userId = "scene_${trigger.type.id}"
         ) ?: return null
         val json = try {
