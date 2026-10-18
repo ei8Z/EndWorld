@@ -1149,7 +1149,7 @@ class GameRepository(
         WorldStorytellerApiClient(apiService, authHeader)
     }
     private val memosExtractor: MemosExtractionManager by lazy {
-        MemosExtractionManager(memosApiService, memosAuthHeader)
+        MemosExtractionManager(memosApiService, memosAuthHeader, PrefsMemosPauseStore.from(context))
     }
 
     private val v3Mutex = kotlinx.coroutines.sync.Mutex()

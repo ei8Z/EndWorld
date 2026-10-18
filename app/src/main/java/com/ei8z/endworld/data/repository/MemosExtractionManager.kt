@@ -10,20 +10,18 @@ import com.ei8z.endworld.domain.npc.model.MemorySource
  * MemOS 记忆抽取管理器
  * 每日结算时调用 /extract/memory API，将交互文本转化为结构化记忆。
  * NPC 文档 §6.4
+ *
+ * 失败计数与暂停到期日放在 [MemosPauseStore]：默认内存实现只服务单测/一次性调用，
+ * App 侧由 GameRepository 注入 PrefsMemosPauseStore，进程重启后仍然暂停。
  */
 class MemosExtractionManager(
     private val memosApiService: MemosApiService,
-    private val memosApiKey: String
+    private val memosApiKey: String,
+    private val store: MemosPauseStore = InMemoryMemosPauseStore()
 ) {
-    // 连续失败计数（按 NPC 分组）
-    private val consecutiveFailures = mutableMapOf<String, Int>()
-
-    // 暂停到期游戏日：gameDay < pausedUntilDay 时视为暂停
-    private val pausedUntilDay = mutableMapOf<String, Int>()
-
     /** 连续失败 5 次后暂停 30 个游戏日（不是永久停用）。 */
     fun isExtractionPaused(npcId: String, gameDay: Int): Boolean {
-        val until = pausedUntilDay[npcId] ?: return false
+        val until = store.pausedUntil(npcId) ?: return false
         return gameDay < until
     }
 
@@ -62,8 +60,8 @@ class MemosExtractionManager(
                 recordFailure(npcId, gameDay)
                 return emptyList()
             }
-            consecutiveFailures.remove(npcId)
-            pausedUntilDay.remove(npcId)
+            store.setFailures(npcId, 0)
+            store.setPausedUntil(npcId, null)
             data.memories.orEmpty().map { m ->
                 MemoryEntry(
                     timestamp = timestamp,
@@ -82,10 +80,10 @@ class MemosExtractionManager(
     }
 
     private fun recordFailure(npcId: String, gameDay: Int) {
-        val failures = (consecutiveFailures[npcId] ?: 0) + 1
-        consecutiveFailures[npcId] = failures
+        val failures = store.failures(npcId) + 1
+        store.setFailures(npcId, failures)
         if (failures >= 5) {
-            pausedUntilDay[npcId] = gameDay + 30
+            store.setPausedUntil(npcId, gameDay + 30)
         }
     }
 }
