@@ -32,7 +32,7 @@
 ./gradlew :app:assembleDebug --no-daemon
 ```
 
-- 当前基线：**329 tests / 0 failed**（2026-10-18，3E-2 合并后）。
+- 当前基线：**337 tests / 0 failed**（2026-10-18，审计闭合）。
 - 测试数不得减少；新增测试必须断言行为。
 - JDK 17/20/25 均可（`jvmTarget=11`）；daemon 由 `gradle/gradle-daemon-jvm.properties` 指定。
 
