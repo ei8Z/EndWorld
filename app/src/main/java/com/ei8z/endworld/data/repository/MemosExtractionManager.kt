@@ -19,6 +19,9 @@ class MemosExtractionManager(
     private val memosApiKey: String,
     private val store: MemosPauseStore = InMemoryMemosPauseStore()
 ) {
+    /** 新开局清空暂停状态。 */
+    fun clearPauseState() = store.clearAll()
+
     /** 连续失败 5 次后暂停 30 个游戏日（不是永久停用）。 */
     fun isExtractionPaused(npcId: String, gameDay: Int): Boolean {
         val until = store.pausedUntil(npcId) ?: return false

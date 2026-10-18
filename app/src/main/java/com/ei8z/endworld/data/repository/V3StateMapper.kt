@@ -132,7 +132,7 @@ object V3StateMapper {
     fun schedule(e: NpcScheduleEntity): Schedule = Schedule(
         timeSlots = parse<Map<String, String>>(e.timeSlotsJson, emptyMap())
             .mapNotNull { (slotName, locationId) ->
-                enumOrOrNull<TimeSlot>(slotName)?.let { it to locationId }
+                enumOrNull<TimeSlot>(slotName)?.let { it to locationId }
             }
             .toMap(),
         overriddenBy = e.overriddenBy,
@@ -146,7 +146,7 @@ object V3StateMapper {
         overrideUntilDay = schedule.overrideUntilDay
     )
 
-    private inline fun <reified E : Enum<E>> enumOrOrNull(name: String): E? =
+    private inline fun <reified E : Enum<E>> enumOrNull(name: String): E? =
         try {
             enumValueOf<E>(name)
         } catch (e: Exception) {

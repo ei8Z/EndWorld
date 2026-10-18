@@ -81,70 +81,98 @@ class MemosExtractionManagerTest {
         assertNull(PrefsMemosPauseStore(prefs).pausedUntil("n1"))
         assertEquals(0, PrefsMemosPauseStore(prefs).failures("n2"))
     }
-}
+    @org.junit.Ignore("test fixture")
+    private class FakeSharedPreferences : SharedPreferences {
+        private val values = mutableMapOf<String, Any?>()
 
-/** 只实现被测代码用到的最小语义；apply() 立即生效，避免依赖主线程。 */
-private class FakeSharedPreferences : SharedPreferences {
-    private val values = mutableMapOf<String, Any?>()
+        override fun getAll(): MutableMap<String, *> = values.toMutableMap()
 
-    override fun getAll(): MutableMap<String, *> = values.toMutableMap()
+        override fun getString(key: String, defValue: String?): String? = values[key] as? String ?: defValue
 
-    override fun getString(key: String, defValue: String?): String? = values[key] as? String ?: defValue
+        @Suppress("UNCHECKED_CAST")
+        override fun getStringSet(key: String, defValues: MutableSet<String>?): MutableSet<String>? =
+            values[key] as? MutableSet<String> ?: defValues
 
-    @Suppress("UNCHECKED_CAST")
-    override fun getStringSet(key: String, defValues: MutableSet<String>?): MutableSet<String>? =
-        values[key] as? MutableSet<String> ?: defValues
+        override fun getInt(key: String, defValue: Int): Int = values[key] as? Int ?: defValue
 
-    override fun getInt(key: String, defValue: Int): Int = values[key] as? Int ?: defValue
+        override fun getLong(key: String, defValue: Long): Long = values[key] as? Long ?: defValue
 
-    override fun getLong(key: String, defValue: Long): Long = values[key] as? Long ?: defValue
+        override fun getFloat(key: String, defValue: Float): Float = values[key] as? Float ?: defValue
 
-    override fun getFloat(key: String, defValue: Float): Float = values[key] as? Float ?: defValue
+        override fun getBoolean(key: String, defValue: Boolean): Boolean = values[key] as? Boolean ?: defValue
 
-    override fun getBoolean(key: String, defValue: Boolean): Boolean = values[key] as? Boolean ?: defValue
+        override fun contains(key: String): Boolean = values.containsKey(key)
 
-    override fun contains(key: String): Boolean = values.containsKey(key)
+        override fun edit(): SharedPreferences.Editor = FakeEditor(values)
 
-    override fun edit(): SharedPreferences.Editor = FakeEditor(values)
+        override fun registerOnSharedPreferenceChangeListener(
+            listener: SharedPreferences.OnSharedPreferenceChangeListener?
+        ) = Unit
 
-    override fun registerOnSharedPreferenceChangeListener(
-        listener: SharedPreferences.OnSharedPreferenceChangeListener?
-    ) = Unit
-
-    override fun unregisterOnSharedPreferenceChangeListener(
-        listener: SharedPreferences.OnSharedPreferenceChangeListener?
-    ) = Unit
-}
-
-private class FakeEditor(private val values: MutableMap<String, Any?>) : SharedPreferences.Editor {
-    private val pending = mutableMapOf<String, Any?>()
-    private val removals = mutableSetOf<String>()
-
-    override fun putString(key: String, value: String?) = apply { pending[key] = value }
-
-    override fun putStringSet(key: String, values: MutableSet<String>?) = apply { pending[key] = values }
-
-    override fun putInt(key: String, value: Int) = apply { pending[key] = value }
-
-    override fun putLong(key: String, value: Long) = apply { pending[key] = value }
-
-    override fun putFloat(key: String, value: Float) = apply { pending[key] = value }
-
-    override fun putBoolean(key: String, value: Boolean) = apply { pending[key] = value }
-
-    override fun remove(key: String) = apply { removals += key }
-
-    override fun clear() = apply { removals += values.keys }
-
-    override fun commit(): Boolean {
-        applyPending()
-        return true
+        override fun unregisterOnSharedPreferenceChangeListener(
+            listener: SharedPreferences.OnSharedPreferenceChangeListener?
+        ) = Unit
     }
 
-    override fun apply() = applyPending()
+    @org.junit.Ignore("test fixture")
+    private class FakeEditor(private val values: MutableMap<String, Any?>) : SharedPreferences.Editor {
+        private val pending = mutableMapOf<String, Any?>()
+        private val removals = mutableSetOf<String>()
 
-    private fun applyPending() {
-        removals.forEach { values.remove(it) }
-        values.putAll(pending)
+        override fun putString(key: String, value: String?) = apply { pending[key] = value }
+
+        override fun putStringSet(key: String, values: MutableSet<String>?) = apply { pending[key] = values }
+
+        override fun putInt(key: String, value: Int) = apply { pending[key] = value }
+
+        override fun putLong(key: String, value: Long) = apply { pending[key] = value }
+
+        override fun putFloat(key: String, value: Float) = apply { pending[key] = value }
+
+        override fun putBoolean(key: String, value: Boolean) = apply { pending[key] = value }
+
+        override fun remove(key: String) = apply { removals += key }
+
+        override fun clear() = apply { removals += values.keys }
+
+        override fun commit(): Boolean {
+            applyPending()
+            return true
+        }
+
+        override fun apply() = applyPending()
+
+        private fun applyPending() {
+            removals.forEach { values.remove(it) }
+            values.putAll(pending)
+        }
+        @Test
+        fun `clearPauseState resets failures and pause`() = runTest {
+            val api = mockk<MemosApiService>(relaxed = true)
+            val store = InMemoryMemosPauseStore()
+            store.setFailures("n1", 5)
+            store.setPausedUntil("n1", 30)
+            val manager = MemosExtractionManager(api, "Token t", store)
+
+            manager.clearPauseState()
+
+            assertEquals(0, store.failures("n1"))
+            assertFalse(manager.isExtractionPaused("n1", gameDay = 1))
+        }
+
+        @Test
+        fun `prefs clearAll removes memos keys but keeps other prefs`() {
+            val prefs = FakeSharedPreferences()
+            val store = PrefsMemosPauseStore(prefs)
+            store.setFailures("n1", 5)
+            store.setPausedUntil("n1", 30)
+            prefs.edit().putString("stable_user_id", "u1").apply()
+
+            store.clearAll()
+
+            assertEquals(0, store.failures("n1"))
+            assertNull(store.pausedUntil("n1"))
+            assertEquals("u1", prefs.getString("stable_user_id", null))
+        }
     }
 }

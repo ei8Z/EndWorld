@@ -976,6 +976,7 @@ class GameRepository(
         npcMemories.clear()
         npcDepartures.clear()
         npcSchedules.clear()
+        memosExtractor.clearPauseState()
         lastMidnightSettlementDay = 1
         v3Loaded = false
     }
@@ -1023,6 +1024,7 @@ class GameRepository(
                 mem?.remoteSummary ?: "", dep?.status?.name ?: "PRESENT",
                 dep?.reason ?: "", dep?.expectedReturnDay))
         }
+        npcScheduleDao.clearAll()
         npcSchedules.forEach { (npcId, schedule) ->
             npcScheduleDao.upsert(V3StateMapper.scheduleEntity(npcId, schedule))
         }
@@ -1343,42 +1345,9 @@ class GameRepository(
                     com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD, deathCause)
                 continue
             }
-            // 场景7：实际位置与时间表预期位置不符。离队期间位置本就是"不正常"的，
-            // 不判定；时间表被剧情覆盖且未到期的也不判定。
-            val schedule = npcSchedules[npcId]
-            val departureStatus = npcDepartures[npcId]?.status
-            if (schedule != null && (departureStatus == null || departureStatus == DepartureStatus.PRESENT)) {
-                val expectedLocation = engine.getCurrentLocation(schedule, stateMachine.clock.currentHour)
-                SceneTriggerDetector.detectScheduleAnomaly(
-                    npcId, npc.currentLocationId, expectedLocation, schedule.overrideUntilDay, currentGameDay
-                )?.let { trigger ->
-                    repositoryScope.launch {
-                        try {
-                            val message = PromptBuilder.buildScene7UserMessage(
-                                npcName = npc.name,
-                                currentLoc = npc.currentLocationId,
-                                expectedLoc = expectedLocation,
-                                anomalyType = "位置与时间表不符",
-                                triggerSource = "每日结算时间表校验",
-                                // 尚未记录异常起始日，只能说明"本次结算发现"；持续天数留 3C
-                                durationDays = 0,
-                                npcState = "${npc.identity}｜${npc.statusTags.joinToString("、")}"
-                            )
-                            sceneEvaluator.evaluate(trigger, message)?.let { decision ->
-                                decision.get("suggestedNarrativeAngle")?.asString
-                                    ?.takeIf { it.isNotBlank() }?.let { hint ->
-                                        synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
-                                    }
-                            }
-                        } catch (e: kotlinx.coroutines.CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.e(TAG, "场景7评估失败: ${e.message}", e)
-                        }
-                    }
-                }
-            }
-
+            // 场景7：时间表持久化与 detectScheduleAnomaly 已就绪，但 NPC 目前没有移动逻辑
+            // （currentLocationId 只在创建时赋值，时间表五档全填当前位置），触发源不可达。
+            // 接线留到 3C 实现 NPC 移动 + 异常起始日/去重之后，避免"接了但永不触发"。
             // 场景 4：需求跨入饱和 → 生存状态突变（§5.7 的重伤/失去庇护所/失去重要的人信号
             // 尚未建模，这里用需求饱和作为近似；只在跨越当次触发，避免每日重复评估）
             SceneTriggerDetector.detectNeedsMutation(npcId, needs, newNeeds)?.let { trigger ->

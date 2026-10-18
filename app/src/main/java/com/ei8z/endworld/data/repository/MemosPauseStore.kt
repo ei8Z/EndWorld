@@ -16,6 +16,9 @@ interface MemosPauseStore {
     fun setFailures(npcId: String, value: Int)
     fun pausedUntil(npcId: String): Int?
     fun setPausedUntil(npcId: String, day: Int?)
+
+    /** 新开局清空全部暂停/失败状态，避免同名 NPC 继承上一局。 */
+    fun clearAll()
 }
 
 class InMemoryMemosPauseStore : MemosPauseStore {
@@ -32,6 +35,11 @@ class InMemoryMemosPauseStore : MemosPauseStore {
 
     override fun setPausedUntil(npcId: String, day: Int?) {
         if (day == null) paused.remove(npcId) else paused[npcId] = day
+    }
+
+    override fun clearAll() {
+        failures.clear()
+        paused.clear()
     }
 }
 
@@ -52,16 +60,26 @@ class PrefsMemosPauseStore(private val prefs: SharedPreferences) : MemosPauseSto
         else prefs.edit().putInt(pausedKey(npcId), day).apply()
     }
 
+    override fun clearAll() {
+        val editor = prefs.edit()
+        prefs.all.keys
+            .filter { it.startsWith(FAIL_PREFIX) || it.startsWith(PAUSE_PREFIX) }
+            .forEach { editor.remove(it) }
+        editor.apply()
+    }
+
     /** GameRepository 的缓存偏好文件名，与 stable_user_id 等共用一个文件。 */
     companion object {
         const val PREFS_NAME = "endworld_cache"
         private const val NO_PAUSE = -1
+        private const val FAIL_PREFIX = "memos_fail_"
+        private const val PAUSE_PREFIX = "memos_pause_"
 
         fun from(context: Context): PrefsMemosPauseStore =
             PrefsMemosPauseStore(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
 
-        private fun failuresKey(npcId: String) = "memos_fail_$npcId"
+        private fun failuresKey(npcId: String) = "$FAIL_PREFIX$npcId"
 
-        private fun pausedKey(npcId: String) = "memos_pause_$npcId"
+        private fun pausedKey(npcId: String) = "$PAUSE_PREFIX$npcId"
     }
 }
