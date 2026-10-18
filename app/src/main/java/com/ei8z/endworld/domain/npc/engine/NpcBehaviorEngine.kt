@@ -217,7 +217,8 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
         affinity: AffinityState,
         regionThreatLevel: Int,
         factionDissolved: Boolean,
-        isInjured: Boolean
+        isInjured: Boolean,
+        currentDay: Int
     ): DepartureInfo? {
         // 死亡判定由外部CasualtyReport或需求过载致死处理
 
@@ -236,7 +237,7 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
             return DepartureInfo(
                 DepartureStatus.EXPLORING,
                 reason = "寻找物资",
-                expectedReturnDay = 3 // 最多3天
+                expectedReturnDay = currentDay + 3 // 从离队当天起最多 3 游戏日
             )
         }
 
@@ -247,6 +248,10 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
 
         return null
     }
+
+    /** 只有未离队（无记录或 PRESENT）的 NPC 才允许重新派发离队状态，避免每日覆盖 MISSING/EXPLORING。 */
+    fun canInitiateDeparture(departure: DepartureInfo?): Boolean =
+        departure == null || departure.status == DepartureStatus.PRESENT
 
     // === 时间表查询 ===
 

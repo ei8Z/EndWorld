@@ -3,6 +3,8 @@ package com.ei8z.endworld.data.repository
 import com.ei8z.endworld.domain.npc.model.NeedState
 import com.ei8z.endworld.domain.npc.engine.Casualty
 import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
+import com.ei8z.endworld.domain.npc.model.DepartureInfo
+import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.NpcTier
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
@@ -98,6 +100,18 @@ object SceneTriggerDetector {
                 "battleId" to casualty.battleId,
                 "factionId" to casualty.factionId
             )
+        )
+    }
+
+    /** 场景6：外出探索超过预期归来日仍未归（只在 EXPLORING 状态触发一次）。 */
+    fun detectDepartureTimeout(npcId: String, departure: DepartureInfo, currentDay: Int): SceneTrigger? {
+        if (departure.status != DepartureStatus.EXPLORING) return null
+        val expected = departure.expectedReturnDay ?: return null
+        if (currentDay <= expected) return null
+        return SceneTrigger(
+            type = SceneType.TIMEOUT,
+            npcId = npcId,
+            detail = mapOf("expectedReturnDay" to expected.toString(), "currentDay" to currentDay.toString())
         )
     }
 

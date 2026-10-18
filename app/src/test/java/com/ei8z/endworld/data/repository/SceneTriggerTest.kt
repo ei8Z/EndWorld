@@ -2,8 +2,11 @@ package com.ei8z.endworld.data.repository
 
 import com.ei8z.endworld.domain.npc.engine.Casualty
 import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
+import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
 import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine.InteractionType
 import com.ei8z.endworld.domain.npc.model.CombatRole
+import com.ei8z.endworld.domain.npc.model.DepartureInfo
+import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NeedState
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.NpcTier
@@ -107,5 +110,47 @@ class SceneTriggerTest {
                 Casualty("c1", CasualtySeverity.WOUNDED, "battle", "F_A")
             )
         )
+    }
+
+    @Test
+    fun `exploring npc past expected return triggers scene 6`() {
+        val dep = DepartureInfo(DepartureStatus.EXPLORING, "外出探索", expectedReturnDay = 3)
+        val trigger = SceneTriggerDetector.detectDepartureTimeout("n1", dep, currentDay = 4)
+        assertEquals(SceneType.TIMEOUT, trigger?.type)
+    }
+
+    @Test
+    fun `departure timeout boundary is day 14 for expected day 13`() {
+        val dep = DepartureInfo(DepartureStatus.EXPLORING, "外出探索", expectedReturnDay = 13)
+        assertNull(SceneTriggerDetector.detectDepartureTimeout("n1", dep, currentDay = 13))
+        assertEquals(SceneType.TIMEOUT, SceneTriggerDetector.detectDepartureTimeout("n1", dep, currentDay = 14)?.type)
+    }
+
+    @Test
+    fun `overdue departure is evaluated once and not redispatched`() {
+        val engine = NpcBehaviorEngine()
+        val needs = NeedState(
+            foodUrgency = 95, waterUrgency = 40, medicalUrgency = 0,
+            safetyUrgency = 40, socialUrgency = 20
+        )
+        val affinity = engine.initializeAffinity(0)
+        var departure: DepartureInfo? = DepartureInfo(
+            DepartureStatus.EXPLORING, "寻找物资", expectedReturnDay = 13
+        )
+        val triggerDays = mutableListOf<Int>()
+
+        for (day in 14..20) {
+            if (engine.canInitiateDeparture(departure)) {
+                engine.shouldDepart(npc("n1", NpcTier.CONTACT), needs, affinity, 0, false, false, currentDay = day)
+                    ?.let { departure = it }
+            }
+            val trigger = SceneTriggerDetector.detectDepartureTimeout("n1", departure!!, day)
+            if (trigger != null) {
+                triggerDays += day
+                departure = departure!!.copy(status = DepartureStatus.MISSING, reason = "超时未归")
+            }
+        }
+
+        assertEquals(listOf(14), triggerDays)
     }
 }

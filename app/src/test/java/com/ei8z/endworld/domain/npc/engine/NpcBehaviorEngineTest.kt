@@ -2,6 +2,7 @@ package com.ei8z.endworld.domain.npc.engine
 
 import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine.InteractionType
 import com.ei8z.endworld.domain.npc.model.CombatRole
+import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NeedState
 import com.ei8z.endworld.domain.npc.model.NpcState
 import org.junit.Assert.assertEquals
@@ -40,5 +41,22 @@ class NpcBehaviorEngineTest {
         val result = engine.resolveNpcInteraction(npc("a"), needs, npc("b"), needs)
 
         assertEquals(null, result)
+    }
+
+    @Test
+    fun `exploring departure returns three days from current day`() {
+        val engine = NpcBehaviorEngine()
+        val needs = NeedState(
+            foodUrgency = 95, waterUrgency = 40, medicalUrgency = 0,
+            safetyUrgency = 40, socialUrgency = 20
+        )
+
+        val departure = engine.shouldDepart(
+            npc("n1"), needs, engine.initializeAffinity(0),
+            regionThreatLevel = 0, factionDissolved = false, isInjured = false, currentDay = 10
+        )
+
+        assertEquals(DepartureStatus.EXPLORING, departure?.status)
+        assertEquals(13, departure?.expectedReturnDay ?: -1)
     }
 }

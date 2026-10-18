@@ -1356,9 +1356,43 @@ class GameRepository(
             }
 
             val factionDead = npc.factionId?.let { fid -> factions.none { it.factionId == fid } } ?: false
-            val dep = engine.shouldDepart(npc, newNeeds, npcAffinities[npcId]
-                ?: engine.initializeAffinity(0), threat, factionDead, injured)
-            if (dep != null) npcDepartures[npcId] = dep
+            // 已离队（EXPLORING/MISSING/MIGRATED 等）不再每日重派，否则超时状态会被覆盖
+            if (engine.canInitiateDeparture(npcDepartures[npcId])) {
+                val dep = engine.shouldDepart(
+                    npc, newNeeds, npcAffinities[npcId] ?: engine.initializeAffinity(0),
+                    threat, factionDead, injured, currentGameDay
+                )
+                if (dep != null) npcDepartures[npcId] = dep
+            }
+
+            // 场景6：外出探索超过预期归来日 → 标记 MISSING，只评估一次
+            val departure = npcDepartures[npcId] ?: continue
+            SceneTriggerDetector.detectDepartureTimeout(npcId, departure, currentGameDay)?.let { trigger ->
+                if (departure.status == DepartureStatus.EXPLORING) {
+                    npcDepartures[npcId] = departure.copy(status = DepartureStatus.MISSING, reason = "超时未归")
+                }
+                repositoryScope.launch {
+                    try {
+                        val message = PromptBuilder.buildScene6UserMessage(
+                            npcName = npc.name, npcIdentity = npc.identity,
+                            expectedDays = trigger.detail["expectedReturnDay"]?.toIntOrNull() ?: 0,
+                            elapsedDays = currentGameDay - (trigger.detail["expectedReturnDay"]?.toIntOrNull() ?: 0),
+                            needDrive = "", startState = npc.statusTags.joinToString("、"),
+                            threatLevel = regions[npc.currentLocationId]?.threatLevel ?: 0,
+                            activeEventsOnRoute = activeEvents.joinToString("、") { it.eventType.name }
+                        )
+                        sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                            decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let {
+                                synchronized(pendingSceneNotes) { pendingSceneNotes.add(it) }
+                            }
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        Log.e(TAG, "场景6评估失败: ${e.message}", e)
+                    }
+                }
+            }
         }
         // NPC上限检查（30个接触NPC限制）
         val contactNpcs = npcStates.values.filter { it.tier == com.ei8z.endworld.domain.npc.model.NpcTier.CONTACT &&
