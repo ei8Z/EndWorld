@@ -73,6 +73,9 @@ class V3WorldStateStore(private val db: AppDatabase) {
     /** 整体替换五表；异常必须抛出，Room 事务才能回滚。 */
     suspend fun save(snapshot: V3WorldSnapshot) {
         db.withTransaction {
+            factionDao.clearAll()
+            regionDao.clearAll()
+            npcStateDao.clearAll()
             snapshot.factions.forEach { f ->
                 factionDao.upsertFaction(
                     FactionEntity(

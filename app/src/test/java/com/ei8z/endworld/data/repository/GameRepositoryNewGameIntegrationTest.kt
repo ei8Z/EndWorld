@@ -60,7 +60,12 @@ class GameRepositoryNewGameIntegrationTest {
             100, 100, 100, 100, 50, 50, 0
         )
 
-        assertEquals("新角色", db.playerDao().getPlayer().first()?.name)
+        val player = db.playerDao().getPlayer().first()
+        assertEquals("新角色", player?.name)
+        assertEquals("成年男性", player?.genderPhysique)
+        assertEquals("冷静", player?.personality)
+        assertEquals("丧尸", player?.doomType)
+        assertTrue(db.memoryDao().getRecentMemories(10).first().isNotEmpty())
         assertEquals("第1天", db.worldDao().getWorldInfo().first()?.currentDate)
         assertTrue(db.historyDao().getAllHistory().first().isEmpty())
         assertTrue(db.factionDao().getAllFactions().first().isEmpty())

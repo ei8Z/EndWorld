@@ -20,7 +20,7 @@ class SceneEvaluationServiceTest {
             scope = this
         )
 
-        service.evaluate(SceneTrigger(SceneType.STAGE_CROSSING, "n1"), "msg") { hint.complete(it) }
+        service.evaluate(SceneTrigger(SceneType.STAGE_CROSSING, "n1"), { "msg" }) { hint.complete(it) }
 
         assertEquals("老张改变了态度", hint.await())
     }
@@ -28,7 +28,14 @@ class SceneEvaluationServiceTest {
     @Test
     fun `malformed decision does not crash`() = runTest {
         val service = SceneEvaluationService({ _, _ -> null }, this)
-        service.evaluate(SceneTrigger(SceneType.STAGE_CROSSING, "n1"), "msg").join()
+        service.evaluate(SceneTrigger(SceneType.STAGE_CROSSING, "n1"), { "msg" }).join()
         // 无异常即可
+    }
+
+    @Test
+    fun `throwing message builder is contained`() = runTest {
+        val service = SceneEvaluationService({ _, _ -> null }, this)
+        service.evaluate(SceneTrigger(SceneType.STAGE_CROSSING, "n1"), { error("boom") }).join()
+        // 构建消息抛错不得打断调用方；异常在 service 内被记录
     }
 }

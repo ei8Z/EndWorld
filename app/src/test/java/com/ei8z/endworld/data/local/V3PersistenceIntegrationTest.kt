@@ -100,6 +100,16 @@ class V3PersistenceIntegrationTest {
     }
 
     @Test
+    fun `save replaces factions missing from the snapshot`() = runTest {
+        store.save(snapshot())
+
+        store.save(snapshot(factionName = "新势力", factionId = "F02"))
+
+        assertEquals(listOf("F02"), store.load().factions.map { it.factionId })
+        assertEquals(listOf("F02"), db.factionDao().getAllFactions().first().map { it.factionId })
+    }
+
+    @Test
     fun `failed save rolls back every table`() = runTest {
         store.save(snapshot())
         db.openHelper.writableDatabase.execSQL(
@@ -119,10 +129,14 @@ class V3PersistenceIntegrationTest {
         assertEquals(1, db.globalEventDao().getAllEvents().first().size)
     }
 
-    private fun snapshot(factionName: String = "红松营地", eventId: String = "E01") = V3WorldSnapshot(
+    private fun snapshot(
+        factionName: String = "红松营地",
+        eventId: String = "E01",
+        factionId: String = "F01"
+    ) = V3WorldSnapshot(
         factions = listOf(
             Faction(
-                factionId = "F01", name = factionName, factionType = FactionType.SURVIVOR_SETTLEMENT,
+                factionId = factionId, name = factionName, factionType = FactionType.SURVIVOR_SETTLEMENT,
                 population = 40, militaryStrength = 12, armamentRate = 0.3f,
                 unitCombatCoefficient = 1.0f, controlledRegions = mutableListOf("R01"),
                 relationshipMatrix = mutableMapOf("F02" to FactionRelation.HOSTILE),

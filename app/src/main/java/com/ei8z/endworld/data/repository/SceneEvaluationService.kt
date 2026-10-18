@@ -24,12 +24,12 @@ class SceneEvaluationService(
 ) {
     fun evaluate(
         trigger: SceneTrigger,
-        message: String,
+        message: () -> String,
         onDecision: ((JsonObject) -> Unit)? = null,
         onHint: ((String) -> Unit)? = null
     ): Job = scope.launch {
         try {
-            source.evaluate(trigger, message)?.let { decision ->
+            source.evaluate(trigger, message())?.let { decision ->
                 onDecision?.invoke(decision)
                 decision.get("suggestedNarrativeAngle")?.asString
                     ?.takeIf { it.isNotBlank() }
@@ -38,7 +38,7 @@ class SceneEvaluationService(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            Log.e(TAG, "场景${trigger.type.id}评估失败: ${e.message}", e)
+            Log.e(TAG, "场景${trigger.type.id}评估失败 npc=${trigger.npcId}: ${e.message}", e)
         }
     }
 

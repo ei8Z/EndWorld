@@ -179,7 +179,7 @@ class GameRepository(
     /** 场景评估入口：统一在后台线程评估，hint 归入下一轮叙事注入。 */
     private fun evaluateScene(
         trigger: SceneTrigger,
-        message: String,
+        message: () -> String,
         onDecision: ((JsonObject) -> Unit)? = null
     ) {
         sceneEvaluation.evaluate(trigger, message, onDecision = onDecision) { hint ->
@@ -849,7 +849,8 @@ class GameRepository(
             val newAffinity = (oldAffinity + delta).coerceIn(-100, 100)
             npcRelationAffinity[name] = newAffinity
             SceneTriggerDetector.detectStageCrossing(name, oldAffinity, newAffinity)?.let { trigger ->
-                val message = PromptBuilder.buildScene2UserMessage(
+                evaluateScene(trigger, message = {
+                    PromptBuilder.buildScene2UserMessage(
                     npcName = name,
                     // NpcUpdate 没有 identity 字段，这里用性格标签兜底
                     npcIdentity = npc.personalityTags?.joinToString("、")?.ifBlank { "居民" } ?: "居民",
@@ -866,7 +867,7 @@ class GameRepository(
                     newStage = trigger.detail["newStage"]
                         ?.let { runCatching { RelationshipStage.valueOf(it).toDisplayName() }.getOrDefault(it) } ?: ""
                 )
-                evaluateScene(trigger, message)
+                })
             }
         }
 
@@ -1252,7 +1253,8 @@ class GameRepository(
 
     /** 场景3：KEY NPC 战斗伤亡的生死裁决（异步，结果供下一轮叙事注入）。 */
     private fun evaluateScene3(npc: NpcState, casualty: Casualty, trigger: SceneTrigger) {
-        val message = PromptBuilder.buildScene3UserMessage(
+        evaluateScene(trigger, message = {
+            PromptBuilder.buildScene3UserMessage(
             npcName = npc.name, npcIdentity = npc.identity, battleName = casualty.battleId,
             affinity = npcAffinities[npc.npcId]?.affinity ?: 0,
             stage = npcAffinities[npc.npcId]?.relationshipStage?.name ?: "NEUTRAL",
@@ -1263,7 +1265,7 @@ class GameRepository(
             factionB = "", casualtyA = "", casualtyB = "",
             combatRole = npc.combatRole.name, inNewInjuries = npc.statusTags.joinToString("、")
         )
-        evaluateScene(trigger, message) { decision ->
+        }) { decision ->
             val outcome = decision.getAsJsonObject("decision")
                 ?.get("outcome")
                 ?.takeIf { it.isJsonPrimitive }
@@ -1310,7 +1312,8 @@ class GameRepository(
             // 场景4：需求跨入饱和 → 生存状态突变（§5.7 的重伤/失去庇护所/失去重要的人信号
             // 尚未建模，这里用需求饱和作为近似；只在跨越当次触发，避免每日重复评估）
             SceneTriggerDetector.detectNeedsMutation(npcId, needs, newNeeds)?.let { trigger ->
-                val message = PromptBuilder.buildScene4UserMessage(
+                evaluateScene(trigger, message = {
+                    PromptBuilder.buildScene4UserMessage(
                     npcName = npc.name,
                     mutationType = trigger.detail["mutation"] ?: "",
                     needs = "食物${newNeeds.foodUrgency} 水${newNeeds.waterUrgency} 医疗${newNeeds.medicalUrgency}",
@@ -1318,7 +1321,7 @@ class GameRepository(
                     memories = "",
                     combatRole = npc.combatRole.name
                 )
-                evaluateScene(trigger, message)
+                })
             }
 
             val factionDead = npc.factionId?.let { fid -> factions.none { it.factionId == fid } } ?: false
@@ -1338,7 +1341,8 @@ class GameRepository(
                     npcDepartures[npcId] = departure.copy(status = DepartureStatus.MISSING, reason = "超时未归")
                 }
                 val expectedDay = trigger.detail["expectedReturnDay"]?.toIntOrNull() ?: currentGameDay
-                val message = PromptBuilder.buildScene6UserMessage(
+                evaluateScene(trigger, message = {
+                    PromptBuilder.buildScene6UserMessage(
                     npcName = npc.name, npcIdentity = npc.identity,
                     expectedDays = NpcBehaviorEngine.DEPARTURE_WINDOW_DAYS,
                     elapsedDays = scene6ElapsedDays(currentGameDay, expectedDay),
@@ -1346,7 +1350,7 @@ class GameRepository(
                     threatLevel = regions[npc.currentLocationId]?.threatLevel ?: 0,
                     activeEventsOnRoute = activeEvents.joinToString("、") { it.eventType.name }
                 )
-                evaluateScene(trigger, message) { decision ->
+                }) { decision ->
                     val decisionObj = decision.getAsJsonObject("decision")
                     val effect = mapScene6Outcome(
                         decisionObj?.get("outcome")?.takeIf { it.isJsonPrimitive }?.asString
@@ -1379,7 +1383,8 @@ class GameRepository(
 
                 // 场景5：破坏性互动或关键NPC参与 → 异步评估，结果供下一轮叙事注入
                 SceneTriggerDetector.detectRareInteraction(list[i], list[j], r.interactionType)?.let { trigger ->
-                    val message = PromptBuilder.buildScene5UserMessage(
+                    evaluateScene(trigger, message = {
+                        PromptBuilder.buildScene5UserMessage(
                         npcA = list[i].name,
                         npcB = list[j].name,
                         interactionType = trigger.detail["reason"] ?: r.interactionType.name,
@@ -1387,7 +1392,7 @@ class GameRepository(
                         bState = "${list[j].identity}｜${list[j].statusTags.joinToString("、")}",
                         background = r.description
                     )
-                    evaluateScene(trigger, message)
+                    })
                 }
             }
         }

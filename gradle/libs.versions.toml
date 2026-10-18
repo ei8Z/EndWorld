@@ -8,6 +8,7 @@ espressoCore = "3.7.0"
 mockk = "1.13.12"
 coroutinesTest = "1.8.1"
 json = "20231013"
+# 4.16：4.13 的 ASM 不支持 JDK 25 daemon（Unsupported class file major version 69）；仅测试依赖
 robolectric = "4.16"
 androidxTestCore = "1.6.1"
 appcompat = "1.7.1"
