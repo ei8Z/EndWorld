@@ -5,6 +5,7 @@ import com.ei8z.endworld.domain.npc.model.CombatRole
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NeedState
 import com.ei8z.endworld.domain.npc.model.NpcState
+import com.ei8z.endworld.domain.npc.model.TimeSlot
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import kotlin.random.Random
@@ -58,5 +59,19 @@ class NpcBehaviorEngineTest {
 
         assertEquals(DepartureStatus.EXPLORING, departure?.status)
         assertEquals(13, departure?.expectedReturnDay ?: -1)
+    }
+
+    @Test
+    fun `schedule uses a work location when one is provided`() {
+        val schedule = NpcBehaviorEngine().initializeSchedule("哨兵", "HOME", "WORK")
+        assertEquals("HOME", schedule.timeSlots[TimeSlot.DAWN])
+        assertEquals("WORK", schedule.timeSlots[TimeSlot.MORNING])
+        assertEquals("HOME", schedule.timeSlots[TimeSlot.NIGHT])
+    }
+
+    @Test
+    fun `schedule without a work location stays at home`() {
+        val schedule = NpcBehaviorEngine().initializeSchedule("居民", "HOME")
+        assertEquals(setOf("HOME"), schedule.timeSlots.values.toSet())
     }
 }

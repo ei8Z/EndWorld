@@ -820,7 +820,9 @@ class GameRepository(
                     npcNeeds[npcId] = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50)
                     npcAffinities[npcId] = npcEngine.initializeAffinity(0, npc.affinityDelta)
                     npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
-                    npcSchedules[npcId] = npcEngine.initializeSchedule(n.identity, n.currentLocationId)
+                    npcSchedules[npcId] = npcEngine.initializeSchedule(
+                        n.identity, n.currentLocationId, workLocationFor(n.currentLocationId)
+                    )
                     npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
                         "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
                         source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
@@ -1147,6 +1149,7 @@ class GameRepository(
     private val worldEngine = com.ei8z.endworld.domain.world.engine.WorldRulesEngine()
     private val dailySettlement = com.ei8z.endworld.domain.world.engine.DailySettlement(worldEngine)
     private val npcEngine = com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine()
+    private val npcMovementEngine = com.ei8z.endworld.domain.npc.engine.NpcMovementEngine()
     private val worldStorytellerClient by lazy {
         WorldStorytellerApiClient(apiService, authHeader)
     }
@@ -1236,7 +1239,9 @@ class GameRepository(
                 npcDepartures[e.npcId] = V3StateMapper.departure(e)
                 // 旧存档没有时间表行：按当前位置补默认表，既不丢 NPC 也不立刻报场景7
                 npcSchedules.getOrPut(e.npcId) {
-                    npcEngine.initializeSchedule(e.identity, e.currentLocationId)
+                    npcEngine.initializeSchedule(
+                        e.identity, e.currentLocationId, workLocationFor(e.currentLocationId)
+                    )
                 }
             }
         }
@@ -1328,9 +1333,14 @@ class GameRepository(
         }
     }
 
+    /** 时间表的工作点：取当前区域的第一个邻接区域；未知区域（不在 V3 地图内）则留在家。 */
+    private fun workLocationFor(locationId: String): String? =
+        regions[locationId]?.adjacentRegions?.firstOrNull()
+
     private suspend fun resolveNpcSettlement() {
         val engine = npcEngine
-        for ((npcId, npc) in npcStates) {
+        for (npcId in npcStates.keys.toList()) {
+            var npc = npcStates[npcId] ?: continue
             if (npcDepartures[npcId]?.status == com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD) continue
             val needs = npcNeeds[npcId] ?: continue
             val threat = regions[npc.currentLocationId]?.threatLevel ?: 0
@@ -1345,10 +1355,20 @@ class GameRepository(
                     com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD, deathCause)
                 continue
             }
-            // 场景7：时间表持久化与 detectScheduleAnomaly 已就绪，但 NPC 目前没有移动逻辑
-            // （currentLocationId 只在创建时赋值，时间表五档全填当前位置），触发源不可达。
-            // 接线留到 3C 实现 NPC 移动 + 异常起始日/去重之后，避免"接了但永不触发"。
-            // 场景 4：需求跨入饱和 → 生存状态突变（§5.7 的重伤/失去庇护所/失去重要的人信号
+            // 时间表移动：健康且在场的 NPC 按当前时段去工作点/回家。
+            // 移动后立刻重新取快照，保证当天后续逻辑（异常校验、离队、互动）看到新位置。
+            val schedule = npcSchedules[npcId] ?: npcEngine.initializeSchedule(
+                npc.identity, npc.currentLocationId, workLocationFor(npc.currentLocationId)
+            ).also { npcSchedules[npcId] = it }
+            val move = npcMovementEngine.decide(
+                schedule, stateMachine.clock.currentHour, npc.currentLocationId,
+                injured, npcDepartures[npcId]?.status
+            )
+            if (move.moved) {
+                npcStates[npcId] = npc.copy(currentLocationId = move.targetLocationId)
+                npc = npcStates[npcId] ?: continue
+            }
+            // 场景4：需求跨入饱和 → 生存状态突变（§5.7 的重伤/失去庇护所/失去重要的人信号
             // 尚未建模，这里用需求饱和作为近似；只在跨越当次触发，避免每日重复评估）
             SceneTriggerDetector.detectNeedsMutation(npcId, needs, newNeeds)?.let { trigger ->
                 repositoryScope.launch {
@@ -1664,7 +1684,9 @@ class GameRepository(
         npcNeeds[npcId] = npcEngine.initializeNeeds(factionFoodShortage = false, regionHighThreat = (regions[loc]?.threatLevel ?: 0) > 50)
         npcAffinities[npcId] = npcEngine.initializeAffinity(baseAttitude, 5)
         npcMemories[npcId] = com.ei8z.endworld.domain.npc.model.MemoryQueue(mutableListOf(), "", 6)
-        npcSchedules[npcId] = npcEngine.initializeSchedule(npc.identity, npc.currentLocationId)
+        npcSchedules[npcId] = npcEngine.initializeSchedule(
+            npc.identity, npc.currentLocationId, workLocationFor(npc.currentLocationId)
+        )
         npcEngine.addMemory(npcMemories[npcId]!!, com.ei8z.endworld.domain.npc.model.MemoryEntry(
             "[Day $gameDay]", loc, "与玩家首次互动", 5, source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
         Log.d(TAG, "V3 NPC提取: $target → $npcId")
