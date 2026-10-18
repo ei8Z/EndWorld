@@ -1,5 +1,7 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.domain.npc.engine.Casualty
+import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
 import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine.InteractionType
 import com.ei8z.endworld.domain.npc.model.CombatRole
 import com.ei8z.endworld.domain.npc.model.NeedState
@@ -84,6 +86,25 @@ class SceneTriggerTest {
         assertNull(
             SceneTriggerDetector.detectRareInteraction(
                 npc("a", NpcTier.BACKGROUND), npc("b", NpcTier.BACKGROUND), InteractionType.DAILY_SOCIAL
+            )
+        )
+    }
+
+    @Test
+    fun `key npc casualty triggers scene 3`() {
+        val trigger = SceneTriggerDetector.detectKeyNpcCasualty(
+            npc("k1", NpcTier.KEY),
+            Casualty("k1", CasualtySeverity.SEVERE, "battle", "F_A")
+        )
+        assertEquals(SceneType.KEY_NPC_DEATH, trigger?.type)
+    }
+
+    @Test
+    fun `contact npc casualty does not trigger scene 3`() {
+        assertNull(
+            SceneTriggerDetector.detectKeyNpcCasualty(
+                npc("c1", NpcTier.CONTACT),
+                Casualty("c1", CasualtySeverity.WOUNDED, "battle", "F_A")
             )
         )
     }

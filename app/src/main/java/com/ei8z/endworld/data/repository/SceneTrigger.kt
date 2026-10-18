@@ -1,6 +1,7 @@
 package com.ei8z.endworld.data.repository
 
 import com.ei8z.endworld.domain.npc.model.NeedState
+import com.ei8z.endworld.domain.npc.engine.Casualty
 import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.NpcTier
@@ -82,6 +83,20 @@ object SceneTriggerDetector {
                 "npcB" to npcB.name,
                 "interactionType" to interactionType.name,
                 "reason" to if (destructive) "破坏性互动" else "关键NPC参与"
+            )
+        )
+    }
+
+    /** 场景3：只有 KEY NPC 的战斗伤亡需要裁决生死。 */
+    fun detectKeyNpcCasualty(npc: NpcState, casualty: Casualty): SceneTrigger? {
+        if (npc.tier != NpcTier.KEY) return null
+        return SceneTrigger(
+            type = SceneType.KEY_NPC_DEATH,
+            npcId = npc.npcId,
+            detail = mapOf(
+                "severity" to casualty.severity.name,
+                "battleId" to casualty.battleId,
+                "factionId" to casualty.factionId
             )
         )
     }

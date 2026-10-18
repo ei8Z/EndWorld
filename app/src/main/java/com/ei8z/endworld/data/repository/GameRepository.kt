@@ -28,6 +28,13 @@ import com.ei8z.endworld.data.remote.model.ResourceUpdate
 import com.ei8z.endworld.data.remote.model.ResponseHeader
 import com.ei8z.endworld.data.remote.model.StatusUpdate
 import com.ei8z.endworld.data.remote.model.WorldUpdate
+import com.ei8z.endworld.domain.npc.engine.BattleCasualtyEngine
+import com.ei8z.endworld.domain.npc.engine.Casualty
+import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
+import com.ei8z.endworld.domain.npc.model.DepartureInfo
+import com.ei8z.endworld.domain.npc.model.DepartureStatus
+import com.ei8z.endworld.domain.npc.model.NpcState
+import com.ei8z.endworld.domain.npc.model.NpcTier
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
 import com.ei8z.endworld.domain.npc.model.toDisplayName
 import com.ei8z.endworld.domain.npc.model.toRelationshipStage
@@ -1221,6 +1228,21 @@ class GameRepository(
         val result = dailySettlement.execute(factions, regions, activeEvents)
         Log.d(TAG, "V3结算: 资源${result.resourceChanges.size} 阈值${result.thresholdTriggers.size} 战斗${result.battleResults.size}")
         absorbSettlementEvents(result.newEvents)
+
+        // 战斗伤亡抽取：只给状态标签，KEY NPC 交给场景3 裁决生死
+        val casualtyEngine = BattleCasualtyEngine()
+        val casualties = result.battleResults.flatMap { battle ->
+            casualtyEngine.roll(npcStates.values, battle)
+        }
+        for (casualty in casualties) {
+            val npc = npcStates[casualty.npcId] ?: continue
+            val tag = if (casualty.severity == CasualtySeverity.SEVERE) "重伤" else "受伤"
+            if (tag !in npc.statusTags) npc.statusTags.add(tag)
+            SceneTriggerDetector.detectKeyNpcCasualty(npc, casualty)?.let { trigger ->
+                evaluateScene3(npc, casualty, trigger)
+            }
+        }
+
         resolveNpcSettlement()
         // V3.0: 轻量AI评估（场景1）
         if (result.needsAIEvaluation) { tryCallLightweightAI(result.thresholdTriggers) }
@@ -1251,6 +1273,37 @@ class GameRepository(
 
         // 持久化
         persistV3State()
+    }
+
+    /** 场景3：KEY NPC 战斗伤亡的生死裁决（异步，结果供下一轮叙事注入）。 */
+    private fun evaluateScene3(npc: NpcState, casualty: Casualty, trigger: SceneTrigger) {
+        repositoryScope.launch {
+            try {
+                val message = PromptBuilder.buildScene3UserMessage(
+                    npcName = npc.name, npcIdentity = npc.identity, battleName = casualty.battleId,
+                    affinity = npcAffinities[npc.npcId]?.affinity ?: 0,
+                    stage = npcAffinities[npc.npcId]?.relationshipStage?.name ?: "NEUTRAL",
+                    registered = npc.tier == NpcTier.KEY,
+                    hasUnfinishedNode = false,
+                    factionA = factions.firstOrNull { it.factionId == casualty.factionId }?.name ?: casualty.factionId,
+                    factionB = "", casualtyA = "", casualtyB = "",
+                    combatRole = npc.combatRole.name, inNewInjuries = npc.statusTags.joinToString("、")
+                )
+                sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                    val outcome = decision.getAsJsonObject("decision")?.get("outcome")?.asString
+                    if (outcome == "dead") {
+                        npcDepartures[npc.npcId] = DepartureInfo(DepartureStatus.DEAD, "战斗死亡")
+                    }
+                    decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let {
+                        synchronized(pendingSceneNotes) { pendingSceneNotes.add(it) }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "场景3评估失败: ${e.message}", e)
+            }
+        }
     }
 
     private suspend fun resolveNpcSettlement() {
