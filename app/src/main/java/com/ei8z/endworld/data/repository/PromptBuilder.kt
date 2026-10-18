@@ -7,6 +7,8 @@ import com.ei8z.endworld.data.model.ActionResult
 import com.ei8z.endworld.data.model.EventCard
 import com.ei8z.endworld.data.model.PlotContext
 import com.ei8z.endworld.data.model.WorldSnapshot
+import com.ei8z.endworld.domain.npc.model.StageCrossingEvent
+import com.ei8z.endworld.domain.npc.model.toDisplayName
 import com.ei8z.endworld.domain.state.HealthSystem
 import com.ei8z.endworld.domain.state.InjuryLibrary
 import com.ei8z.endworld.domain.state.ReasonerConstants
@@ -1003,6 +1005,14 @@ $branchConstraint
         appendLine("近期相关事件：$recentEvents")
         appendLine()
         appendLine("【请评估】：综合所有触发事件，该势力/区域最可能做出的反应是什么？")
+    }
+
+    /** 好感度变化时间线：最近 limit 条阶段跨越（含本次），供场景 2 提示词使用。 */
+    internal fun buildAffinityTimeline(
+        history: List<StageCrossingEvent>,
+        limit: Int = 5
+    ): String = history.takeLast(limit).joinToString("；") {
+        "第${it.gameDay}天 ${it.fromStage.toDisplayName()}→${it.toStage.toDisplayName()}（好感${it.affinityAtCrossing}，${it.reason}）"
     }
 
     fun buildScene2UserMessage(npcName: String, npcIdentity: String, oldAffinity: Int, newAffinity: Int,

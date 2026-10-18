@@ -878,7 +878,7 @@ class GameRepository(
                         boundary = trigger.detail["boundary"] ?: "",
                         needs = npc.currentNeed ?: "",
                         memories = npc.lastInteractionSummary ?: "",
-                        timeline = "",
+                        timeline = PromptBuilder.buildAffinityTimeline(updated.stageCrossingHistory),
                         memosFragments = "",
                         playerLoc = data.header.location,
                         oldStage = trigger.detail["oldStage"]

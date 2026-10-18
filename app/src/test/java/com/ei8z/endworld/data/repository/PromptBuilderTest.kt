@@ -1,8 +1,11 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
+import com.ei8z.endworld.domain.npc.model.StageCrossingEvent
 import com.ei8z.endworld.domain.npc.model.toDisplayName
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -50,5 +53,45 @@ class PromptBuilderTest {
 
         val main = PromptBuilder.buildStorytellerSystemPrompt()
         assertTrue("主线仍应保留 ≥1000 字", main.contains("≥1000字"))
+    }
+
+    @Test
+    fun `timeline renders crossings in order`() {
+        val history = listOf(
+            StageCrossingEvent(1, RelationshipStage.NEUTRAL, RelationshipStage.FAMILIAR, 25, "AI增量"),
+            StageCrossingEvent(3, RelationshipStage.FAMILIAR, RelationshipStage.TRUST, 55, "AI增量")
+        )
+        assertEquals(
+            "第1天 中立或陌生→熟悉（好感25，AI增量）；第3天 熟悉→信任（好感55，AI增量）",
+            PromptBuilder.buildAffinityTimeline(history)
+        )
+    }
+
+    @Test
+    fun `timeline keeps only the last five and handles empty`() {
+        assertTrue(PromptBuilder.buildAffinityTimeline(emptyList()).isEmpty())
+        val sevenEvents = (1..7).map {
+            StageCrossingEvent(it, RelationshipStage.NEUTRAL, RelationshipStage.FAMILIAR, 20 + it, "AI增量")
+        }
+        val timeline = PromptBuilder.buildAffinityTimeline(sevenEvents)
+        assertEquals(5, timeline.split("；").size)
+        assertTrue("只保留最近5条，第2天应被丢弃", timeline.contains("第3天") && !timeline.contains("第2天"))
+    }
+
+    @Test
+    fun `scene2 prompt embeds the affinity timeline`() {
+        val engine = NpcBehaviorEngine()
+        val updated = engine.applyAffinityDelta(engine.initializeAffinity(18), delta = 5, gameDay = 1)
+        val scene2 = PromptBuilder.buildScene2UserMessage(
+            npcName = "老张", npcIdentity = "居民", oldAffinity = 18, newAffinity = updated.affinity,
+            boundary = "20", needs = "", memories = "",
+            timeline = PromptBuilder.buildAffinityTimeline(updated.stageCrossingHistory),
+            memosFragments = "", playerLoc = "R01", oldStage = "中立或陌生", newStage = "熟悉"
+        )
+        assertTrue(
+            "时间线应包含本次跨越",
+            scene2.contains("第1天 中立或陌生→熟悉（好感23，AI增量）")
+        )
+        assertFalse("时间线非空时不应出现空段", scene2.contains("时间线= |"))
     }
 }
