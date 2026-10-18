@@ -50,4 +50,11 @@ class BattleCasualtyEngineTest {
         val result = engine.roll(listOf(npc("n1", "F_B")), battle())
         assertEquals(CasualtySeverity.SEVERE, result.single().severity)
     }
+    @Test
+    fun `severe casualty counts as injured too`() {
+        assertTrue(BattleCasualtyEngine.tagsFor(CasualtySeverity.WOUNDED).contains("受伤"))
+        val severe = BattleCasualtyEngine.tagsFor(CasualtySeverity.SEVERE)
+        assertTrue(severe.contains("受伤"))
+        assertTrue(severe.contains("重伤"))
+    }
 }

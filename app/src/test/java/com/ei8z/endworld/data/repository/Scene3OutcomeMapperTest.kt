@@ -1,6 +1,11 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.domain.npc.model.CombatRole
+import com.ei8z.endworld.domain.npc.model.DepartureInfo
+import com.ei8z.endworld.domain.npc.model.DepartureStatus
+import com.ei8z.endworld.domain.npc.model.NpcState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class Scene3OutcomeMapperTest {
@@ -24,5 +29,25 @@ class Scene3OutcomeMapperTest {
     fun `legacy dead token and null are unknown outcomes`() {
         assertEquals(Scene3Effect.NONE, mapScene3Outcome("dead"))
         assertEquals(Scene3Effect.NONE, mapScene3Outcome(null))
+    }
+    private fun npc() = NpcState(
+        npcId = "k1", name = "老张", identity = "哨兵",
+        combatRole = CombatRole.COMBATANT, currentLocationId = "R01",
+        factionId = null, personalityTags = emptyList(), statusTags = mutableListOf()
+    )
+
+    @Test
+    fun `kill writes a dead departure`() {
+        val departures = mutableMapOf<String, DepartureInfo>()
+        applyScene3Effect(Scene3Effect.DEAD, npc(), departures)
+        assertEquals(DepartureStatus.DEAD, departures["k1"]?.status)
+    }
+
+    @Test
+    fun `severe injury adds both injury tags`() {
+        val npc = npc()
+        applyScene3Effect(Scene3Effect.SEVERE_INJURY, npc, mutableMapOf())
+        assertTrue(npc.statusTags.contains("受伤"))
+        assertTrue(npc.statusTags.contains("重伤"))
     }
 }

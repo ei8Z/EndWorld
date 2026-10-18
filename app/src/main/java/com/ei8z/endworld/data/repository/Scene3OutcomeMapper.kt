@@ -1,5 +1,11 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.domain.npc.engine.BattleCasualtyEngine
+import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
+import com.ei8z.endworld.domain.npc.model.DepartureInfo
+import com.ei8z.endworld.domain.npc.model.DepartureStatus
+import com.ei8z.endworld.domain.npc.model.NpcState
+
 /** 场景3 裁决结果对应的状态效果。 */
 enum class Scene3Effect { DEAD, SEVERE_INJURY, NONE }
 
@@ -11,4 +17,21 @@ fun mapScene3Outcome(outcome: String?): Scene3Effect = when (outcome) {
     "kill" -> Scene3Effect.DEAD
     "severe_injury" -> Scene3Effect.SEVERE_INJURY
     else -> Scene3Effect.NONE
+}
+
+/** 把场景3 的效果落到状态与离队表；独立出来便于单测。 */
+fun applyScene3Effect(
+    effect: Scene3Effect,
+    npc: NpcState,
+    departures: MutableMap<String, DepartureInfo>
+) {
+    when (effect) {
+        Scene3Effect.DEAD ->
+            departures[npc.npcId] = DepartureInfo(DepartureStatus.DEAD, "战斗死亡")
+        Scene3Effect.SEVERE_INJURY ->
+            BattleCasualtyEngine.tagsFor(CasualtySeverity.SEVERE)
+                .filterNot { it in npc.statusTags }
+                .forEach { npc.statusTags.add(it) }
+        Scene3Effect.NONE -> Unit
+    }
 }

@@ -19,6 +19,12 @@ data class Casualty(
  */
 class BattleCasualtyEngine(private val random: Random = Random.Default) {
 
+    companion object {
+        /** 伤亡对应的状态标签：重伤也必须包含"受伤"，否则受伤判定 `"受伤" in tag` 会漏掉。 */
+        fun tagsFor(severity: CasualtySeverity): List<String> =
+            if (severity == CasualtySeverity.SEVERE) listOf("受伤", "重伤") else listOf("受伤")
+    }
+
     fun roll(npcs: Collection<NpcState>, battle: BattleResult): List<Casualty> {
         val out = mutableListOf<Casualty>()
         for (npc in npcs) {

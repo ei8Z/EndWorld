@@ -11,6 +11,11 @@ import kotlin.random.Random
  */
 class NpcBehaviorEngine(private val random: Random = Random.Default) {
 
+    companion object {
+        /** 外出探索的预期窗口（游戏日）。 */
+        const val DEPARTURE_WINDOW_DAYS = 3
+    }
+
     // === 需求推进（每日结算） ===
 
     fun advanceNeeds(
@@ -237,7 +242,7 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
             return DepartureInfo(
                 DepartureStatus.EXPLORING,
                 reason = "寻找物资",
-                expectedReturnDay = currentDay + 3 // 从离队当天起最多 3 游戏日
+                expectedReturnDay = currentDay + DEPARTURE_WINDOW_DAYS // 从离队当天起最多 3 游戏日
             )
         }
 

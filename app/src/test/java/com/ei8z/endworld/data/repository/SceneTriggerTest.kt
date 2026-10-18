@@ -134,12 +134,10 @@ class SceneTriggerTest {
             safetyUrgency = 40, socialUrgency = 20
         )
         val affinity = engine.initializeAffinity(0)
-        var departure: DepartureInfo? = DepartureInfo(
-            DepartureStatus.EXPLORING, "寻找物资", expectedReturnDay = 13
-        )
+        var departure: DepartureInfo? = null
         val triggerDays = mutableListOf<Int>()
 
-        for (day in 14..20) {
+        for (day in 10..20) {
             if (engine.canInitiateDeparture(departure)) {
                 engine.shouldDepart(npc("n1", NpcTier.CONTACT), needs, affinity, 0, false, false, currentDay = day)
                     ?.let { departure = it }

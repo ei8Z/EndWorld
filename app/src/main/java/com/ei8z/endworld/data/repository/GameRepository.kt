@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
 import java.util.Locale
 import android.content.Context
 import android.util.Log
@@ -1235,8 +1236,9 @@ class GameRepository(
         }
         for (casualty in casualties) {
             val npc = npcStates[casualty.npcId] ?: continue
-            val tag = if (casualty.severity == CasualtySeverity.SEVERE) "重伤" else "受伤"
-            if (tag !in npc.statusTags) npc.statusTags.add(tag)
+            BattleCasualtyEngine.tagsFor(casualty.severity)
+                .filterNot { it in npc.statusTags }
+                .forEach { npc.statusTags.add(it) }
             SceneTriggerDetector.detectKeyNpcCasualty(npc, casualty)?.let { trigger ->
                 evaluateScene3(npc, casualty, trigger)
             }
@@ -1294,12 +1296,7 @@ class GameRepository(
                         ?.get("outcome")
                         ?.takeIf { it.isJsonPrimitive }
                         ?.asString
-                    when (mapScene3Outcome(outcome)) {
-                        Scene3Effect.DEAD ->
-                            npcDepartures[npc.npcId] = DepartureInfo(DepartureStatus.DEAD, "战斗死亡")
-                        Scene3Effect.SEVERE_INJURY -> if ("重伤" !in npc.statusTags) npc.statusTags.add("重伤")
-                        Scene3Effect.NONE -> Unit
-                    }
+                    applyScene3Effect(mapScene3Outcome(outcome), npc, npcDepartures)
                     decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let {
                         synchronized(pendingSceneNotes) { pendingSceneNotes.add(it) }
                     }
@@ -1373,15 +1370,23 @@ class GameRepository(
                 }
                 repositoryScope.launch {
                     try {
+                        val expectedDay = trigger.detail["expectedReturnDay"]?.toIntOrNull() ?: currentGameDay
                         val message = PromptBuilder.buildScene6UserMessage(
                             npcName = npc.name, npcIdentity = npc.identity,
-                            expectedDays = trigger.detail["expectedReturnDay"]?.toIntOrNull() ?: 0,
-                            elapsedDays = currentGameDay - (trigger.detail["expectedReturnDay"]?.toIntOrNull() ?: 0),
+                            expectedDays = NpcBehaviorEngine.DEPARTURE_WINDOW_DAYS,
+                            elapsedDays = scene6ElapsedDays(currentGameDay, expectedDay),
                             needDrive = "", startState = npc.statusTags.joinToString("、"),
                             threatLevel = regions[npc.currentLocationId]?.threatLevel ?: 0,
                             activeEventsOnRoute = activeEvents.joinToString("、") { it.eventType.name }
                         )
                         sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                            val decisionObj = decision.getAsJsonObject("decision")
+                            val effect = mapScene6Outcome(
+                                decisionObj?.get("outcome")?.takeIf { it.isJsonPrimitive }?.asString
+                            )
+                            val newFaction = decisionObj?.get("newFaction")
+                                ?.takeIf { it.isJsonPrimitive }?.asString
+                            applyScene6Effect(effect, npc, npcDepartures, newFaction)
                             decision.get("suggestedNarrativeAngle")?.asString?.takeIf { it.isNotBlank() }?.let {
                                 synchronized(pendingSceneNotes) { pendingSceneNotes.add(it) }
                             }
