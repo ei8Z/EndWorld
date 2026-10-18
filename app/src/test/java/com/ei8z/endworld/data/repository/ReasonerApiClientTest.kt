@@ -69,12 +69,26 @@ class ReasonerApiClientTest {
     }
 
     @Test
-    fun `API failure returns fallback`() = runBlocking {
+    fun `API failure throws ReasonerUnavailableException`() = runBlocking {
         val client = clientThatThrows(RuntimeException("timeout"))
-        val r = client.reason("s", "u", "u1")
-        assertEquals("失败", r.result)
-        assertTrue(r.injuriesApplied.isEmpty())
-        assertNull(r.eventTriggered)
+        try {
+            client.reason("s", "u", "u1")
+            fail("expected ReasonerUnavailableException")
+        } catch (e: ReasonerUnavailableException) {
+            assertTrue(e.message!!.contains("不可用"))
+        }
+    }
+
+    @Test
+    fun `malformed json still degrades to fallback`() = runBlocking {
+        val client = clientWith(
+            ChatResponse(
+                "t", "m",
+                listOf(Choice(ChatMessage("assistant", "not json"), "stop", 0)),
+                Usage(1, 1, 2)
+            )
+        )
+        assertEquals("失败", client.reason("s", "u", "u1").result)
     }
 
     @Test

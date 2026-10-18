@@ -26,6 +26,12 @@ import org.json.JSONObject
  * 解析 response.choices[0].message.content 中的 ActionResult JSON。
  * API 异常或 JSON 破损时返回降级结果（result="失败"）。
  */
+/** 裁决服务不可用（网络/超时/5xx）。与"模型给出了失败结果"不同，调用方应中止并允许重试。 */
+class ReasonerUnavailableException(
+    message: String,
+    cause: Throwable? = null
+) : Exception(message, cause)
+
 class ReasonerApiClient(
     private val apiService: DeepSeekApiService,
     private val authHeader: String
@@ -100,7 +106,8 @@ class ReasonerApiClient(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            buildFallbackResult(userMessage)
+            // 网络/协议失败不是"行动失败"：中止并允许上层重试
+            throw ReasonerUnavailableException("裁决服务不可用，请重试", e)
         }
     }
 

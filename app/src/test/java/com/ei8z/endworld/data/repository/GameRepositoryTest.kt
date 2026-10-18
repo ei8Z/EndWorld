@@ -9,6 +9,7 @@ import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.MemosApiService
 import com.ei8z.endworld.data.remote.model.ChatChunkResponse
+import com.ei8z.endworld.data.remote.model.ChatRequest
 import com.ei8z.endworld.data.remote.model.ChatMessage
 import com.ei8z.endworld.data.remote.model.ChatResponse
 import com.ei8z.endworld.data.remote.model.ChunkChoice
@@ -540,6 +541,27 @@ class GameRepositoryTest {
         val final = events.indexOfFirst { it is StreamEvent.FinalResponse }
         assertTrue("events=$events, fate=$fate story=$story final=$final", fate in 0 until story)
         assertTrue("events=$events, story=$story final=$final", story < final)
+    }
+
+    @Test
+    fun `mainline reasoner outage emits retryable error without final response`() = runTest {
+        stubMainlineApis()
+        val failingApi = object : DeepSeekApiService {
+            override suspend fun getChatCompletions(authorization: String, request: ChatRequest): ChatResponse =
+                throw java.io.IOException("network down")
+            override suspend fun getChatCompletionsStream(authorization: String, request: ChatRequest) =
+                throw UnsupportedOperationException()
+        }
+        val repo = GameRepository(db, failingApi, memosApi, "k", "k", context)
+
+        val events = repo.sendActionStream(
+            "战斗",
+            ActionParsed("战斗", "", "敌人", "避难所", "", "高", 30)
+        ).toList()
+
+        assertTrue("应发出可重试错误: $events", events.any { it is StreamEvent.Error && it.retryable })
+        assertTrue("不应有 FinalResponse: $events", events.none { it is StreamEvent.FinalResponse })
+        coVerify(exactly = 0) { playerDao.updatePlayerState(any()) }
     }
 
     @Test

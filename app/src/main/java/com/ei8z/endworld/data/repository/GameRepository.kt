@@ -321,12 +321,18 @@ class GameRepository(
         )
         saveJsonToDebugFile(reasonerMessage, "reasoner_user_msg")
         ensureToolRegistered()
-        val actionResult = reasonerClient.reason(
-            PromptBuilder.buildReasonerSystemPrompt(currentStrategy),
-            reasonerMessage,
-            player.userId,
-            tools = ToolRegistry.getActiveTools()
-        )
+        val actionResult = try {
+            reasonerClient.reason(
+                PromptBuilder.buildReasonerSystemPrompt(currentStrategy),
+                reasonerMessage,
+                player.userId,
+                tools = ToolRegistry.getActiveTools()
+            )
+        } catch (e: ReasonerUnavailableException) {
+            Log.w(TAG, "裁决服务不可用: ${e.message}")
+            trySend(StreamEvent.Error("裁决服务不可用，请重试", retryable = true))
+            return
+        }
         saveJsonToDebugFile(gson.toJson(actionResult), "action_result")
 
         // 4. 应用裁决结果到状态机
