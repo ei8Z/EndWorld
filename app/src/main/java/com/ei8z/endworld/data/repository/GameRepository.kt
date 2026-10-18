@@ -38,9 +38,9 @@ import com.ei8z.endworld.domain.npc.model.MemoryQueue
 import com.ei8z.endworld.domain.npc.model.NpcRecord
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
+import com.ei8z.endworld.domain.npc.model.newNpcRecord
 import com.ei8z.endworld.domain.npc.model.toDisplayName
 import com.ei8z.endworld.domain.npc.model.toRelationshipStage
-import com.ei8z.endworld.domain.npc.model.newNpcRecord
 import com.ei8z.endworld.domain.state.BranchClassifier
 import com.ei8z.endworld.domain.state.ClientDiceRoller
 import com.ei8z.endworld.domain.state.SurvivalStateMachine
@@ -1276,8 +1276,10 @@ class GameRepository(
                 ?.get("outcome")
                 ?.takeIf { it.isJsonPrimitive }
                 ?.asString
-            applyScene3Effect(mapScene3Outcome(outcome), npc, npcRuntime[npc.npcId])
-                ?.let { npcRuntime[npc.npcId] = it }
+            val current = npcRuntime[npc.npcId]
+            val updated = applyScene3Effect(mapScene3Outcome(outcome), npc, current)
+            // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
+            if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
         }
     }
 
@@ -1305,7 +1307,7 @@ class GameRepository(
                 continue
             }
             // 时间表移动：健康且在场的 NPC 按当前时段去工作点/回家。
-            // 移动后立刻重新取快照，保证当天后续逻辑（异常校验、离队、互动）看到新位置。
+            // 移动后同步本地 npc，保证当天后续逻辑（离队、互动）看到新位置。
             val move = npcMovementEngine.decide(
                 record.schedule, stateMachine.clock.currentHour, npc.currentLocationId,
                 injured, record.departure.status
@@ -1368,8 +1370,9 @@ class GameRepository(
                     )
                     val newFaction = decisionObj?.get("newFaction")
                         ?.takeIf { it.isJsonPrimitive }?.asString
-                    applyScene6Effect(effect, npc, npcRuntime[npc.npcId], newFaction)
-                        ?.let { npcRuntime[npc.npcId] = it }
+                    val current = npcRuntime[npc.npcId]
+                    val updated = applyScene6Effect(effect, npc, current, newFaction)
+                    if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
                 }
             }
         }
