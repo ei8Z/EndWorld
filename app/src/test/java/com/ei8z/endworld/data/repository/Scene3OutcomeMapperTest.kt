@@ -4,6 +4,7 @@ import com.ei8z.endworld.domain.npc.model.CombatRole
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NpcState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -54,7 +55,8 @@ class Scene3OutcomeMapperTest {
         val record = npcRecord(npc)
         val updated = applyScene3Effect(Scene3Effect.NONE, npc, record)
         assertEquals(DepartureStatus.PRESENT, updated?.departure?.status)
-        assertEquals(record, updated)
+        // 无变化必须返回同一实例：仓储层据此跳过回写（b2d3b5f）
+        assertSame(record, updated)
     }
 
     @Test

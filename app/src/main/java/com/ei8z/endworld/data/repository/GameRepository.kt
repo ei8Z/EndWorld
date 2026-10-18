@@ -1592,10 +1592,8 @@ class GameRepository(
     }
 
     private suspend fun buildV3NpcDepthContext(player: PlayerState, snapshot: WorldSnapshot): String {
-        // 旧档可能残留同名分裂记录：提示词按名字去重，只展示第一条
         val v3Npcs = npcRuntime.values
             .filter { it.state.currentLocationId == snapshot.location && it.departure.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
-            .distinctBy { it.state.name }
         val v3Names = v3Npcs.map { it.state.name }.toSet()
         // V3 已有权威好感度的 NPC 不再出现在 V2 上下文，避免提示词里两套数值
         val v2Ctx = buildNpcDepthContext(player, snapshot.nearbyNpcs.filterNot { it in v3Names })
