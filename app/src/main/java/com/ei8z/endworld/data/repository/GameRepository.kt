@@ -869,6 +869,8 @@ class GameRepository(
             val old = npcRuntime[npcId]?.affinity ?: return@forEach
             val updated = applyInteractionAffinity(npcId, v3DeltaFromLegacy(rawDelta)) ?: return@forEach
             SceneTriggerDetector.detectStageCrossing(npcId, old.affinity, updated.affinity)?.let { trigger ->
+                // 在派发异步评估前固定时间线快照，避免 IO 线程读到之后追加的事件
+                val timeline = PromptBuilder.buildAffinityTimeline(updated.stageCrossingHistory)
                 evaluateScene(trigger, message = {
                     PromptBuilder.buildScene2UserMessage(
                         npcName = name,
@@ -878,7 +880,7 @@ class GameRepository(
                         boundary = trigger.detail["boundary"] ?: "",
                         needs = npc.currentNeed ?: "",
                         memories = npc.lastInteractionSummary ?: "",
-                        timeline = PromptBuilder.buildAffinityTimeline(updated.stageCrossingHistory),
+                        timeline = timeline,
                         memosFragments = "",
                         playerLoc = data.header.location,
                         oldStage = trigger.detail["oldStage"]
