@@ -14,6 +14,10 @@ enum class Scene3Effect { DEAD, SEVERE_INJURY, NONE }
  * §5.6：场景3 的 `decision.outcome` 只有 kill / spare / severe_injury 三种合法值。
  * 未知值（包括旧的 "dead"）按"不改变状态"处理，避免错误 token 被当成死亡。
  */
+/** 场景3 的合法 outcome；缺失/非法 token 视为"无决策"，由调用方走 §5.12 降级。 */
+fun isValidScene3Outcome(outcome: String?): Boolean =
+    outcome == "kill" || outcome == "spare" || outcome == "severe_injury"
+
 fun mapScene3Outcome(outcome: String?): Scene3Effect = when (outcome) {
     "kill" -> Scene3Effect.DEAD
     "severe_injury" -> Scene3Effect.SEVERE_INJURY

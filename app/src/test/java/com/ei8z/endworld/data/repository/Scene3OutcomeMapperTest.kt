@@ -18,6 +18,16 @@ class Scene3OutcomeMapperTest {
     }
 
     @Test
+    fun `only the three spec tokens are valid outcomes`() {
+        assertTrue(isValidScene3Outcome("kill"))
+        assertTrue(isValidScene3Outcome("spare"))
+        assertTrue(isValidScene3Outcome("severe_injury"))
+        assertTrue(!isValidScene3Outcome("dead"))
+        assertTrue(!isValidScene3Outcome(null))
+        assertTrue(!isValidScene3Outcome(""))
+    }
+
+    @Test
     fun `spare leaves state unchanged`() {
         assertEquals(Scene3Effect.NONE, mapScene3Outcome("spare"))
     }

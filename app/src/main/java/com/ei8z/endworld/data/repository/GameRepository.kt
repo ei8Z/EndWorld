@@ -215,11 +215,13 @@ class GameRepository(
         onDecision: ((JsonObject) -> Unit)? = null,
         onFailure: ((Throwable?) -> Unit)? = null
     ) {
-        val fallback = onFailure
-        if (fallback != null) {
+        val failureCallback = onFailure
+        if (failureCallback != null) {
             val now = stateMachine.clock.elapsedMinutes
             if (sceneFallbackGuard.isPaused(trigger.type.id, now)) {
-                fallback(null)
+                // 暂停期间直接降级；与 service 内的异常边界保持一致，不让回调异常冒泡
+                runCatching { failureCallback(null) }
+                    .onFailure { Log.e(TAG, "场景${trigger.type.id}暂停期降级失败", it) }
                 return
             }
         }
@@ -227,14 +229,14 @@ class GameRepository(
             trigger,
             message,
             onDecision = onDecision,
-            onSuccess = if (fallback != null) {
+            onSuccess = if (failureCallback != null) {
                 { sceneFallbackGuard.recordSuccess(trigger.type.id) }
             } else null,
-            onFailure = if (fallback != null) {
+            onFailure = if (failureCallback != null) {
                 { e ->
                     // 用失败时刻而非派发时刻：AI 耗时或加速模式推进时钟时，暂停窗口不会被提前算完
                     sceneFallbackGuard.recordFailure(trigger.type.id, stateMachine.clock.elapsedMinutes)
-                    fallback(e)
+                    failureCallback(e)
                 }
             } else null,
             onHint = { hint -> synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) } }
@@ -1302,6 +1304,16 @@ class GameRepository(
 
     /** 场景3：KEY NPC 战斗伤亡的生死裁决（异步，结果供下一轮叙事注入）。 */
     private fun evaluateScene3(npc: NpcState, casualty: Casualty, trigger: SceneTrigger) {
+        val applyFallback = {
+            // §5.12：AI 失败/无决策/熔断期间不静默——按保守规则裁决，再复用正常路径的 effect 映射
+            val fallback = scene3FallbackDecider.decide(fallbackSpareDay[npc.npcId], currentGameDay)
+            if (fallback == Scene3Fallback.SPARE) fallbackSpareDay[npc.npcId] = currentGameDay
+            Log.d(TAG, "场景3降级 ${fallback.name} npc=${npc.npcId} 日=$currentGameDay")
+            val current = npcRuntime[npc.npcId]
+            val updated = applyScene3Effect(mapScene3Outcome(fallback.outcome), npc, current)
+            // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
+            if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
+        }
         evaluateScene(
             trigger,
             message = {
@@ -1322,20 +1334,18 @@ class GameRepository(
                     ?.get("outcome")
                     ?.takeIf { it.isJsonPrimitive }
                     ?.asString
-                val current = npcRuntime[npc.npcId]
-                val updated = applyScene3Effect(mapScene3Outcome(outcome), npc, current)
-                // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
-                if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
+                if (!isValidScene3Outcome(outcome)) {
+                    // 语法合法但没有合法裁决：按"无决策"降级，避免静默不裁决
+                    Log.w(TAG, "场景3输出缺少合法 outcome=$outcome，走降级")
+                    applyFallback()
+                } else {
+                    val current = npcRuntime[npc.npcId]
+                    val updated = applyScene3Effect(mapScene3Outcome(outcome), npc, current)
+                    // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
+                    if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
+                }
             },
-            onFailure = {
-                // §5.12：AI 失败/无决策/熔断期间不静默——按保守规则裁决，再复用正常路径的 effect 映射
-                val fallback = scene3FallbackDecider.decide(fallbackSpareDay[npc.npcId], currentGameDay)
-                if (fallback == Scene3Fallback.SPARE) fallbackSpareDay[npc.npcId] = currentGameDay
-                val current = npcRuntime[npc.npcId]
-                val updated = applyScene3Effect(mapScene3Outcome(fallback.outcome), npc, current)
-                // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
-                if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
-            }
+            onFailure = { applyFallback() }
         )
     }
 
