@@ -12,7 +12,6 @@ import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.NpcTier
 import io.mockk.mockk
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -64,7 +63,6 @@ class GameRepositorySettlementIntegrationTest {
         )
         repo.stateMachine.clock.setTotalMinutes(24 * 60) // 第 2 天，超过 expectedReturnDay
         repo.executeDailySettlement()
-        advanceUntilIdle()
 
         assertEquals(DepartureStatus.MISSING, repo.npcRuntime.getValue("n1").departure.status)
         assertEquals("超时未归", repo.npcRuntime.getValue("n1").departure.reason)
@@ -78,7 +76,6 @@ class GameRepositorySettlementIntegrationTest {
         // 次日再结算：已 MISSING，不再重复改状态
         reopened.stateMachine.clock.setTotalMinutes(2 * 24 * 60)
         reopened.executeDailySettlement()
-        advanceUntilIdle()
 
         assertEquals(DepartureStatus.MISSING, reopened.npcRuntime.getValue("n1").departure.status)
         assertEquals("超时未归", reopened.npcRuntime.getValue("n1").departure.reason)

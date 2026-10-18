@@ -85,6 +85,13 @@ class MemosExtractionManager(
 
     /** §6.4 是"连续 5 日"：同一游戏日内重试多次只记一次失败。 */
     private fun recordFailure(npcId: String, gameDay: Int) {
+        // 暂停到期后的第一次失败开启新 streak，避免"一出暂停就再停 30 天"
+        val pausedUntil = store.pausedUntil(npcId)
+        if (pausedUntil != null && gameDay >= pausedUntil) {
+            store.setPausedUntil(npcId, null)
+            store.setFailures(npcId, 0)
+            store.setLastFailureDay(npcId, null)
+        }
         if (store.lastFailureDay(npcId) == gameDay) return
         store.setLastFailureDay(npcId, gameDay)
         val failures = store.failures(npcId) + 1

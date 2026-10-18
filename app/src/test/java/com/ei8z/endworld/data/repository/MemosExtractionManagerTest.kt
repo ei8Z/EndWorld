@@ -35,6 +35,24 @@ class MemosExtractionManagerTest {
 
     /** NPC 文档 §6.4 是"连续 5 日"：同一天重试多少次都只算一次失败。 */
     @Test
+    fun `failure after pause expiry starts a new streak instead of re-pausing`() = runTest {
+        val api = mockk<MemosApiService>(relaxed = true)
+        coEvery { api.extractMemory(any(), any()) } returns MemosExtractResponse(1, "fail", null)
+        val store = InMemoryMemosPauseStore()
+        val manager = MemosExtractionManager(api, "Token t", store)
+
+        repeat(5) { i ->
+            manager.extractMemories("n1", listOf("a"), "[Day ${i + 1}]", "R01", gameDay = i + 1)
+        }
+        assertTrue(manager.isExtractionPaused("n1", gameDay = 5))
+
+        // 第 35 天暂停到期，再失败一次只应重新计数 1 次，不立即再停
+        manager.extractMemories("n1", listOf("a"), "[Day 35]", "R01", gameDay = 35)
+        assertEquals(1, store.failures("n1"))
+        assertFalse(manager.isExtractionPaused("n1", gameDay = 35))
+    }
+
+    @Test
     fun `same-day retries count as one failure and never pause`() = runTest {
         val api = mockk<MemosApiService>(relaxed = true)
         coEvery { api.extractMemory(any(), any()) } returns MemosExtractResponse(1, "fail", null)
@@ -168,6 +186,34 @@ class MemosExtractionManagerTest {
         ) = Unit
     }
 
+    @Test
+    fun `clearPauseState resets failures and pause`() = runTest {
+        val api = mockk<MemosApiService>(relaxed = true)
+        val store = InMemoryMemosPauseStore()
+        store.setFailures("n1", 5)
+        store.setPausedUntil("n1", 30)
+        val manager = MemosExtractionManager(api, "Token t", store)
+
+        manager.clearPauseState()
+
+        assertEquals(0, store.failures("n1"))
+        assertFalse(manager.isExtractionPaused("n1", gameDay = 1))
+    }
+
+    @Test
+    fun `prefs clearAll removes memos keys but keeps other prefs`() {
+        val prefs = FakeSharedPreferences()
+        val store = PrefsMemosPauseStore(prefs)
+        store.setFailures("n1", 5)
+        store.setPausedUntil("n1", 30)
+        prefs.edit().putString("stable_user_id", "u1").apply()
+
+        store.clearAll()
+
+        assertEquals(0, store.failures("n1"))
+        assertNull(store.pausedUntil("n1"))
+        assertEquals("u1", prefs.getString("stable_user_id", null))
+    }
     @org.junit.Ignore("test fixture")
     private class FakeEditor(private val values: MutableMap<String, Any?>) : SharedPreferences.Editor {
         private val pending = mutableMapOf<String, Any?>()
@@ -199,34 +245,6 @@ class MemosExtractionManagerTest {
         private fun applyPending() {
             removals.forEach { values.remove(it) }
             values.putAll(pending)
-        }
-        @Test
-        fun `clearPauseState resets failures and pause`() = runTest {
-            val api = mockk<MemosApiService>(relaxed = true)
-            val store = InMemoryMemosPauseStore()
-            store.setFailures("n1", 5)
-            store.setPausedUntil("n1", 30)
-            val manager = MemosExtractionManager(api, "Token t", store)
-
-            manager.clearPauseState()
-
-            assertEquals(0, store.failures("n1"))
-            assertFalse(manager.isExtractionPaused("n1", gameDay = 1))
-        }
-
-        @Test
-        fun `prefs clearAll removes memos keys but keeps other prefs`() {
-            val prefs = FakeSharedPreferences()
-            val store = PrefsMemosPauseStore(prefs)
-            store.setFailures("n1", 5)
-            store.setPausedUntil("n1", 30)
-            prefs.edit().putString("stable_user_id", "u1").apply()
-
-            store.clearAll()
-
-            assertEquals(0, store.failures("n1"))
-            assertNull(store.pausedUntil("n1"))
-            assertEquals("u1", prefs.getString("stable_user_id", null))
         }
     }
 }
