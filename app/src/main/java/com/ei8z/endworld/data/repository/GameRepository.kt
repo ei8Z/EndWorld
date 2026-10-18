@@ -31,6 +31,9 @@ import com.ei8z.endworld.data.remote.model.WorldUpdate
 import com.ei8z.endworld.domain.npc.engine.BattleCasualtyEngine
 import com.ei8z.endworld.domain.npc.engine.Casualty
 import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
+import com.ei8z.endworld.domain.npc.engine.Scene3Fallback
+import com.ei8z.endworld.domain.npc.engine.Scene3FallbackDecider
+import com.ei8z.endworld.domain.npc.engine.SceneFallbackGuard
 import com.ei8z.endworld.domain.npc.model.AffinityState
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
@@ -191,15 +194,39 @@ class GameRepository(
         SceneEvaluationService(SceneEvaluator(reasonerClient), repositoryScope)
     }
 
-    /** 场景评估入口：统一在后台线程评估，hint 归入下一轮叙事注入。 */
+    /** §5.12 场景降级：连续 5 次失败暂停该场景 24 游戏小时（暂停期间不调 AI）。 */
+    private val sceneFallbackGuard = SceneFallbackGuard()
+    private val scene3FallbackDecider = Scene3FallbackDecider()
+
+    /** 该 NPC 最近一次 spare 降级的游戏日；10 游戏日内再次失败按 §5.12 升级为 kill。 */
+    private val fallbackSpareDay = mutableMapOf<String, Int>()
+
+    /**
+     * 场景评估入口：统一在后台线程评估，hint 归入下一轮叙事注入。
+     * 熔断期间不调用 AI，直接按失败回调走降级（§5.12）。
+     */
     private fun evaluateScene(
         trigger: SceneTrigger,
         message: () -> String,
-        onDecision: ((JsonObject) -> Unit)? = null
+        onDecision: ((JsonObject) -> Unit)? = null,
+        onFailure: ((Throwable?) -> Unit)? = null
     ) {
-        sceneEvaluation.evaluate(trigger, message, onDecision = onDecision) { hint ->
-            synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+        val now = stateMachine.clock.elapsedMinutes
+        if (sceneFallbackGuard.isPaused(trigger.type.id, now)) {
+            onFailure?.invoke(null)
+            return
         }
+        sceneEvaluation.evaluate(
+            trigger,
+            message,
+            onDecision = onDecision,
+            onSuccess = { sceneFallbackGuard.recordSuccess(trigger.type.id) },
+            onFailure = { e ->
+                sceneFallbackGuard.recordFailure(trigger.type.id, now)
+                onFailure?.invoke(e)
+            },
+            onHint = { hint -> synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) } }
+        )
     }
 
     /** 当日玩家与 NPC 的交互文本，供每日 MemOS 抽取使用。 */
@@ -993,6 +1020,8 @@ class GameRepository(
         regions.clear()
         activeEvents.clear()
         npcRuntime.clear()
+        fallbackSpareDay.clear()
+        sceneFallbackGuard.reset()
         memosExtractor.clearPauseState()
         lastMidnightSettlementDay = 1
         v3Loaded = false
@@ -1261,28 +1290,47 @@ class GameRepository(
 
     /** 场景3：KEY NPC 战斗伤亡的生死裁决（异步，结果供下一轮叙事注入）。 */
     private fun evaluateScene3(npc: NpcState, casualty: Casualty, trigger: SceneTrigger) {
-        evaluateScene(trigger, message = {
-            PromptBuilder.buildScene3UserMessage(
-            npcName = npc.name, npcIdentity = npc.identity, battleName = casualty.battleId,
-            affinity = npcRuntime[npc.npcId]?.affinity?.affinity ?: 0,
-            stage = npcRuntime[npc.npcId]?.affinity?.relationshipStage?.name ?: "NEUTRAL",
-            // §5.6 剧情保护（注册且未完成节点 → 强制 spare）未实现：PlotManager 无该查询接口，留 3C。
-            registered = false,
-            hasUnfinishedNode = false,
-            factionA = factions.firstOrNull { it.factionId == casualty.factionId }?.name ?: casualty.factionId,
-            factionB = "", casualtyA = "", casualtyB = "",
-            combatRole = npc.combatRole.name, inNewInjuries = npc.statusTags.joinToString("、")
+        evaluateScene(
+            trigger,
+            message = {
+                PromptBuilder.buildScene3UserMessage(
+                npcName = npc.name, npcIdentity = npc.identity, battleName = casualty.battleId,
+                affinity = npcRuntime[npc.npcId]?.affinity?.affinity ?: 0,
+                stage = npcRuntime[npc.npcId]?.affinity?.relationshipStage?.name ?: "NEUTRAL",
+                // §5.6 剧情保护（注册且未完成节点 → 强制 spare）未实现：PlotManager 无该查询接口，留 3C。
+                registered = false,
+                hasUnfinishedNode = false,
+                factionA = factions.firstOrNull { it.factionId == casualty.factionId }?.name ?: casualty.factionId,
+                factionB = "", casualtyA = "", casualtyB = "",
+                combatRole = npc.combatRole.name, inNewInjuries = npc.statusTags.joinToString("、")
+            )
+            },
+            onDecision = { decision ->
+                val outcome = decision.getAsJsonObject("decision")
+                    ?.get("outcome")
+                    ?.takeIf { it.isJsonPrimitive }
+                    ?.asString
+                val current = npcRuntime[npc.npcId]
+                val updated = applyScene3Effect(mapScene3Outcome(outcome), npc, current)
+                // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
+                if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
+            },
+            onFailure = {
+                // §5.12：AI 失败/无决策/熔断期间不静默——按保守规则裁决，再走正常 effect 映射
+                val fallback = scene3FallbackDecider.decide(fallbackSpareDay[npc.npcId], currentGameDay)
+                val updated = when (fallback) {
+                    Scene3Fallback.KILL ->
+                        applyScene3Effect(Scene3Effect.DEAD, npc, npcRuntime[npc.npcId])
+                    Scene3Fallback.SEVERE_INJURY ->
+                        applyScene3Effect(Scene3Effect.SEVERE_INJURY, npc, npcRuntime[npc.npcId])
+                    Scene3Fallback.SPARE -> {
+                        fallbackSpareDay[npc.npcId] = currentGameDay
+                        null
+                    }
+                }
+                if (updated != null && updated !== npcRuntime[npc.npcId]) npcRuntime[npc.npcId] = updated
+            }
         )
-        }) { decision ->
-            val outcome = decision.getAsJsonObject("decision")
-                ?.get("outcome")
-                ?.takeIf { it.isJsonPrimitive }
-                ?.asString
-            val current = npcRuntime[npc.npcId]
-            val updated = applyScene3Effect(mapScene3Outcome(outcome), npc, current)
-            // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
-            if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
-        }
     }
 
     /** 时间表的工作点：取当前区域的第一个邻接区域；未知区域（不在 V3 地图内）则留在家。 */
@@ -1365,7 +1413,7 @@ class GameRepository(
                     threatLevel = regions[npc.currentLocationId]?.threatLevel ?: 0,
                     activeEventsOnRoute = activeEvents.joinToString("、") { it.eventType.name }
                 )
-                }) { decision ->
+                }, onDecision = { decision ->
                     val decisionObj = decision.getAsJsonObject("decision")
                     val effect = mapScene6Outcome(
                         decisionObj?.get("outcome")?.takeIf { it.isJsonPrimitive }?.asString
@@ -1375,7 +1423,7 @@ class GameRepository(
                     val current = npcRuntime[npc.npcId]
                     val updated = applyScene6Effect(effect, npc, current, newFaction)
                     if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
-                }
+                })
             }
         }
         // NPC上限检查（30个接触NPC限制）

@@ -17,6 +17,8 @@ fun interface SceneDecisionSource {
  * 统一 launch、统一 try/catch（取消穿透）、统一把决策与叙事提示交给调用方。
  *
  * [onDecision] 在提示词抽取前执行，保留场景 3/6 "先应用裁决结果、再收集 hint" 的旧顺序。
+ * [onSuccess]/[onFailure] 只上报"本次 AI 评估是否拿到合法决策"：无决策（null）也算失败，
+ * 供熔断与 §5.12 降级使用；调用方据此决定是否走降级。
  */
 class SceneEvaluationService(
     private val source: SceneDecisionSource,
@@ -26,10 +28,16 @@ class SceneEvaluationService(
         trigger: SceneTrigger,
         message: () -> String,
         onDecision: ((JsonObject) -> Unit)? = null,
+        onSuccess: (() -> Unit)? = null,
+        onFailure: ((Throwable?) -> Unit)? = null,
         onHint: ((String) -> Unit)? = null
     ): Job = scope.launch {
         try {
-            source.evaluate(trigger, message())?.let { decision ->
+            val decision = source.evaluate(trigger, message())
+            if (decision == null) {
+                onFailure?.invoke(null)
+            } else {
+                onSuccess?.invoke()
                 onDecision?.invoke(decision)
                 decision.get("suggestedNarrativeAngle")?.asString
                     ?.takeIf { it.isNotBlank() }
@@ -39,6 +47,7 @@ class SceneEvaluationService(
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "场景${trigger.type.id}评估失败 npc=${trigger.npcId}: ${e.message}", e)
+            onFailure?.invoke(e)
         }
     }
 
