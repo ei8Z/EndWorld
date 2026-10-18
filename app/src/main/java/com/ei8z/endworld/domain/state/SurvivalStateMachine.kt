@@ -122,7 +122,7 @@ class SurvivalStateMachine(
                         "装备耐久" -> applyItemChange(change, "装备耐久")
                         "消耗品" -> applyItemChange(change, "消耗品")
                         "末日等级" -> {
-                            doomLevel = (doomLevel + change.changeAmount.roundToInt()).coerceIn(1, 5)
+                            doomLevel = (doomLevel + change.changeAmount.safeRoundToInt()).coerceIn(1, 5)
                         }
                         else -> applyItemChange(change, change.category)
                     }
@@ -151,17 +151,26 @@ class SurvivalStateMachine(
         }
     }
 
+    private fun Float.safeRoundToInt(): Int =
+        if (isNaN() || isInfinite()) 0 else roundToInt()
+
+    private fun Float.safeCoerce(min: Float, max: Float): Float {
+        if (isNaN() || isInfinite()) return min
+        val upper = if (max.isNaN() || max < min) min else max
+        return coerceIn(min, upper)
+    }
+
     private fun applyItemChange(change: ResourceChange, category: String) {
         if (change.changeAmount > 0f) {
             // V2.3: 计量类型决定 quantity 语义
             // - count/ammo: quantity = 变化量（如+1包饼干 → quantity=1, currentMeasure=1.0）
             // - volume/weight/durability: quantity = 1（单件物品），currentMeasure 记录实际量
             val isContinuous = change.measureType in listOf("volume", "weight", "durability")
-            val qty = if (isContinuous) 1 else change.changeAmount.roundToInt().coerceAtLeast(1)
+            val qty = if (isContinuous) 1 else change.changeAmount.safeRoundToInt().coerceAtLeast(1)
             // 硬约束：newValue 不得超出 maxValue（防止 AI 幻觉创建超容物品）
             val safeMax = change.maxValue ?: change.newValue
             val curMeasure = if (isContinuous) {
-                change.newValue.coerceIn(0f, safeMax)
+                change.newValue.safeCoerce(0f, safeMax)
             } else 1f
             val totalM = if (isContinuous) safeMax else change.maxValue ?: 1f
 
@@ -191,7 +200,7 @@ class SurvivalStateMachine(
                 }
                 else -> {
                     // count / ammo 类型：取整消耗
-                    val consumed = inventory.consumeItem(change.itemId, (-change.changeAmount).roundToInt())
+                    val consumed = inventory.consumeItem(change.itemId, (-change.changeAmount).safeRoundToInt())
                     if (consumed == 0) {
                         Log.w("SM", "applyItemChange: 消耗失败 itemId='${change.itemId}' name='${change.itemName}' amount=${change.changeAmount}")
                     }

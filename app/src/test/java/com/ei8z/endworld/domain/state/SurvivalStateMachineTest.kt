@@ -152,4 +152,40 @@ class SurvivalStateMachineTest {
         // One round of preRuling should decrement cooldown
         machine.processPreRuling(estimatedMinutes = 30, primaryType = "观察")
     }
+    @Test
+    fun `negative max value does not crash`() {
+        machine.applyActionResult(
+            ActionResult(
+                result = "成功", dcValue = 0, rollValue = 0, totalValue = 0,
+                modifiersBreakdown = "", injuriesApplied = emptyList(),
+                injuriesRecovered = emptyList(), narrativeSummary = "",
+                eventTriggered = null, plotNodeCompleted = null, plotNodeHint = null,
+                resourceChanges = listOf(
+                    ResourceChange(
+                        itemId = "water", itemName = "水", category = "消耗品",
+                        changeAmount = 1f, newValue = 1f, maxValue = -1f,
+                        measureType = "volume", measureUnit = "L"
+                    )
+                )
+            )
+        )
+    }
+
+    @Test
+    fun `nan change amount is treated as zero`() {
+        machine.applyActionResult(
+            ActionResult(
+                result = "成功", dcValue = 0, rollValue = 0, totalValue = 0,
+                modifiersBreakdown = "", injuriesApplied = emptyList(),
+                injuriesRecovered = emptyList(), narrativeSummary = "",
+                eventTriggered = null, plotNodeCompleted = null, plotNodeHint = null,
+                resourceChanges = listOf(
+                    ResourceChange(
+                        itemId = "", itemName = "", category = "生命值",
+                        changeAmount = Float.NaN, newValue = 0f, maxValue = 100f
+                    )
+                )
+            )
+        )
+    }
 }
