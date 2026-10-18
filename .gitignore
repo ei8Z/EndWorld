@@ -25,3 +25,6 @@ profileInstalled
 
 # IDE 本地配置（整目录）
 /.idea/
+
+# exec 隔离 worktree
+.worktrees/
