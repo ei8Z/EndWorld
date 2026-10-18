@@ -86,4 +86,81 @@ class SceneEvaluationServiceTest {
 
         assertEquals("boom", reported?.message)
     }
+
+    @Test
+    fun `null hint from a valid decision is not a failure`() = runTest {
+        var successes = 0
+        var failures = 0
+        val service = SceneEvaluationService(
+            { _, _ ->
+                JsonParser.parseString(
+                    """{"decision":{"npcId":"n1"},"suggestedNarrativeAngle":null}"""
+                ).asJsonObject
+            },
+            this
+        )
+
+        service.evaluate(
+            SceneTrigger(SceneType.KEY_NPC_DEATH, "n1"), { "msg" },
+            onSuccess = { successes++ },
+            onFailure = { failures++ }
+        ).join()
+
+        assertEquals(1, successes)
+        assertEquals(0, failures)
+    }
+
+    @Test
+    fun `decision callback error does not turn a valid decision into a failure`() = runTest {
+        var failures = 0
+        val service = SceneEvaluationService(
+            { _, _ -> JsonParser.parseString("""{"decision":{}}""").asJsonObject },
+            this
+        )
+
+        service.evaluate(
+            SceneTrigger(SceneType.KEY_NPC_DEATH, "n1"), { "msg" },
+            onDecision = { error("apply boom") },
+            onFailure = { failures++ }
+        ).join()
+
+        assertEquals(0, failures)
+    }
+
+    @Test
+    fun `throwing hint consumer does not turn a valid decision into a failure`() = runTest {
+        var failures = 0
+        val service = SceneEvaluationService(
+            { _, _ ->
+                JsonParser.parseString(
+                    """{"decision":{},"suggestedNarrativeAngle":"提示"}"""
+                ).asJsonObject
+            },
+            this
+        )
+
+        service.evaluate(
+            SceneTrigger(SceneType.KEY_NPC_DEATH, "n1"), { "msg" },
+            onFailure = { failures++ },
+            onHint = { error("hint boom") }
+        ).join()
+
+        assertEquals(0, failures)
+    }
+
+    @Test
+    fun `failing failure callback is invoked once`() = runTest {
+        var calls = 0
+        val service = SceneEvaluationService({ _, _ -> null }, this)
+
+        service.evaluate(
+            SceneTrigger(SceneType.KEY_NPC_DEATH, "n1"), { "msg" },
+            onFailure = {
+                calls++
+                error("callback boom")
+            }
+        ).join()
+
+        assertEquals(1, calls)
+    }
 }

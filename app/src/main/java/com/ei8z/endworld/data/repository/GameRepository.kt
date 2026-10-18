@@ -2,6 +2,7 @@ package com.ei8z.endworld.data.repository
 
 import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import android.content.Context
 import android.util.Log
 import com.ei8z.endworld.BuildConfig
@@ -199,11 +200,14 @@ class GameRepository(
     private val scene3FallbackDecider = Scene3FallbackDecider()
 
     /** 该 NPC 最近一次 spare 降级的游戏日；10 游戏日内再次失败按 §5.12 升级为 kill。 */
-    internal val fallbackSpareDay = mutableMapOf<String, Int>()
+    internal val fallbackSpareDay = ConcurrentHashMap<String, Int>()
 
     /**
      * 场景评估入口：统一在后台线程评估，hint 归入下一轮叙事注入。
-     * 熔断期间不调用 AI，直接按失败回调走降级（§5.12）。
+     *
+     * 只有带降级回调的场景（当前仅场景 3）参与熔断：暂停期间不调 AI、直接走降级。
+     * 无降级路径的场景（2/4/5/6）不暂停——它们暂停时没有可执行的降级，只会静默丢
+     * hint/裁决；场景 6 更会永久停在 MISSING（MISSING 只在 EXPLORING 超时时进入，无其它消费路径）。
      */
     private fun evaluateScene(
         trigger: SceneTrigger,
@@ -211,21 +215,28 @@ class GameRepository(
         onDecision: ((JsonObject) -> Unit)? = null,
         onFailure: ((Throwable?) -> Unit)? = null
     ) {
-        val now = stateMachine.clock.elapsedMinutes
-        if (sceneFallbackGuard.isPaused(trigger.type.id, now)) {
-            onFailure?.invoke(null)
-            return
+        val fallback = onFailure
+        if (fallback != null) {
+            val now = stateMachine.clock.elapsedMinutes
+            if (sceneFallbackGuard.isPaused(trigger.type.id, now)) {
+                fallback(null)
+                return
+            }
         }
         sceneEvaluation.evaluate(
             trigger,
             message,
             onDecision = onDecision,
-            onSuccess = { sceneFallbackGuard.recordSuccess(trigger.type.id) },
-            onFailure = { e ->
-                // 用失败时刻而非派发时刻：AI 耗时或加速模式推进时钟时，暂停窗口不会被提前算完
-                sceneFallbackGuard.recordFailure(trigger.type.id, stateMachine.clock.elapsedMinutes)
-                onFailure?.invoke(e)
-            },
+            onSuccess = if (fallback != null) {
+                { sceneFallbackGuard.recordSuccess(trigger.type.id) }
+            } else null,
+            onFailure = if (fallback != null) {
+                { e ->
+                    // 用失败时刻而非派发时刻：AI 耗时或加速模式推进时钟时，暂停窗口不会被提前算完
+                    sceneFallbackGuard.recordFailure(trigger.type.id, stateMachine.clock.elapsedMinutes)
+                    fallback(e)
+                }
+            } else null,
             onHint = { hint -> synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) } }
         )
     }
