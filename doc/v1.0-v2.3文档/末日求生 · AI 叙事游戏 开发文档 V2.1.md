@@ -652,7 +652,7 @@ val reasonerRequest = ChatRequest(
     ),
     reasoningEffort = "high",           // 裁决需要高推理能力
     responseFormat = mapOf("type" to "json_object"),
-    maxTokens = 1024,                   // 裁决结果较短，1024足够
+    maxTokens = 81920,                   
     stream = false,                     // 裁决不需要流式
     temperature = null                  // 思考模式下忽略
 )
@@ -868,7 +868,7 @@ val storytellerRequest = ChatRequest(
     ),
     reasoningEffort = "medium",         // 叙事不需要极限推理
     responseFormat = mapOf("type" to "json_object"),
-    maxTokens = 8192,                   // 1000+字叙事需要较大输出空间
+    maxTokens = 81920,                   // 1000+字叙事需要较大输出空间
     stream = true,                      // 流式输出，打字机效果
     temperature = null                  // 思考模式下忽略
 )
