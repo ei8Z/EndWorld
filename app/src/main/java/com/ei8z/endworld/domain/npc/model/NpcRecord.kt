@@ -14,3 +14,16 @@ data class NpcRecord(
     val departure: DepartureInfo,
     val schedule: Schedule
 )
+
+/**
+ * 新建记录的单一入口：只提供真正有差异的字段，其余按"新 NPC"的默认值补齐，
+ * 免得到处复制 `MemoryQueue(mutableListOf(), "", 6)` / `DepartureInfo(PRESENT)`。
+ */
+fun newNpcRecord(
+    state: NpcState,
+    needs: NeedState,
+    affinity: AffinityState,
+    memory: MemoryQueue = MemoryQueue(mutableListOf(), "", 6),
+    departure: DepartureInfo = DepartureInfo(DepartureStatus.PRESENT),
+    schedule: Schedule
+): NpcRecord = NpcRecord(state, needs, affinity, memory, departure, schedule)

@@ -4,6 +4,7 @@ import com.ei8z.endworld.domain.npc.model.CombatRole
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NpcState
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,17 +37,30 @@ class Scene3OutcomeMapperTest {
     )
 
     @Test
-    fun `kill writes a dead departure`() {
+    fun `kill returns a record with a dead departure`() {
         val npc = npc()
-        val runtime = mutableMapOf(npc.npcId to npcRecord(npc))
-        applyScene3Effect(Scene3Effect.DEAD, npc, runtime)
-        assertEquals(DepartureStatus.DEAD, runtime["k1"]?.departure?.status)
+        val updated = applyScene3Effect(Scene3Effect.DEAD, npc, npcRecord(npc))
+        assertEquals(DepartureStatus.DEAD, updated?.departure?.status)
+    }
+
+    @Test
+    fun `kill without a record stays absent`() {
+        assertNull(applyScene3Effect(Scene3Effect.DEAD, npc(), null))
+    }
+
+    @Test
+    fun `spare keeps the record present`() {
+        val npc = npc()
+        val record = npcRecord(npc)
+        val updated = applyScene3Effect(Scene3Effect.NONE, npc, record)
+        assertEquals(DepartureStatus.PRESENT, updated?.departure?.status)
+        assertEquals(record, updated)
     }
 
     @Test
     fun `severe injury adds both injury tags`() {
         val npc = npc()
-        applyScene3Effect(Scene3Effect.SEVERE_INJURY, npc, mutableMapOf())
+        applyScene3Effect(Scene3Effect.SEVERE_INJURY, npc, null)
         assertTrue(npc.statusTags.contains("受伤"))
         assertTrue(npc.statusTags.contains("重伤"))
     }

@@ -20,21 +20,19 @@ fun mapScene3Outcome(outcome: String?): Scene3Effect = when (outcome) {
     else -> Scene3Effect.NONE
 }
 
-/** 把场景3 的效果落到 NPC 记录上；独立出来便于单测。 */
-fun applyScene3Effect(
-    effect: Scene3Effect,
-    npc: NpcState,
-    runtime: MutableMap<String, NpcRecord>
-) {
+/**
+ * 把场景3 的效果落到 NPC 记录上；独立出来便于单测。
+ * 传 null 表示该 NPC 没有运行期记录：返回 null，由调用方决定不落库。
+ */
+fun applyScene3Effect(effect: Scene3Effect, npc: NpcState, record: NpcRecord?): NpcRecord? =
     when (effect) {
         Scene3Effect.DEAD ->
-            runtime[npc.npcId]?.let { record ->
-                runtime[npc.npcId] = record.copy(departure = DepartureInfo(DepartureStatus.DEAD, "战斗死亡"))
-            }
-        Scene3Effect.SEVERE_INJURY ->
+            record?.copy(departure = DepartureInfo(DepartureStatus.DEAD, "战斗死亡"))
+        Scene3Effect.SEVERE_INJURY -> {
             BattleCasualtyEngine.tagsFor(CasualtySeverity.SEVERE)
                 .filterNot { it in npc.statusTags }
                 .forEach { npc.statusTags.add(it) }
-        Scene3Effect.NONE -> Unit
+            record
+        }
+        Scene3Effect.NONE -> record
     }
-}

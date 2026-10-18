@@ -22,14 +22,17 @@ fun mapScene6Outcome(outcome: String?): Scene6Effect = when (outcome) {
 fun scene6ElapsedDays(currentDay: Int, expectedReturnDay: Int, windowDays: Int = 3): Int =
     (currentDay - (expectedReturnDay - windowDays)).coerceAtLeast(0)
 
+/**
+ * 把场景6 的效果落到 NPC 记录上：传入当前记录，返回更新后的记录。
+ * 传 null 表示该 NPC 没有运行期记录：返回 null，由调用方决定不落库。
+ */
 fun applyScene6Effect(
     effect: Scene6Effect,
     npc: NpcState,
-    runtime: MutableMap<String, NpcRecord>,
+    record: NpcRecord?,
     newFaction: String?
-) {
-    val record = runtime[npc.npcId] ?: return
-    val current = record.departure
+): NpcRecord? {
+    val current = record?.departure ?: return record
     val updated = when (effect) {
         Scene6Effect.DEAD ->
             current.copy(status = DepartureStatus.DEAD, reason = "失踪判定：死亡")
@@ -47,7 +50,7 @@ fun applyScene6Effect(
                 .forEach { npc.statusTags.add(it) }
             DepartureInfo(DepartureStatus.PRESENT)
         }
-        Scene6Effect.NONE -> return
+        Scene6Effect.NONE -> return record
     }
-    runtime[npc.npcId] = record.copy(departure = updated)
+    return record.copy(departure = updated)
 }
