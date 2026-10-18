@@ -75,7 +75,6 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.retrofit.converter.gson)
     implementation(libs.okhttp.logging)
-    implementation(libs.okhttp.sse)
 
     // Compose
     implementation(platform(libs.androidx.compose.bom))
