@@ -36,6 +36,12 @@ class SceneFallbackPolicyTest {
     }
 
     @Test
+    fun `spare day from a rolled back clock does not force kill`() {
+        // 继承世界会把时钟归零：早于当前日的 spare 记录不能被当成"10 日内"而连杀
+        assertEquals(Scene3Fallback.SPARE, decider(spare = true).decide(lastSpareFallbackDay = 20, currentDay = 1))
+    }
+
+    @Test
     fun `first failure always yields spare or severe injury`() {
         assertEquals(Scene3Fallback.SPARE, decider(spare = true).decide(null, currentDay = 1))
         assertEquals(Scene3Fallback.SEVERE_INJURY, decider(spare = false).decide(null, currentDay = 1))

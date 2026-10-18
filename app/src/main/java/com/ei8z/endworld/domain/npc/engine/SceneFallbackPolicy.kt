@@ -2,16 +2,19 @@ package com.ei8z.endworld.domain.npc.engine
 
 import kotlin.random.Random
 
-/** §5.12 场景3 的降级裁决结果。 */
-enum class Scene3Fallback { KILL, SEVERE_INJURY, SPARE }
+/** §5.12 场景3 的降级裁决结果；[outcome] 直接喂给正常路径的 `mapScene3Outcome`，两条路径共用一份映射。 */
+enum class Scene3Fallback(val outcome: String) {
+    KILL("kill"), SEVERE_INJURY("severe_injury"), SPARE("spare")
+}
 
 /**
  * §5.12 场景3 降级裁决：近 10 游戏日内该 NPC 已有一次 spare 降级则 kill，
  * 否则 50% spare / 50% severe_injury。随机源可注入，测试用固定序列。
  */
 class Scene3FallbackDecider(private val random: Random = Random.Default) {
+    /** 时钟可能回拨（继承世界归零）：只有 spare 日不晚于当前日、且相差不超过 10 天才算"10 日内"。 */
     fun decide(lastSpareFallbackDay: Int?, currentDay: Int): Scene3Fallback =
-        if (lastSpareFallbackDay != null && currentDay - lastSpareFallbackDay <= 10) Scene3Fallback.KILL
+        if (lastSpareFallbackDay != null && currentDay - lastSpareFallbackDay in 0..10) Scene3Fallback.KILL
         else if (random.nextBoolean()) Scene3Fallback.SPARE else Scene3Fallback.SEVERE_INJURY
 }
 

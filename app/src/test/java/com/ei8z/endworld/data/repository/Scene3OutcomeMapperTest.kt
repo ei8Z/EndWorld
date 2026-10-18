@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.domain.npc.engine.Scene3Fallback
 import com.ei8z.endworld.domain.npc.model.CombatRole
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NpcState
@@ -24,6 +25,14 @@ class Scene3OutcomeMapperTest {
     @Test
     fun `severe injury adds the severe injury effect`() {
         assertEquals(Scene3Effect.SEVERE_INJURY, mapScene3Outcome("severe_injury"))
+    }
+
+    @Test
+    fun `fallback decisions reuse the normal outcome mapping`() {
+        // 降级路径与 AI 路径共用同一个映射，避免将来新增分支只改一边
+        assertEquals(Scene3Effect.DEAD, mapScene3Outcome(Scene3Fallback.KILL.outcome))
+        assertEquals(Scene3Effect.SEVERE_INJURY, mapScene3Outcome(Scene3Fallback.SEVERE_INJURY.outcome))
+        assertEquals(Scene3Effect.NONE, mapScene3Outcome(Scene3Fallback.SPARE.outcome))
     }
 
     @Test

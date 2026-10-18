@@ -233,6 +233,23 @@ class GameRepositoryTest {
     }
 
     @Test
+    fun `inheritWorld rewinds the clock and clears the scene fallback state`() = runTest {
+        val repo = createRepo()
+        val scene3 = SceneType.KEY_NPC_DEATH.id
+        repeat(5) { repo.sceneFallbackGuard.recordFailure(scene3, 0) }
+        repo.fallbackSpareDay["npc_老张"] = 30
+        repo.stateMachine.clock.setTotalMinutes(30 * 1440)
+        assertTrue(repo.sceneFallbackGuard.isPaused(scene3, 0))
+
+        repo.inheritWorld(testPlayer())
+
+        assertEquals(0, repo.stateMachine.clock.elapsedMinutes)
+        // 归零后的时钟不能继续被判为暂停，旧 spare 日也不能跨世界继续触发连杀
+        assertFalse(repo.sceneFallbackGuard.isPaused(scene3, 0))
+        assertTrue(repo.fallbackSpareDay.isEmpty())
+    }
+
+    @Test
     fun `resume after acceleration replays stored summary`() = runTest {
         stubV3Daos()
         every { prefs.getString("gm_strategy", null) } returns null

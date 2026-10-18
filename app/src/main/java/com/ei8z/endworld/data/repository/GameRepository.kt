@@ -195,11 +195,11 @@ class GameRepository(
     }
 
     /** §5.12 场景降级：连续 5 次失败暂停该场景 24 游戏小时（暂停期间不调 AI）。 */
-    private val sceneFallbackGuard = SceneFallbackGuard()
+    internal val sceneFallbackGuard = SceneFallbackGuard()
     private val scene3FallbackDecider = Scene3FallbackDecider()
 
     /** 该 NPC 最近一次 spare 降级的游戏日；10 游戏日内再次失败按 §5.12 升级为 kill。 */
-    private val fallbackSpareDay = mutableMapOf<String, Int>()
+    internal val fallbackSpareDay = mutableMapOf<String, Int>()
 
     /**
      * 场景评估入口：统一在后台线程评估，hint 归入下一轮叙事注入。
@@ -222,7 +222,8 @@ class GameRepository(
             onDecision = onDecision,
             onSuccess = { sceneFallbackGuard.recordSuccess(trigger.type.id) },
             onFailure = { e ->
-                sceneFallbackGuard.recordFailure(trigger.type.id, now)
+                // 用失败时刻而非派发时刻：AI 耗时或加速模式推进时钟时，暂停窗口不会被提前算完
+                sceneFallbackGuard.recordFailure(trigger.type.id, stateMachine.clock.elapsedMinutes)
                 onFailure?.invoke(e)
             },
             onHint = { hint -> synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) } }
@@ -1316,19 +1317,13 @@ class GameRepository(
                 if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
             },
             onFailure = {
-                // §5.12：AI 失败/无决策/熔断期间不静默——按保守规则裁决，再走正常 effect 映射
+                // §5.12：AI 失败/无决策/熔断期间不静默——按保守规则裁决，再复用正常路径的 effect 映射
                 val fallback = scene3FallbackDecider.decide(fallbackSpareDay[npc.npcId], currentGameDay)
-                val updated = when (fallback) {
-                    Scene3Fallback.KILL ->
-                        applyScene3Effect(Scene3Effect.DEAD, npc, npcRuntime[npc.npcId])
-                    Scene3Fallback.SEVERE_INJURY ->
-                        applyScene3Effect(Scene3Effect.SEVERE_INJURY, npc, npcRuntime[npc.npcId])
-                    Scene3Fallback.SPARE -> {
-                        fallbackSpareDay[npc.npcId] = currentGameDay
-                        null
-                    }
-                }
-                if (updated != null && updated !== npcRuntime[npc.npcId]) npcRuntime[npc.npcId] = updated
+                if (fallback == Scene3Fallback.SPARE) fallbackSpareDay[npc.npcId] = currentGameDay
+                val current = npcRuntime[npc.npcId]
+                val updated = applyScene3Effect(mapScene3Outcome(fallback.outcome), npc, current)
+                // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
+                if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
             }
         )
     }
@@ -1599,7 +1594,11 @@ class GameRepository(
                 aff.relationshipStage = t.toRelationshipStage(); aff.emotionalTags.clear()
             }
         }
-        stateMachine.clock.setTotalMinutes(0); return transferred
+        stateMachine.clock.setTotalMinutes(0)
+        // 新世界从第 1 天重新计时：旧世界的熔断暂停与 spare 日不能跨世界继续生效
+        fallbackSpareDay.clear()
+        sceneFallbackGuard.reset()
+        return transferred
     }
 
     /** V3.0 V2存档迁移 */
