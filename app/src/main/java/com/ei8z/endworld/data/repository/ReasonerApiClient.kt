@@ -20,7 +20,7 @@ import org.json.JSONObject
  * - model: deepseek-flash
  * - reasoningEffort: max（裁决需要最高推理能力）
  * - responseFormat: json_object
- * - maxTokens: 8192（V2.3 升级后 ActionResult 包含精确计量等字段，需要更大输出空间）
+ * - maxTokens: 300000（ChatRequest.MAX_OUTPUT_TOKENS，官方上限 393216，留上下文余量）
  * - stream: false（裁决不需要流式）
  *
  * 解析 response.choices[0].message.content 中的 ActionResult JSON。
@@ -67,7 +67,7 @@ class ReasonerApiClient(
                     messages = messages,
                     reasoningEffort = "max",
                     responseFormat = ResponseFormat("json_object"),
-                    maxTokens = 8192,
+                    maxTokens = ChatRequest.MAX_OUTPUT_TOKENS,
                     stream = false,
                     userId = userId,
                     tools = tools,
@@ -119,10 +119,10 @@ class ReasonerApiClient(
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userMessage)
             ),
-            reasoningEffort = "low",
+            reasoningEffort = "medium",
             responseFormat = ResponseFormat("json_object"),
             // 1024 会被推理 token 吃满（真实 API 冒烟：finish_reason=length、content 为空）
-            maxTokens = 4096,
+            maxTokens = ChatRequest.MAX_OUTPUT_TOKENS,
             stream = false,
             userId = userId
         )

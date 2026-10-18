@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.callbackFlow
  * - model: deepseek-flash
  * - reasoningEffort: medium（叙事不需要极限推理）
  * - responseFormat: json_object
- * - maxTokens: 8192（1000+字叙事需要较大输出空间）
+ * - maxTokens: 300000（ChatRequest.MAX_OUTPUT_TOKENS，官方上限 393216，留上下文余量）
  * - stream: true（流式输出，打字机效果）
  *
  * 流式事件通过回调 Flow 发射 StorytellerEvent，由 GameViewModel 消费并渲染。
@@ -53,9 +53,9 @@ class StorytellerApiClient(
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userMessage)
             ),
-            reasoningEffort = "medium",
+            reasoningEffort = "height",
             responseFormat = ResponseFormat("json_object"),
-            maxTokens = 8192,
+            maxTokens = ChatRequest.MAX_OUTPUT_TOKENS,
             stream = true,
             userId = userId
         )

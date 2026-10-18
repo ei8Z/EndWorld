@@ -15,12 +15,17 @@ data class ChatRequest(
     @SerializedName("response_format") val responseFormat: ResponseFormat? = ResponseFormat("json_object"),
     @SerializedName("thinking") val thinking: Thinking? = Thinking("enabled"),
     @SerializedName("reasoning_effort") val reasoningEffort: String = "high",
-    @SerializedName("max_tokens") val maxTokens: Int = 8192,
+    @SerializedName("max_tokens") val maxTokens: Int = MAX_OUTPUT_TOKENS,
     @SerializedName("stream") val stream: Boolean = true,
     @SerializedName("tools") val tools: List<Tool>? = null,
     @SerializedName("tool_choice") val toolChoice: String = ToolChoice.none(),
     @SerializedName("user_id") val userId: String? = null
-)
+) {
+    companion object {
+        /** 官方上限 393216；取 300000 给上下文留余量，避免输入+输出撞上下文上限。 */
+        const val MAX_OUTPUT_TOKENS = 300_000
+    }
+}
 
 /**
  * 控制模型是否/何时调用工具。

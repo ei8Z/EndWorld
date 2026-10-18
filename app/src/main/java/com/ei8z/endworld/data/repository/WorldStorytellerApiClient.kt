@@ -60,8 +60,8 @@ class WorldStorytellerApiClient(
                 ),
                 stream = false,
                 responseFormat = ResponseFormat("json_object"),
-                maxTokens = 4096,
-                reasoningEffort = "medium"
+                maxTokens = ChatRequest.MAX_OUTPUT_TOKENS,
+                reasoningEffort = "height"
             )
 
             val response = apiService.getChatCompletions(apiKey, request)
