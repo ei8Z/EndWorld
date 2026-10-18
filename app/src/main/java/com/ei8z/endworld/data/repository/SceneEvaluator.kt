@@ -28,6 +28,15 @@ class SceneEvaluator(private val reasoner: ReasonerApiClient) : SceneDecisionSou
             Log.w("SceneEvaluator", "场景 ${trigger.type.id} 校验失败: ${result.warnings}")
             return null
         }
+        if (trigger.type == SceneType.KEY_NPC_DEATH) {
+            // 语法合法但 outcome 缺失/非法：按"无决策"返回 null，让调用方走 §5.12 降级并计失败
+            val outcome = result.correctedJson.getAsJsonObject("decision")
+                ?.get("outcome")?.takeIf { it.isJsonPrimitive }?.asString
+            if (!isValidScene3Outcome(outcome)) {
+                Log.w("SceneEvaluator", "场景3 outcome=$outcome 非合法值，按无决策处理")
+                return null
+            }
+        }
         return result.correctedJson
     }
 }

@@ -10,14 +10,14 @@ import com.ei8z.endworld.domain.npc.model.NpcState
 /** 场景3 裁决结果对应的状态效果。 */
 enum class Scene3Effect { DEAD, SEVERE_INJURY, NONE }
 
-/**
- * §5.6：场景3 的 `decision.outcome` 只有 kill / spare / severe_injury 三种合法值。
- * 未知值（包括旧的 "dead"）按"不改变状态"处理，避免错误 token 被当成死亡。
- */
-/** 场景3 的合法 outcome；缺失/非法 token 视为"无决策"，由调用方走 §5.12 降级。 */
+/** §5.6：场景3 合法 outcome 只有 kill / spare / severe_injury；缺失或旧 token 视为"无决策"。 */
 fun isValidScene3Outcome(outcome: String?): Boolean =
     outcome == "kill" || outcome == "spare" || outcome == "severe_injury"
 
+/**
+ * §5.6 映射。调用方必须先经过 [isValidScene3Outcome]（SceneEvaluator 已拦截），
+ * 否则未知值会落到 NONE 静默不裁决。
+ */
 fun mapScene3Outcome(outcome: String?): Scene3Effect = when (outcome) {
     "kill" -> Scene3Effect.DEAD
     "severe_injury" -> Scene3Effect.SEVERE_INJURY

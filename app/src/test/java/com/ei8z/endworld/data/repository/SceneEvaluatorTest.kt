@@ -28,6 +28,22 @@ class SceneEvaluatorTest {
     }
 
     @Test
+    fun `scene 3 decision without a valid outcome is rejected`() = runTest {
+        val result = evaluatorReturning("""{"decision":{}}""").evaluate(
+            SceneTrigger(SceneType.KEY_NPC_DEATH, "k1"), "msg"
+        )
+        assertNull(result)
+    }
+
+    @Test
+    fun `scene 3 decision with spare outcome is accepted`() = runTest {
+        val result = evaluatorReturning("""{"decision":{"npcId":"k1","outcome":"spare"}}""").evaluate(
+            SceneTrigger(SceneType.KEY_NPC_DEATH, "k1"), "msg"
+        )
+        assertNotNull(result)
+    }
+
+    @Test
     fun `non json response is rejected`() = runTest {
         val result = evaluatorReturning("not a json").evaluate(
             SceneTrigger(SceneType.STAGE_CROSSING, "n1"), "msg"

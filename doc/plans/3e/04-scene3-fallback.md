@@ -159,14 +159,14 @@ onFailure = {
 | 熔断只作用于有降级回调的场景（当前仅场景 3） | 场景 2/4/5 无降级动作，暂停只丢 hint；场景 6 的 MISSING 在评估前已落库且无其它消费路径，暂停会让 NPC 永久停在 MISSING。 |
 | 合法决策后的回调/hint 异常只记日志 | 否则会把 AI 已生效的裁决覆盖成降级裁决（AI 返回 `"suggestedNarrativeAngle": null` 已实测触发）。 |
 | `fallbackSpareDay` 用 `ConcurrentHashMap` | IO 回调、闸门同步回调与主线程清理会并发访问；与 guard 的 `@Synchronized` 保持同一安全级别。 |
-| 非法 `decision.outcome` 保留 `mapScene3Outcome` 的 `NONE` | 提示词已限定 kill/spare/severe_injury；未知 token 不改变状态是既有契约（避免把旧 "dead" 当成死亡）。若要归入降级，需在 `LightweightAIValidator` 加场景 3 白名单并同步本 Spec。 |
+| 非法 `decision.outcome` 归入"无决策"降级 | `SceneEvaluator` 对场景 3 做白名单校验（kill/spare/severe_injury），缺失/非法/旧 `"dead"` 返回 null → 走 §5.12 降级并计失败。这样持续输出 `{"decision":{}}` 的 AI 会被熔断，而不是静默不裁决。 |
 | 失败时间戳取失败回调当下的时钟 | AI 耗时/加速模式推进时钟时，24h 暂停窗口不会被提前算完。 |
 
 ## 后续项（不在本 Spec 范围）
 
 - `fallbackSpareDay` 目前是内存态、不持久化，且是 `npcRuntime` 之外的平行 map（Spec step 3 明确指定，与 AGENTS.md 冲突已登记）：后续迁入 `NpcRecord` 或随 V3 快照持久化。
 - 完整异步链路集成测试（mock AI 连续失败 5 次 → 第 6 次不调 AI；KILL/SEVERE 真实落地；闸门短路）依赖战斗 + 失败 API 的重量级构造，按收尾清单 B4 补。
-- 非法 outcome 是否归入"无决策"降级：当前保留 `NONE`；产品若要改，需改 validator 与本 Spec。
+- 非法 outcome 已归入"无决策"降级（`SceneEvaluator` 白名单）；`mapScene3Outcome` 的 NONE 只作为防御性兜底，正常路径不可达。
 
 ## Acceptance
 

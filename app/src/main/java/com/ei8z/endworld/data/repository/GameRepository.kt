@@ -1334,16 +1334,10 @@ class GameRepository(
                     ?.get("outcome")
                     ?.takeIf { it.isJsonPrimitive }
                     ?.asString
-                if (!isValidScene3Outcome(outcome)) {
-                    // 语法合法但没有合法裁决：按"无决策"降级，避免静默不裁决
-                    Log.w(TAG, "场景3输出缺少合法 outcome=$outcome，走降级")
-                    applyFallback()
-                } else {
-                    val current = npcRuntime[npc.npcId]
-                    val updated = applyScene3Effect(mapScene3Outcome(outcome), npc, current)
-                    // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
-                    if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
-                }
+                val current = npcRuntime[npc.npcId]
+                val updated = applyScene3Effect(mapScene3Outcome(outcome), npc, current)
+                // 无变化分支返回同一实例：不回写，避免异步回调覆盖更新的记录
+                if (updated != null && updated !== current) npcRuntime[npc.npcId] = updated
             },
             onFailure = { applyFallback() }
         )
