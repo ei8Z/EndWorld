@@ -1313,6 +1313,32 @@ class GameRepository(
                 npcMemories[list[i].npcId]?.let { engine.addMemory(it,
                     com.ei8z.endworld.domain.npc.model.MemoryEntry("[Day $currentGameDay]", list[i].currentLocationId,
                         r.description, source = com.ei8z.endworld.domain.npc.model.MemorySource.NPC_SOCIAL_SNAPSHOT)) }
+
+                // 场景5：破坏性互动或关键NPC参与 → 异步评估，结果供下一轮叙事注入
+                SceneTriggerDetector.detectRareInteraction(list[i], list[j], r.interactionType)?.let { trigger ->
+                    repositoryScope.launch {
+                        try {
+                            val message = PromptBuilder.buildScene5UserMessage(
+                                npcA = list[i].name,
+                                npcB = list[j].name,
+                                interactionType = trigger.detail["reason"] ?: r.interactionType.name,
+                                aState = "${list[i].identity}｜${list[i].statusTags.joinToString("、")}",
+                                bState = "${list[j].identity}｜${list[j].statusTags.joinToString("、")}",
+                                background = r.description
+                            )
+                            sceneEvaluator.evaluate(trigger, message)?.let { decision ->
+                                decision.get("suggestedNarrativeAngle")?.asString
+                                    ?.takeIf { it.isNotBlank() }?.let { hint ->
+                                        synchronized(pendingSceneNotes) { pendingSceneNotes.add(hint) }
+                                    }
+                            }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.e(TAG, "场景5评估失败: ${e.message}", e)
+                        }
+                    }
+                }
             }
         }
     }

@@ -178,6 +178,18 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
             )
         }
 
+        // 稀有冲突：任一方需求极端时更容易爆发（场景5 域信号）
+        val extreme = needsA.foodUrgency >= 80 || needsA.waterUrgency >= 80 ||
+            needsB.foodUrgency >= 80 || needsB.waterUrgency >= 80
+        val argumentChance = if (extreme) 0.08f else 0.02f
+        if (random.nextFloat() < argumentChance) {
+            return InteractionResult(
+                npcA.npcId, npcB.npcId,
+                InteractionType.ARGUMENT, -10, -15,
+                "${npcA.name}与${npcB.name}因资源分配发生争执"
+            )
+        }
+
         // 资源分享：一方有需求，另一方有资源
         val aNeedy = needsA.foodUrgency > 70 || needsA.waterUrgency > 70
         val bNeedy = needsB.foodUrgency > 70 || needsB.waterUrgency > 70
