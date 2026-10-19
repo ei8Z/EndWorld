@@ -6,15 +6,20 @@ import androidx.test.core.app.ApplicationProvider
 import com.ei8z.endworld.data.local.AppDatabase
 import com.ei8z.endworld.data.remote.DeepSeekApiService
 import com.ei8z.endworld.data.remote.MemosApiService
+import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
 import com.ei8z.endworld.domain.npc.model.CombatRole
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
+import com.ei8z.endworld.domain.npc.model.NeedState
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.NpcTier
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,6 +52,64 @@ class GameRepositorySettlementIntegrationTest {
         db, mockk<DeepSeekApiService>(relaxed = true),
         mockk<MemosApiService>(relaxed = true), "key", "key", context
     )
+
+    @Test
+    fun `restarted repository resumes the persisted settled day`() = runTest {
+        // 上一次进程已结算到第 10 天，重启不能回到第 1 天重放 9 次结算
+        context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE)
+            .edit().putInt(SettlementLedger.KEY, 10).commit()
+
+        val repo = newRepo()
+
+        assertEquals(10, repo.lastMidnightSettlementDay)
+    }
+
+    @Test
+    fun `new game resets the persisted settled day`() = runTest {
+        val prefs = context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE)
+        prefs.edit().putInt(SettlementLedger.KEY, 10).commit()
+        val repo = newRepo()
+        assertEquals(10, repo.lastMidnightSettlementDay)
+
+        repo.initializeNewGameV22(
+            playerName = "测试", genderPhysique = "男", personality = "冷静",
+            adultProfile = "", doomType = "丧尸", doomLevel = 1,
+            hp = 100, hpMax = 100, sp = 100, spMax = 100,
+            hunger = 80, thirst = 80, fatigue = 20
+        )
+
+        assertEquals(1, repo.lastMidnightSettlementDay)
+        assertEquals(1, newRepo().lastMidnightSettlementDay)
+    }
+
+    @Test
+    fun `npc needs saturate without need death until the satisfy model lands`() = runTest {
+        // 开关显式：本批决定需求与伤病不致死（P0-1）
+        assertFalse(NpcBehaviorEngine.NEED_DEATH_ENABLED)
+
+        val repo = newRepo()
+        repo.ensureV3WorldLoaded()
+        repo.npcRuntime["n1"] = npcRecord(
+            state = NpcState(
+                npcId = "n1", name = "老李", identity = "居民",
+                combatRole = CombatRole.NON_COMBATANT,
+                currentLocationId = repo.regions.keys.first(), factionId = null,
+                personalityTags = emptyList(), statusTags = mutableListOf(), tier = NpcTier.CONTACT
+            ),
+            needs = NeedState(
+                foodUrgency = 30, waterUrgency = 30,
+                medicalUrgency = 0, safetyUrgency = 30, socialUrgency = 30
+            )
+        )
+
+        repeat(5) { repo.executeDailySettlement() }
+
+        val record = repo.npcRuntime.getValue("n1")
+        assertNotEquals(DepartureStatus.DEAD, record.departure.status)
+        // 需求仍在推进：连续饱和已超过致死阈值（3 天），只是不再落成死亡
+        assertEquals(100, record.needs.foodUrgency)
+        assertTrue(record.needs.consecutiveSaturatedFoodDays >= 3)
+    }
 
     @Test
     fun `overdue explorer turns missing once and stays missing after the next settlement`() = runTest {

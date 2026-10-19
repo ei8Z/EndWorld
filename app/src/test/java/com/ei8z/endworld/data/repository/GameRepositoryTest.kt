@@ -351,6 +351,8 @@ class GameRepositoryTest {
         assertEquals(0, repo.pendingSettlementDays(previousDay = 3, currentDay = 3))
         assertEquals(1, repo.pendingSettlementDays(previousDay = 3, currentDay = 4))
         assertEquals(2, repo.pendingSettlementDays(previousDay = 3, currentDay = 5))
+        // 已结算日接上当天：首行动不补算
+        assertEquals(0, repo.pendingSettlementDays(previousDay = 10, currentDay = 10))
     }
 
     @Test

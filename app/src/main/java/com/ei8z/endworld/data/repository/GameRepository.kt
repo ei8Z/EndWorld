@@ -51,6 +51,7 @@ import com.ei8z.endworld.domain.state.SurvivalStateMachine
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -348,12 +349,25 @@ class GameRepository(
         sm.doomLevel = player.doomLevel.coerceIn(1, 5)
         sm.processPreRuling(actionParsed.estimatedTimeMinutes, actionParsed.primaryType)
 
-        // V3.0: 跨过几个午夜就结算几次（此前只结算 1 次）
+        // V3.0: 跨过几个午夜就结算几次（此前只结算 1 次）。
+        // 游标不在启动前跳到 currentDay：逐日结算成功才前进并落盘，失败就停在原地等下次重试。
         val pendingDays = pendingSettlementDays(lastMidnightSettlementDay, sm.clock.currentDay)
         if (pendingDays > 0) {
-            lastMidnightSettlementDay = sm.clock.currentDay
             repositoryScope.launch {
-                v3Mutex.withLock { repeat(pendingDays) { executeDailySettlement() } }
+                v3Mutex.withLock {
+                    repeat(pendingDays) {
+                        try {
+                            executeDailySettlement()
+                            lastMidnightSettlementDay += 1
+                            settlementLedger.mark(lastMidnightSettlementDay)
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            Log.e(TAG, "每日结算失败，停在 day=$lastMidnightSettlementDay", e)
+                            return@withLock
+                        }
+                    }
+                }
             }
         }
 
@@ -1033,6 +1047,7 @@ class GameRepository(
         sceneFallbackGuard.reset()
         memosExtractor.clearPauseState()
         lastMidnightSettlementDay = 1
+        settlementLedger.mark(1)
         v3Loaded = false
     }
 
@@ -1176,7 +1191,11 @@ class GameRepository(
     val currentGameDay: Int get() = stateMachine.clock.currentDay
     var isAccelerating: Boolean = false
     var accelerationStartHour: Float = 0f
-    var lastMidnightSettlementDay: Int = 1 // 初始化为第1天，避免首次行动触发伪结算
+    /** P0-2：结算游标落 Prefs，重启从上次已结算日继续，而不是回退到第 1 天重放。 */
+    private val settlementLedger = SettlementLedger(
+        context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE)
+    )
+    var lastMidnightSettlementDay: Int = settlementLedger.load()
     private var expectedChanges: WorldNarrativeTemplateEngine.ExpectedChanges? = null
     private var localSummaryLog = mutableListOf<String>()
     /** 最近一次加速退出的摘要；元行动 RESUME 会把这段文本作为 story 发回 UI。 */
@@ -1354,7 +1373,10 @@ class GameRepository(
             val newNeeds = engine.advanceNeeds(needs, injured, threat, survivalOk)
             updateRecord(npcId) { it.copy(needs = newNeeds) }
 
-            val deathCause = engine.checkNeedOverloadDeath(newNeeds)
+            // P0-1：满足/治疗模型落地前，需求饱和只保留叙事信号，不落成死亡
+            val deathCause = if (NpcBehaviorEngine.NEED_DEATH_ENABLED) {
+                engine.checkNeedOverloadDeath(newNeeds)
+            } else null
             if (deathCause != null) {
                 updateRecord(npcId) { it.copy(departure = DepartureInfo(DepartureStatus.DEAD, deathCause)) }
                 continue

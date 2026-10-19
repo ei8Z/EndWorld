@@ -15,6 +15,9 @@ class NpcBehaviorEngine(private val random: Random = Random.Default) {
         /** 外出探索的预期窗口（游戏日）。 */
         const val DEPARTURE_WINDOW_DAYS = 3
 
+        /** 满足/治疗模型落地前，需求与伤病不致死（2026-10-19 决定）。 */
+        const val NEED_DEATH_ENABLED = false
+
         /** 单次互动允许 AI 建议的好感度增量上限（V3 量纲）。 */
         private const val MAX_AI_AFFINITY_DELTA = 20
     }
