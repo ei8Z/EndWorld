@@ -351,12 +351,11 @@ class GameRepository(
 
         // V3.0: 跨过几个午夜就结算几次（此前只结算 1 次）。
         // 游标不在启动前跳到 currentDay：逐日结算成功才前进并落盘，失败就停在原地等下次重试。
+        // 同轮等待结算完成：prompt 必须读到结算后的状态，不能靠异步 launch 抢跑（P1-1）。
         val targetDay = sm.clock.currentDay
         if (targetDay > lastMidnightSettlementDay) {
             // 游标在锁内逐日推进：并发两次行动时，后进入的协程不会再结算同一批天数
-            repositoryScope.launch {
-                v3Mutex.withLock { settleUntil(targetDay) }
-            }
+            v3Mutex.withLock { settleUntil(targetDay) }
         }
 
         val preSnapshot = sm.generatePreRulingSnapshot()
@@ -484,6 +483,10 @@ class GameRepository(
         }
 
         sm.processBranchAction(minutes = minutes)
+        // 支线跨午夜也结算（与主线同一游标/锁），构建响应与落库前先完成（P1-2）
+        if (sm.clock.currentDay > lastMidnightSettlementDay) {
+            v3Mutex.withLock { settleUntil(sm.clock.currentDay) }
+        }
         // 应用支线 SP 消耗（非被动消耗，为行动本身消耗）
         sm.vital.sp = (sm.vital.sp + branchType.spCost).coerceIn(0, sm.vital.spMax)
 
@@ -1591,6 +1594,11 @@ class GameRepository(
                 }
             }
         }
+        // P1-2：批量追赶已覆盖这段加速，账本同步到当前日，下一次主线不再补算同一段。
+        // 语义取舍：加速期间的逐日事件/战斗不补跑（只补资源/NPC），统一 advanceTime 留到 1B。
+        // elapsed < 2h 的早退分支不写，留给下一次主线正常结算。
+        lastMidnightSettlementDay = stateMachine.clock.currentDay
+        settlementLedger.mark(lastMidnightSettlementDay)
         val scene = buildString {
             val r = regions.values.firstOrNull()
             if (r != null) append("位置:${r.name} 威胁:${r.threatLevel}")
