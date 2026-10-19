@@ -1573,7 +1573,8 @@ class GameRepository(
                 regions[npc.currentLocationId]?.threatLevel ?: 0
             )
             updateRecord(npcId) { current ->
-                if (r.diedOnDay != null) {
+                // P0-1：加速追赶与每日结算共用同一个开关——需求只推进，不落成死亡
+                if (NpcBehaviorEngine.NEED_DEATH_ENABLED && r.diedOnDay != null) {
                     current.copy(
                         needs = r.finalNeeds,
                         departure = DepartureInfo(DepartureStatus.DEAD, "加速期间${r.deathCause}")

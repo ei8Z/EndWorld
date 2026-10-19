@@ -18,6 +18,8 @@ import com.ei8z.endworld.data.remote.model.Choice
 import com.ei8z.endworld.data.remote.model.Usage
 import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
 import com.ei8z.endworld.domain.npc.model.CombatRole
+import com.ei8z.endworld.domain.npc.model.DepartureStatus
+import com.ei8z.endworld.domain.npc.model.NeedState
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
 import com.ei8z.endworld.domain.world.dao.*
@@ -207,6 +209,29 @@ class GameRepositoryTest {
         repo.advanceAcceleration(realMillis = 10_000)
 
         assertEquals(before + 150, repo.stateMachine.clock.elapsedMinutes)
+    }
+
+    @Test
+    fun `acceleration catchup does not turn saturated needs into death`() = runTest {
+        // P0-1 的第二个落点：加速追赶同样只推进需求，不把饱和落成死亡
+        val repo = createRepo()
+        repo.npcRuntime["n1"] = npcRecord(
+            state = npcState("n1", "老李"),
+            needs = NeedState(
+                foodUrgency = 90, waterUrgency = 90,
+                medicalUrgency = 0, safetyUrgency = 30, socialUrgency = 30
+            )
+        )
+
+        repo.enterAcceleration(testPlayer())
+        // 现实 1 秒 = 游戏 15 分钟；480 秒 = 5 个游戏日，足够跨过连续饱和 3 天的致死阈值
+        repo.advanceAcceleration(realMillis = 480_000)
+        repo.exitAcceleration(testPlayer(), testWorld())
+
+        val record = repo.npcRuntime.getValue("n1")
+        assertNotEquals(DepartureStatus.DEAD, record.departure.status)
+        assertEquals(100, record.needs.foodUrgency)
+        assertTrue(record.needs.consecutiveSaturatedFoodDays >= 3)
     }
 
     @Test
