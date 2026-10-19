@@ -1596,9 +1596,12 @@ class GameRepository(
         }
         // P1-2：批量追赶已覆盖这段加速，账本同步到当前日，下一次主线不再补算同一段。
         // 语义取舍：加速期间的逐日事件/战斗不补跑（只补资源/NPC），统一 advanceTime 留到 1B。
-        // elapsed < 2h 的早退分支不写，留给下一次主线正常结算。
-        lastMidnightSettlementDay = stateMachine.clock.currentDay
-        settlementLedger.mark(lastMidnightSettlementDay)
+        // 只在真的批量追赶了完整日时同步：2h≤elapsed<24h 时 fullDays==0，追赶没推进任何一天，
+        // 跨午夜的那天必须留给下一次主线正常结算，否则游标跳过一天、该日结算永久丢失。
+        if (fullDays >= 1) {
+            lastMidnightSettlementDay = stateMachine.clock.currentDay
+            settlementLedger.mark(lastMidnightSettlementDay)
+        }
         val scene = buildString {
             val r = regions.values.firstOrNull()
             if (r != null) append("位置:${r.name} 威胁:${r.threatLevel}")

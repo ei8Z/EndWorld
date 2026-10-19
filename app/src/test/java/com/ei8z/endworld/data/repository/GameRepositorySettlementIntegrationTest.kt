@@ -298,5 +298,78 @@ class GameRepositorySettlementIntegrationTest {
         assertEquals(2, prefs().getInt(SettlementLedger.KEY, 1))
     }
 
+    @Test
+    fun `exit acceleration without a full day leaves the crossed day to the next mainline`() = runTest {
+        seedPlayerAndWorld(lateNightMinutes)
+        val api = mockk<DeepSeekApiService>(relaxed = true)
+        val repo = newRepo(api)
+        repo.ensureV3WorldLoaded()
+        repo.stateMachine.clock.setTotalMinutes(lateNightMinutes)
+        val player = repo.playerState.first() ?: error("玩家数据缺失")
+        val world = repo.worldInfo.first() ?: error("世界数据缺失")
+
+        repo.enterAcceleration(player)
+        // 现实 12 秒 × 15 游戏分钟/秒 = 3 游戏小时：23:55 → 第 2 天 02:55，fullDays=0
+        repo.advanceAcceleration(realMillis = 12_000)
+        repo.exitAcceleration(player, world)
+
+        assertEquals(2, repo.currentGameDay)
+        // 没有批量追赶任何一天：游标不能跳过第 2 天，否则这一天永久不结算
+        assertEquals(1, repo.lastMidnightSettlementDay)
+        assertEquals(1, prefs().getInt(SettlementLedger.KEY, 1))
+
+        // 交给下一次主线正常结算：游标推进到第 2 天并落盘
+        stubMainlineApis(api) {}
+        repo.sendActionStream(
+            "观察四周",
+            ActionParsed("观察", "查看", "", "避难所", "", "低", 10)
+        ).toList()
+
+        assertEquals(2, repo.lastMidnightSettlementDay)
+        assertEquals(2, prefs().getInt(SettlementLedger.KEY, 1))
+    }
+
+    @Test
+    fun `next mainline does not re-settle the accelerated day`() = runTest {
+        seedPlayerAndWorld(6 * 60)
+        val api = mockk<DeepSeekApiService>(relaxed = true)
+        val repo = newRepo(api)
+        repo.ensureV3WorldLoaded()
+        repo.stateMachine.clock.setTotalMinutes(6 * 60)
+        repo.npcRuntime["n1"] = npcRecord(
+            state = NpcState(
+                npcId = "n1", name = "老李", identity = "居民",
+                combatRole = CombatRole.NON_COMBATANT,
+                currentLocationId = repo.regions.keys.first(), factionId = null,
+                personalityTags = emptyList(), statusTags = mutableListOf(), tier = NpcTier.CONTACT
+            ),
+            needs = NeedState(
+                foodUrgency = 30, waterUrgency = 30,
+                medicalUrgency = 0, safetyUrgency = 30, socialUrgency = 30
+            )
+        )
+        val player = repo.playerState.first() ?: error("玩家数据缺失")
+        val world = repo.worldInfo.first() ?: error("世界数据缺失")
+
+        repo.enterAcceleration(player)
+        // 现实 96 秒 × 15 游戏分钟/秒 = 1 游戏日：走 fullDays=1 的批量追赶
+        repo.advanceAcceleration(realMillis = 96_000)
+        repo.exitAcceleration(player, world)
+
+        assertEquals(2, repo.lastMidnightSettlementDay)
+        val needsAfterExit = repo.npcRuntime.getValue("n1").needs
+
+        // 退出后发一次主线动作：同一天不应再跑一次每日结算（NPC 需求会再推进一天）
+        stubMainlineApis(api) {}
+        repo.sendActionStream(
+            "观察四周",
+            ActionParsed("观察", "查看", "", "避难所", "", "低", 10)
+        ).toList()
+
+        assertEquals(2, repo.currentGameDay)
+        assertEquals(2, repo.lastMidnightSettlementDay)
+        assertEquals(needsAfterExit, repo.npcRuntime.getValue("n1").needs)
+    }
+
     // endregion
 }
