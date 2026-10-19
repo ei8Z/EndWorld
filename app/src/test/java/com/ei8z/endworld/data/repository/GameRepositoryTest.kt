@@ -3,6 +3,7 @@ package com.ei8z.endworld.data.repository
 import android.content.Context
 import android.content.SharedPreferences
 import com.ei8z.endworld.data.local.AppDatabase
+import java.io.IOException
 import com.ei8z.endworld.data.local.dao.*
 import com.ei8z.endworld.data.local.entity.*
 import com.ei8z.endworld.data.model.ActionParsed
@@ -173,6 +174,17 @@ class GameRepositoryTest {
         locationScene = "避难所", macroSituation = "",
         knownPointsJson = "[]"
     )
+
+    @Test
+    fun `settleUntil advances the ledger only for successful days`() = runTest {
+        val repo = createRepo()
+
+        repo.settleUntil(3) { throw IOException("boom") }
+        assertEquals(1, repo.lastMidnightSettlementDay)
+
+        repo.settleUntil(3) { }
+        assertEquals(3, repo.lastMidnightSettlementDay)
+    }
 
     @Test
     fun `resume meta action always emits FinalResponse`() = runTest {

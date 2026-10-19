@@ -351,23 +351,11 @@ class GameRepository(
 
         // V3.0: 跨过几个午夜就结算几次（此前只结算 1 次）。
         // 游标不在启动前跳到 currentDay：逐日结算成功才前进并落盘，失败就停在原地等下次重试。
-        val pendingDays = pendingSettlementDays(lastMidnightSettlementDay, sm.clock.currentDay)
-        if (pendingDays > 0) {
+        val targetDay = sm.clock.currentDay
+        if (targetDay > lastMidnightSettlementDay) {
+            // 游标在锁内逐日推进：并发两次行动时，后进入的协程不会再结算同一批天数
             repositoryScope.launch {
-                v3Mutex.withLock {
-                    repeat(pendingDays) {
-                        try {
-                            executeDailySettlement()
-                            lastMidnightSettlementDay += 1
-                            settlementLedger.mark(lastMidnightSettlementDay)
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            Log.e(TAG, "每日结算失败，停在 day=$lastMidnightSettlementDay", e)
-                            return@withLock
-                        }
-                    }
-                }
+                v3Mutex.withLock { settleUntil(targetDay) }
             }
         }
 
@@ -1257,6 +1245,25 @@ class GameRepository(
             }
         }
         v3Loaded = true
+    }
+
+    /** 逐日结算到 [targetDay]；成功一天才推进并落盘游标，失败停在原地。 */
+    internal suspend fun settleUntil(
+        targetDay: Int,
+        settle: suspend () -> Unit = { executeDailySettlement() }
+    ) {
+        while (lastMidnightSettlementDay < targetDay) {
+            try {
+                settle()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "每日结算失败，停在 day=$lastMidnightSettlementDay", e)
+                return
+            }
+            lastMidnightSettlementDay += 1
+            settlementLedger.mark(lastMidnightSettlementDay)
+        }
     }
 
     suspend fun executeDailySettlement() {
