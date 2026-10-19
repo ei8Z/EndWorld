@@ -79,7 +79,7 @@
 ./gradlew :app:assembleDebug --no-daemon
 ```
 
-- 当前基线：**337 tests / 0 failed**（2026-10-18，审计闭合）。
+- 当前基线：**345 tests / 0 failed**（2026-10-19，第 0 批 P0 止血后）。
 - 测试数不得减少；新增测试必须断言行为。
 - JDK 17/20/25 均可（`jvmTarget=11`）；daemon 由 `gradle/gradle-daemon-jvm.properties` 指定。
 
@@ -90,6 +90,10 @@
 - 好感度只由模拟层写：AI 增量经 `NpcBehaviorEngine.applyAffinityDelta`（±20 夹取、阶段重算）。
 - 场景 3/6 效果函数是纯函数：收/返 `NpcRecord?`，不直接写外部状态。
 - 不引入 `!!`；不为编译通过改断言或删测试。
+
+## 临时开关
+
+- `NpcBehaviorEngine.NEED_DEATH_ENABLED = false`：NPC 需求/伤病暂不致死，等满足/治疗模型落地再打开；两个死亡落点（每日结算、加速追赶）共用此常量。
 
 ## 明确不做
 
