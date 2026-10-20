@@ -94,6 +94,32 @@ class SceneTriggerTest {
     }
 
     @Test
+    fun `contact daily social does not trigger scene 5`() {
+        assertNull(
+            SceneTriggerDetector.detectRareInteraction(
+                npc("a", NpcTier.CONTACT), npc("b", NpcTier.CONTACT), InteractionType.DAILY_SOCIAL
+            )
+        )
+    }
+
+    @Test
+    fun `contact social with a key npc triggers scene 5`() {
+        val trigger = SceneTriggerDetector.detectRareInteraction(
+            npc("a", NpcTier.CONTACT), npc("b", NpcTier.KEY), InteractionType.DAILY_SOCIAL
+        )
+        assertEquals(SceneType.RARE_INTERACTION, trigger?.type)
+    }
+
+    @Test
+    fun `argument between contacts triggers scene 5`() {
+        val trigger = SceneTriggerDetector.detectRareInteraction(
+            npc("a", NpcTier.CONTACT), npc("b", NpcTier.CONTACT), InteractionType.ARGUMENT
+        )
+        assertEquals(SceneType.RARE_INTERACTION, trigger?.type)
+        assertEquals("破坏性互动", trigger?.detail?.get("reason"))
+    }
+
+    @Test
     fun `key npc casualty triggers scene 3`() {
         val trigger = SceneTriggerDetector.detectKeyNpcCasualty(
             npc("k1", NpcTier.KEY),

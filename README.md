@@ -18,7 +18,7 @@
 │  GmStrategy / ReasonerApiClient / StorytellerApiClient         │
 ├──────────────────────┬───────────────────────────────────────┤
 │  Domain State         │  Local (Room DB)                       │
-│  SurvivalStateMachine │  10 Entities / 10 DAOs                 │
+│  SurvivalStateMachine │  11 Entities / 11 DAOs                 │
 │  ├─ GameClock         │  Remote (Retrofit)                     │
 │  ├─ WeatherSystem     │  DeepSeek Flash SSE 流式              │
 │  ├─ VitalSystem       │  MemOS OpenMem API (长期记忆)           │
@@ -39,7 +39,7 @@
 - **生存状态机**：GameClock（游戏内时钟）、WeatherSystem（天气演变）、VitalSystem（HP/SP/饱食/口渴/疲劳）、被动消耗累加器
 - **伤病系统**：InjuryLibrary（42种预设伤病），感染概率累计、自然恢复倒计时、休克触发，进度跨重启持久化
 - **物资管理**：InventoryManager 精确负重计算、装备耐久追踪、物品增删改查
-- **NPC 深度记忆**：好感度追踪、性格标签、当前需求、互动摘要、互动次数。`NpcDao` 基于名称去重 UPSERT + COALESCE 合并保护
+- **NPC 状态与关系**：V3 唯一运行态容器是 `GameRepository.npcRuntime`（好感度 / 需求 / 时间表 / 记忆 / 离队状态），好感度只由模拟层 `NpcBehaviorEngine.applyAffinityDelta` 写入（±20 单次夹取、阶段重算）。提取 NPC 时用 `GameRepository.resolveRegion` 把叙事 location 映射为 regionId（无法命中时临时回退首个区域，当前玩家地点“避难所”不是区域名），再取该区域的控制势力。V2 `npc_relations` 表退化为 legacy 好感度迁移快照，仅在新局首次提取时读取。
 - **世界事件系统**：WorldEventManager 按存活天数触发全局事件，doomLevel 增量累加
 - **技能系统**：SkillManager + SkillLibrary，DC修正 / 物资加成 / 叙事特权三种效果类型
 - **目标追踪**：GoalTracker 客户端权威验证，防止 AI 生成非法目标
@@ -50,7 +50,7 @@
 - **流式输出 + SSE**：基于 OkHttp SSE 的逐字流式渲染，推理过程（fate）和故事文本（story）分阶段展示
 - **上下文缓存 (KV Cache)**：持久化 `user_id`，利用 DeepSeek API 的服务端缓存
 - **MemOS 长期记忆**：每次对话自动检索历史记忆注入 prompt，结束后回写，跨会话叙事连续性
-- **推理强度**：当前固定写在请求里（裁决 Agent `max`、叙事 Agent `medium`，世界叙事 `medium`），尚未按场景动态切换
+- **推理强度**：当前固定写在请求里（裁决 Agent `max`；叙事 / 世界叙事为固定值），尚未按场景动态切换
 - **JSON 断裂修复**：流中断或 JSON 不完整时，正则降级提取 story 文本
 - **记忆安检单次化**：裁决Agent 唯一过滤记忆，结果通过 `memoryContextChecked` 传给叙事Agent
 - **Prompt 动态提取**：所有跨层数值从代码常量动态提取，确保 Prompt 与代码逻辑 100% 同步
@@ -63,12 +63,12 @@
 | 语言 | Kotlin 2.0 |
 | UI | Jetpack Compose + Material 3 |
 | 架构 | MVVM (手动 DI) |
-| 本地数据库 | Room (10 实体/10 DAO, `version 10`, Flow 响应式；仅 debug 允许破坏性回退) |
+| 本地数据库 | Room (11 实体/11 DAO, `version 11`, Flow 响应式；10→11 有迁移，仅 debug 允许破坏性回退) |
 | 网络 | Retrofit + OkHttp SSE |
-| 构建 | Gradle 9.5.0 + JDK 25 daemon（编译目标 JVM 11） |
+| 构建 | Gradle 9.5.0；JDK 17/20/25 均可，daemon 默认 25（编译目标 JVM 11） |
 | JSON | Gson (序列化) + org.json (兜底提取) |
 | 异步 | Kotlin Coroutines + Flow + callbackFlow |
-| AI 接口 | DeepSeek Flash API (Chat Completions, reasoning_effort=max/medium) |
+| AI 接口 | DeepSeek Flash API (Chat Completions) |
 | 记忆服务 | MemOS OpenMem API |
 
 ## 快速开始
@@ -76,7 +76,7 @@
 ### 前置条件
 
 - Android Studio Hedgehog (2024.1+) 或更新版本
-- JDK 25（Gradle 9.5 的 daemon criteria；编译目标仍为 JVM 11）
+- JDK 17/20/25 均可（Gradle 9.5 要求 17+；daemon JVM 由 `gradle/gradle-daemon-jvm.properties` 指定为 25；编译目标仍为 JVM 11）
 - Android SDK 26+
 - DeepSeek API Key（[获取地址](https://platform.deepseek.com)）
 - MemOS API Key（[获取地址](https://memos.memtensor.cn)）
@@ -111,6 +111,12 @@ MEMOS_API_KEY=mpg-your-memos-api-key
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
+单元测试（当前 390 tests / 0 failed，2026-10-19 第 1E 批后）：
+
+```bash
+./gradlew :app:testDebugUnitTest --no-daemon
+```
+
 ### 4. 开始游戏
 
 1. 启动 App，进入初始化页面
@@ -125,23 +131,22 @@ app/src/main/java/com/ei8z/endworld/
 ├── MainActivity.kt                    # 入口，路由：初始化 / 游戏
 ├── data/
 │   ├── local/
-│   │   ├── AppDatabase.kt             # Room DB (v10), 仅 debug 破坏性回退
+│   │   ├── AppDatabase.kt             # Room DB (v11), 仅 debug 破坏性回退
 │   │   ├── Converters.kt              # List<String> ↔ JSON 转换
 │   │   ├── dao/
 │   │   │   ├── PlayerDao.kt           # 玩家状态 (单例 id=1)
 │   │   │   ├── WorldDao.kt            # 世界信息 (单例 id=1)
 │   │   │   ├── InventoryDao.kt        # 物资定向同步 (deleteByNames + deleteExcept)
 │   │   │   ├── MemoryDao.kt           # 记忆 FIFO + 永久标签
-│   │   │   ├── NpcDao.kt              # NPC UPSERT + COALESCE 合并保护
+│   │   │   ├── NpcDao.kt              # legacy NPC 关系快照 (UPSERT + COALESCE)
+│   │   │   ├── NpcScheduleDao.kt      # NPC 时间表 (场景7)
 │   │   │   └── HistoryDao.kt          # 故事历史
-│   │   └── entity/                    # PlayerState / WorldInfo / InventoryItem / NpcRelation / Memory / StoryHistory
+│   │   └── entity/                    # PlayerState / WorldInfo / InventoryItem / NpcRelation / NpcScheduleEntity / Memory / StoryHistory
 │   ├── model/                         # ActionParsed / ActionResult / WorldSnapshot / EventCard / PersonalGoal / SkillTag / WorldEvent
 │   ├── plot/                          # PlotManager / ChapterDataLoader / WorldEventManager
 │   ├── remote/
 │   │   ├── DeepSeekApiService.kt      # /chat/completions (含 SSE Streaming)
 │   │   ├── MemosApiService.kt         # /search/memory + /add/message
-│   │   ├── ReasonerApiClient.kt       # 裁决Agent (非流式, reasoning_effort=max)
-│   │   ├── StorytellerApiClient.kt    # 叙事Agent (流式, reasoning_effort=medium)
 │   │   ├── MemOSAdapter.kt            # MemOS 记忆检索/回写适配
 │   │   ├── RetrofitClient.kt          # OkHttp 客户端 (60s/120s timeout)
 │   │   └── model/                     # DTO: ChatRequest / ChatResponse / GameResponse / SSE Chunk
@@ -149,6 +154,10 @@ app/src/main/java/com/ei8z/endworld/
 │       ├── GameRepository.kt          # 核心流水线：检索→裁决→应用→叙事→同步→回写
 │       ├── PromptBuilder.kt           # 裁决/叙事 System Prompt + User Snapshot 构建
 │       ├── GmStrategy.kt              # GM 策略配置 (难度/事件频率/成人模式)
+│       ├── ReasonerApiClient.kt       # 裁决Agent (非流式, reasoning_effort=max)
+│       ├── StorytellerApiClient.kt    # 叙事Agent (流式 SSE)
+│       ├── SceneTrigger.kt            # 场景 2/4/5/6/7 触发判定
+│       ├── V3WorldStateStore.kt       # V3 五表快照唯一事务出口
 │       └── StreamEvent.kt             # Sealed Class: PhaseChanged | Reasoning | Content | FinalResponse | Error
 ├── domain/state/
 │   ├── SurvivalStateMachine.kt        # 生存状态机门面
@@ -164,6 +173,9 @@ app/src/main/java/com/ei8z/endworld/
 │   ├── GoalTracker.kt                 # 目标追踪 (客户端权威验证)
 │   ├── WorldStateProvider.kt          # 世界状态快照生成器 (聚合所有子系统)
 │   └── ClientDiceRoller.kt            # 客户端掷骰 (1-100)
+├── domain/npc/                         # V3 NPC 模型 / 行为引擎 / 时间表
+├── domain/world/                       # V3 势力 / 区域 / 全局事件 + 世界规则引擎
+├── domain/opening/                     # 开局模块
 ├── di/
 │   └── DependencyContainer.kt         # 手动单例 DI
 ├── ui/
@@ -173,8 +185,7 @@ app/src/main/java/com/ei8z/endworld/
 │   └── viewmodel/
 │       └── GameViewModel.kt           # 流式状态机 + 增量 JSON 解析 + 重试逻辑
 └── util/
-    ├── Config.kt                      # BuildConfig 桥接
-    └── JsonExtractor.kt               # 断裂 JSON 的 story/suggestions 正则提取
+    └── Config.kt                      # BuildConfig 桥接
 ```
 
 ## 数据流 (V2.2 主线)
@@ -199,7 +210,7 @@ GameRepository.sendActionStream() [callbackFlow]
   ┌─④ applyActionResult()           ← 物资增减 / 伤病应用 / 事件状态变更 / 剧情更新 / 世界事件检查
   │   postSnapshot                   ← 裁决后世界快照
   ↓
-  ┌─⑤ StorytellerClient.stream()    ← 叙事Agent (deepseek-flash, reasoning_effort=medium, 流式 SSE)
+  ┌─⑤ StorytellerClient.stream()    ← 叙事Agent (deepseek-flash, 流式 SSE)
   │   finalGameResponse              ← story/suggestions/statusUpdate/header
   ↓
   ┌─⑥ syncGameData()                ← Room DB 持久化 (权威数据从 postSnapshot, 软数据从 AI)
@@ -219,14 +230,14 @@ UI 通过 Room Flow 自动刷新列表
 | 时钟分钟数 | stateMachine.clock.elapsedMinutes | 持久化到 WorldInfo.totalGameMinutes |
 | 末日等级 | stateMachine.doomLevel | 增量累加 (世界事件驱动) |
 | 内心独白/宏观局势 | AI statusUpdate | AI 软数据 |
-| NPC 关系/好感度/深度 | AI npcUpdate | COALESCE 合并保护 |
+| NPC 好感度/需求/时间表 | npcRuntime (模拟层) | AI 只提供增量，`NpcBehaviorEngine` 落地；V2 `npc_relations` 仅 legacy 快照 |
 | 记忆 | AI memoryUpdate | 临时 + 永久剧情记忆 |
 
 ## 核心设计决策
 
 ### 为什么使用双Agent流水线？
 
-裁决Agent 专注逻辑判定（DC掷骰、物资校验、伤病判定、事件触发），输出结构化 JSON。叙事Agent 专注文学创作，基于裁决结果展开第一人称叙事。分离职责让每个 Agent 的 prompt 更精简，减少幻觉。裁决Agent 使用 `reasoning_effort=max` 保证判定精度，叙事Agent 使用 `medium` 平衡速度与质量。
+裁决Agent 专注逻辑判定（DC掷骰、物资校验、伤病判定、事件触发），输出结构化 JSON。叙事Agent 专注文学创作，基于裁决结果展开第一人称叙事。分离职责让每个 Agent 的 prompt 更精简，减少幻觉。裁决Agent 使用 `reasoning_effort=max` 保证判定精度，叙事Agent 使用固定强度平衡速度与质量。
 
 ### 为什么状态机数值从 postSnapshot 取而非 AI statusUpdate？
 
@@ -238,7 +249,7 @@ AI 生成的 statusUpdate.inventory 可能和裁决结果不一致（幻觉风�
 
 ### 为什么 NpcRelation 以 name 为主键 + COALESCE 合并？
 
-早期使用 `autoGenerate id` 导致每轮 NPC 互动新增一条重复记录。改为 `name` 主键后，UPSERT 通过 IGNORE + UPDATE 实现去重。UPDATE SQL 使用 `COALESCE(:newValue, oldValue)` 确保 AI 未返回的深度字段（比如 lastInteractionSummary）不会被意外清空。
+早期使用 `autoGenerate id` 导致每轮 NPC 互动新增一条重复记录。改为 `name` 主键后，UPSERT 通过 IGNORE + UPDATE 实现去重。UPDATE SQL 使用 `COALESCE(:newValue, oldValue)` 确保 AI 未返回的深度字段（比如 lastInteractionSummary）不会被意外清空。V3 之后 `npc_relations` 只作 legacy 好感度迁移快照，运行态以 `npcRuntime` 为准，AI 增量不再写 V2 表。
 
 ### 为什么 syncInventory 使用定向删除而非全表清空？
 

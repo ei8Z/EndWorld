@@ -49,6 +49,7 @@ import com.ei8z.endworld.domain.npc.model.toRelationshipStage
 import com.ei8z.endworld.domain.state.BranchClassifier
 import com.ei8z.endworld.domain.state.ClientDiceRoller
 import com.ei8z.endworld.domain.state.SurvivalStateMachine
+import com.ei8z.endworld.domain.world.model.Region
 import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
@@ -193,6 +194,25 @@ class GameRepository(
                 .associate { it.name to it.affinity }
                 .filterValues { it != 0 }
         }
+    }
+
+    /**
+     * 叙事地点 → 区域。命中顺序：regionId、区域名（互相包含）、回退地点、首个区域。
+     *
+     * 回退到首个区域是临时口径：当前玩家地点（避难所）不是区域名，header.location 也可能是
+     * 自由文本；先保证 NPC 拿到稳定的 regionId 与控制势力，等叙事层统一输出 regionId 后可去掉。
+     * ponytail: 无法命中的地点会落到 R01 及其控制势力，只保证“有区域”而非精确匹配。
+     */
+    internal fun resolveRegion(location: String?, fallbackLocation: String? = null): Region? {
+        fun match(text: String?): Region? {
+            val t = text?.trim().orEmpty()
+            if (t.isEmpty()) return null
+            regions[t]?.let { return it }
+            regions.values.firstOrNull { it.regionId.equals(t, true) }?.let { return it }
+            regions.values.firstOrNull { it.name == t || it.name in t || t in it.name }?.let { return it }
+            return null
+        }
+        return match(location) ?: match(fallbackLocation) ?: regions.values.firstOrNull()
     }
 
     /** 同名 NPC 的唯一身份：旧存档 id 形如 npc_名_日，新 id 为 npc_名。 */
@@ -956,13 +976,14 @@ class GameRepository(
                 // 同名唯一：已有同名记录（含旧存档 npc_名_日）就复用，不按游戏日新建
                 if (npcIdForName(npc.name) == null) {
                     val npcId = "npc_${npc.name}"
-                    val loc = data.header.location
-                    val fid = regions[loc]?.controllingFactionId
-                    val n = npcEngine.initializeNewNpc(npcId, npc.name, "居民", loc, fid, 0)
+                    val region = resolveRegion(data.header.location, stateMachine.clock.location)
+                    val fid = region?.controllingFactionId
+                    val locationId = region?.regionId ?: data.header.location
+                    val n = npcEngine.initializeNewNpc(npcId, npc.name, "居民", locationId, fid, 0)
                     // 只建基准；AI 增量在场景2 统一落地一次，避免重复计数
                     val record = newNpcRecord(
                         state = n,
-                        needs = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50),
+                        needs = npcEngine.initializeNeeds(false, (region?.threatLevel ?: 0) > 50),
                         affinity = npcEngine.initializeAffinity(
                             baseAttitudeFor(npc.name, fid)
                         ),
@@ -972,7 +993,7 @@ class GameRepository(
                     )
                     npcRuntime[npcId] = record
                     npcEngine.addMemory(record.memory, com.ei8z.endworld.domain.npc.model.MemoryEntry(
-                        "[Day $currentGameDay]", loc, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
+                        "[Day $currentGameDay]", locationId, "与玩家互动(好感度变化${npc.affinityDelta})", npc.affinityDelta,
                         source = com.ei8z.endworld.domain.npc.model.MemorySource.PLAYER_INTERACTION))
                 }
             }
@@ -1805,14 +1826,15 @@ class GameRepository(
         val existing = npcIdForName(target)
         if (existing != null) return // 已是接触NPC
         val npcId = "npc_$target"
-        val loc = action.location.ifBlank { "R01" }
-        val factionId = regions[loc]?.controllingFactionId
+        val region = resolveRegion(action.location, stateMachine.clock.location)
+        val loc = region?.regionId ?: action.location.ifBlank { "R01" }
+        val factionId = region?.controllingFactionId
         // legacy 好感度只来自本局冻结的快照：V2 表里可能有上一轮 upsert 插的 0 行，不能现读。
         val baseAttitude = baseAttitudeFor(target, factionId)
         val npc = npcEngine.initializeNewNpc(npcId, target, "居民", loc, factionId, baseAttitude)
         val record = newNpcRecord(
             state = npc,
-            needs = npcEngine.initializeNeeds(factionFoodShortage = false, regionHighThreat = (regions[loc]?.threatLevel ?: 0) > 50),
+            needs = npcEngine.initializeNeeds(factionFoodShortage = false, regionHighThreat = (region?.threatLevel ?: 0) > 50),
             affinity = npcEngine.initializeAffinity(baseAttitude, 5),
             schedule = npcEngine.initializeSchedule(
                 npc.currentLocationId, workLocationFor(npc.currentLocationId)

@@ -135,7 +135,7 @@ class GameRepositoryFirstExtractionAffinityTest {
     private val chatWithC = ActionParsed("社交", "聊天", "C", "避难所", "", "低", 10)
 
     @Test
-    fun `first extraction in a new game starts from the no-faction base instead of a zeroed legacy row`() =
+    fun `first extraction in a new game uses the region faction base instead of a zeroed legacy row`() =
         runTest {
             val api = mockk<DeepSeekApiService>(relaxed = true)
             stubMainlineApis(api, npcUpdateA)
@@ -148,8 +148,8 @@ class GameRepositoryFirstExtractionAffinityTest {
             repo.sendActionStream("找A聊天", chatWithA).toList()
 
             val record = repo.npcRuntime.getValue("npc_A")
-            // 无 legacy、无阵营：-10 基准 + 10×2 增量
-            assertEquals(10, repo.affinityFor("npc_A")?.affinity)
+            // 无 legacy；避难所回退到 R01（控制势力 F01）：0 基准 + 10×2 增量
+            assertEquals(20, repo.affinityFor("npc_A")?.affinity)
             assertNotEquals(DepartureStatus.MIGRATED, record.departure.status)
         }
 
@@ -164,8 +164,8 @@ class GameRepositoryFirstExtractionAffinityTest {
 
         repo.sendActionStream("找A聊天", chatWithA).toList()
 
-        // 0 行不算 legacy：回落到无阵营基准 -10，再吃 10×2 增量
-        assertEquals(10, repo.affinityFor("npc_A")?.affinity)
+        // 0 行不算 legacy：回落到 R01 控制势力 F01 的 0 基准，再吃 10×2 增量
+        assertEquals(20, repo.affinityFor("npc_A")?.affinity)
         assertNotEquals(DepartureStatus.MIGRATED, repo.npcRuntime.getValue("npc_A").departure.status)
     }
 
@@ -205,8 +205,8 @@ class GameRepositoryFirstExtractionAffinityTest {
         stubMainlineApis(api, npcUpdateB)
         repo.sendActionStream("和B聊天", chatWithB).toList()
 
-        // 无 legacy、无阵营：-10 基准 + 10×2 增量
-        assertEquals(10, repo.affinityFor("npc_B")?.affinity)
+        // 0 基准 + 10×2 增量
+        assertEquals(20, repo.affinityFor("npc_B")?.affinity)
         assertNotEquals(DepartureStatus.MIGRATED, repo.npcRuntime.getValue("npc_B").departure.status)
     }
 
@@ -229,8 +229,8 @@ class GameRepositoryFirstExtractionAffinityTest {
         stubMainlineApis(api, "[]", narrativeSummary = "C向你透露了藏身处的位置")
         repo.sendActionStream("把水给C", chatWithC).toList()
 
-        // 无 legacy、无阵营：-10 基准 + 首次互动 5
-        assertEquals(-5, repo.affinityFor("npc_C")?.affinity)
+        // 0 基准 + 首次互动 5
+        assertEquals(5, repo.affinityFor("npc_C")?.affinity)
         assertNotEquals(DepartureStatus.MIGRATED, repo.npcRuntime.getValue("npc_C").departure.status)
     }
 

@@ -65,8 +65,8 @@ object SceneTriggerDetector {
     }
 
     /**
-     * 场景5：破坏性互动（争执/关系破裂）或任一方为关键NPC（CONTACT/KEY）。
-     * 只在每日结算的 NPC 互动环节调用。
+     * 场景5：破坏性互动（争执/关系破裂）或任一方为关键NPC（KEY）。
+     * CONTACT 只是已接触的普通居民，日常互动不触发；只在每日结算的 NPC 互动环节调用。
      */
     fun detectRareInteraction(
         npcA: NpcState,
@@ -75,7 +75,7 @@ object SceneTriggerDetector {
     ): SceneTrigger? {
         val destructive = interactionType == NpcBehaviorEngine.InteractionType.ARGUMENT ||
             interactionType == NpcBehaviorEngine.InteractionType.RELATIONSHIP_BREAK
-        val keyInvolved = npcA.tier != NpcTier.BACKGROUND || npcB.tier != NpcTier.BACKGROUND
+        val keyInvolved = npcA.tier == NpcTier.KEY || npcB.tier == NpcTier.KEY
         if (!destructive && !keyInvolved) return null
         return SceneTrigger(
             type = SceneType.RARE_INTERACTION,
