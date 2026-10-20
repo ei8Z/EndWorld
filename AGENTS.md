@@ -79,7 +79,7 @@
 ./gradlew :app:assembleDebug --no-daemon
 ```
 
-- 当前基线：**350 tests / 0 failed**（2026-10-19，第 1A 批后）。
+- 当前基线：**362 tests / 0 failed**（2026-10-19，第 1B 批后）。
 - 测试数不得减少；新增测试必须断言行为。
 - JDK 17/20/25 均可（`jvmTarget=11`）；daemon 由 `gradle/gradle-daemon-jvm.properties` 指定。
 
@@ -90,6 +90,10 @@
 - 好感度只由模拟层写：AI 增量经 `NpcBehaviorEngine.applyAffinityDelta`（±20 夹取、阶段重算）。
 - 场景 3/6 效果函数是纯函数：收/返 `NpcRecord?`，不直接写外部状态。
 - 不引入 `!!`；不为编译通过改断言或删测试。
+
+## 临时接受
+
+- 支线/加速中伤病可把 HP 降到 0，但判死仍只在主线；下一次主线行动才结算。P1-6（死亡链路统一）完成前有效。
 
 ## 临时开关
 
