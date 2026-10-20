@@ -33,3 +33,11 @@
 - `GameRepositoryTest` 公共 `setUp` 里加 `db.transactionExecutor` 直通桩，改变了 29 个既有用例的桩环境（无断言改动，接受）。
 - 测试缺口（本轮补了双提交/提前 return 两条）：仍缺 ACCEL→NORMAL 收尾用例、加速中 retry 被拒的断言。
 - AGENTS.md「临时接受」中「判死仍只在主线、下一次主线行动才结算」已过时（支线现已判死），该文件不在本 Spec 范围，留给编排器更新。
+
+## 2026-10-19 第 1D 批
+
+- `persistV3State` 的 `repositoryScope.launch` 现在与 V2 写事务并发；失败仍只记日志，V3 可能静默少存一轮（下一动作会补写）。
+- `legacyAffinitySnapshot` 是非 volatile 普通 var；只在加载/新局切换，风险低。
+- 事务只覆盖 DB；`stateMachine`/`npcRuntime` 已先改，DAO 抛错时内存领先 DB。
+- 快照只在进程内；若新档重启前表里已存在 0 行，现在会过滤（不再污染），但真实 legacy 恰好为 0 的行会回落到 -10/0 基准。
+- `data.header.location` / `knownPoints` / `memoryUpdate` 等同类 Gson 缺字段兜底未做，只做了 `macroSituation` / `innerThought`。

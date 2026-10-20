@@ -154,6 +154,22 @@ class GameRepositoryFirstExtractionAffinityTest {
         }
 
     @Test
+    fun `a zero row left by a previous process does not poison the frozen snapshot`() = runTest {
+        // 模拟进程重启：库里已有上一局 upsert 留下的 affinity=0 行，新 repo 首次加载时冻结快照
+        db.npcDao().insertIfNotExist(NpcRelation(name = "A", relation = "邻居", affinity = 0))
+        seedGame()
+        val api = mockk<DeepSeekApiService>(relaxed = true)
+        stubMainlineApis(api, npcUpdateA)
+        val repo = newRepo(api)
+
+        repo.sendActionStream("找A聊天", chatWithA).toList()
+
+        // 0 行不算 legacy：回落到无阵营基准 -10，再吃 10×2 增量
+        assertEquals(10, repo.affinityFor("npc_A")?.affinity)
+        assertNotEquals(DepartureStatus.MIGRATED, repo.npcRuntime.getValue("npc_A").departure.status)
+    }
+
+    @Test
     fun `first extraction still uses the legacy affinity snapshot when the legacy row exists`() = runTest {
         db.npcDao().insertIfNotExist(NpcRelation(name = "A", relation = "邻居", affinity = 80))
         seedGame()

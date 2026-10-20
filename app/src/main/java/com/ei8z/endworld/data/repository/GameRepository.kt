@@ -187,7 +187,11 @@ class GameRepository(
     /** 冻结本局 legacy 好感度快照；必须在任何 V2 写库之前调用，重复调用无副作用。 */
     private suspend fun captureLegacyAffinitySnapshot() {
         if (legacyAffinitySnapshot == null) {
-            legacyAffinitySnapshot = npcDao.getAllNpcs().first().associate { it.name to it.affinity }
+            // V3 之后 upsertNpcDepth(delta=0) 是 npc_relations 的唯一生产写入者；
+            // 0 行代表“没有 legacy 信号”，不能当作真实 legacy 基准（否则 (0-50)*2=-100）。
+            legacyAffinitySnapshot = npcDao.getAllNpcs().first()
+                .associate { it.name to it.affinity }
+                .filterValues { it != 0 }
         }
     }
 
