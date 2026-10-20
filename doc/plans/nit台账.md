@@ -41,3 +41,12 @@
 - 事务只覆盖 DB；`stateMachine`/`npcRuntime` 已先改，DAO 抛错时内存领先 DB。
 - 快照只在进程内；若新档重启前表里已存在 0 行，现在会过滤（不再污染），但真实 legacy 恰好为 0 的行会回落到 -10/0 基准。
 - `data.header.location` / `knownPoints` / `memoryUpdate` 等同类 Gson 缺字段兜底未做，只做了 `macroSituation` / `innerThought`。
+
+## 2026-10-19 第 1E 批
+
+- `resolveRegion` 的区域名为空串时会子串命中任意地点；当前 8 个区域名均非空，不可达。
+- “回退首个区域”依赖 Map 插入顺序；Room `getAllRegions` 无 ORDER BY，实践稳定。
+- 回退首个区域也会驱动【V3区域状态】，自由文本“避难所”下 prompt 展示 R01/F01 数据；已书面接受为临时口径。
+- 场景 5 只剩破坏性互动与（未来）KEY 可达；普通 CONTACT 不再触发，属预期降噪。
+- `StorytellerApiClient.kt` / `WorldStorytellerApiClient.kt` 的 `reasoning_effort="height"` 疑似 `high` 笔误，pre-existing，超本批。
+- README SceneTrigger 注释未列场景 3 检测器（场景 3 仍因缺 KEY seed 不可达）。

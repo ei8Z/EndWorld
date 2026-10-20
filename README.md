@@ -39,7 +39,7 @@
 - **生存状态机**：GameClock（游戏内时钟）、WeatherSystem（天气演变）、VitalSystem（HP/SP/饱食/口渴/疲劳）、被动消耗累加器
 - **伤病系统**：InjuryLibrary（42种预设伤病），感染概率累计、自然恢复倒计时、休克触发，进度跨重启持久化
 - **物资管理**：InventoryManager 精确负重计算、装备耐久追踪、物品增删改查
-- **NPC 状态与关系**：V3 唯一运行态容器是 `GameRepository.npcRuntime`（好感度 / 需求 / 时间表 / 记忆 / 离队状态），好感度只由模拟层 `NpcBehaviorEngine.applyAffinityDelta` 写入（±20 单次夹取、阶段重算）。提取 NPC 时用 `GameRepository.resolveRegion` 把叙事 location 映射为 regionId（无法命中时临时回退首个区域，当前玩家地点“避难所”不是区域名），再取该区域的控制势力。V2 `npc_relations` 表退化为 legacy 好感度迁移快照，仅在新局首次提取时读取。
+- **NPC 状态与关系**：V3 唯一运行态容器是 `GameRepository.npcRuntime`（好感度 / 需求 / 时间表 / 记忆 / 离队状态），好感度只由模拟层 `NpcBehaviorEngine.applyAffinityDelta` 写入（±20 单次夹取、阶段重算）。提取 NPC 时用 `GameRepository.resolveRegion` 把叙事 location 映射为 regionId（无法命中时临时回退首个区域，当前玩家地点“避难所”不是区域名），再取该区域的控制势力。V2 `npc_relations` 表退化为 legacy 好感度迁移快照；每局首次加载时冻结一次（过滤 0 行），新局清空。
 - **世界事件系统**：WorldEventManager 按存活天数触发全局事件，doomLevel 增量累加
 - **技能系统**：SkillManager + SkillLibrary，DC修正 / 物资加成 / 叙事特权三种效果类型
 - **目标追踪**：GoalTracker 客户端权威验证，防止 AI 生成非法目标
