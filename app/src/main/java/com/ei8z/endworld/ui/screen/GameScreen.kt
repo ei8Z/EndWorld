@@ -868,7 +868,7 @@ fun AccelerationPanel(statusText: String, onExitAcceleration: () -> Unit) {
     }
 }
 
-/** 死亡覆盖层。C4 前读档/继承不可用，三个按钮一律禁用，只保留"重启游戏"这一条出路。 */
+/** 死亡覆盖层。C4 前读档/继承不可用，三个按钮一律禁用；死亡即本局终点，重启后仍是死亡态。 */
 @Composable
 fun DeathOverlay(
     cause: String, narrative: String,
@@ -908,7 +908,7 @@ fun DeathOverlay(
                 }
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    "当前版本死亡后请重启游戏；读档与继承将在 C4 提供",
+                    "本局到此为止；读档与继承将在 C4 提供（当前需清除应用数据才能开始新的一局）",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF9E9E9E)
                 )

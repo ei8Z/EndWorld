@@ -143,4 +143,34 @@ class GameViewModelTest {
         vm.setSpeedMode(SpeedMode.NORMAL)
         advanceUntilIdle()
     }
+
+    @Test
+    fun `repeated exit taps during the exit window run the exit once`() =
+        runTest(dispatcher.scheduler) {
+            coEvery { repository.exitAcceleration(any(), any()) } returns "加速了1小时。"
+            val vm = createViewModel()
+
+            vm.setSpeedMode(SpeedMode.ACCELERATION)
+            // 收尾协程要等 advanceUntilIdle 才跑，这里正好模拟收尾窗口里的连续点击
+            vm.setSpeedMode(SpeedMode.NORMAL)
+            vm.setSpeedMode(SpeedMode.NORMAL)
+            vm.setSpeedMode(SpeedMode.DECELERATION)
+            advanceUntilIdle()
+
+            coVerify(exactly = 1) { repository.exitAcceleration(any(), any()) }
+        }
+
+    @Test
+    fun `exit with missing player still leaves acceleration mode`() =
+        runTest(dispatcher.scheduler) {
+            player.value = null
+            val vm = createViewModel()
+
+            vm.setSpeedMode(SpeedMode.ACCELERATION)
+            vm.setSpeedMode(SpeedMode.NORMAL)
+            advanceUntilIdle()
+
+            // 收尾提前 return 也必须落到目标模式，否则输入/时钟永久卡在「加速中」
+            assertEquals(SpeedMode.NORMAL, vm.speedMode.value)
+        }
 }

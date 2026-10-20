@@ -137,10 +137,16 @@ class GameViewModel(
         }
     }
 
+    /** 离开加速的收尾是否正在进行：收尾里有 AI 叙事调用，期间的重复点击必须忽略 */
+    private var accelerationExiting = false
+
     /** V3.0 速度模式切换（元行动——不消耗游戏时间） */
     fun setSpeedMode(mode: SpeedMode) {
         // P1-7：任何离开加速的路径都必须走同一收尾，ACCEL→DECEL 也不例外
         if (_speedMode.value == SpeedMode.ACCELERATION && mode != SpeedMode.ACCELERATION) {
+            // 收尾耗时以秒计，重复点击再跑一遍会重复推进世界/账本，直接忽略
+            if (accelerationExiting) return
+            accelerationExiting = true
             exitAcceleration(targetMode = mode)
             return
         }
@@ -174,15 +180,19 @@ class GameViewModel(
     private fun exitAcceleration(targetMode: SpeedMode = SpeedMode.NORMAL) {
         accelerationJob?.cancel()
         viewModelScope.launch {
-            val player = repository.playerState.first() ?: return@launch
-            val world = repository.worldInfo.first() ?: return@launch
-            _isLoading.value = true
-            val summary = repository.exitAcceleration(player, world)
-            _isLoading.value = false
-            _accelerationStatusText.value = ""
-            // 收尾统一落到目标模式，不再硬编码 NORMAL
-            applySpeedMode(targetMode)
-            // 将世界叙事摘要发送给叙事Agent生成初始场景
+            try {
+                val player = repository.playerState.first() ?: return@launch
+                val world = repository.worldInfo.first() ?: return@launch
+                _isLoading.value = true
+                repository.exitAcceleration(player, world)
+            } finally {
+                accelerationExiting = false
+                _isLoading.value = false
+                _accelerationStatusText.value = ""
+                // 提前 return 也要落到目标模式，否则输入/时钟永久卡在「加速中」
+                applySpeedMode(targetMode)
+            }
+            // 将世界叙事摘要发送给叙事Agent生成初始场景；必须在模式落地之后，否则会被加速守卫拒绝
             sendAction("恢复正常速度", null)
         }
     }
