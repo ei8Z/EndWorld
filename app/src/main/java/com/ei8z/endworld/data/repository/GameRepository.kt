@@ -164,11 +164,18 @@ class GameRepository(
     /** AI 的 affinityDelta 是 0..100 量纲的增量，换算到 -100..100 直接 ×2。 */
     internal fun v3DeltaFromLegacy(delta: Int): Int = delta * 2
 
-    /** 首次建 NPC 的好感度基准：legacy 只在这里读一次；没有 legacy 记录时按阵营给 0/-10。 */
-    private suspend fun baseAttitudeFor(name: String, factionId: String?): Int {
-        val legacy = npcDao.getAllNpcs().first()
-            .firstOrNull { it.name == name }?.affinity
-            ?.let(::v3AffinityFromLegacy)
+    /**
+     * 首次建 NPC 的好感度基准；没有 legacy 记录时按阵营给 0/-10。
+     * [legacySnapshot] 是写库之前的 legacy 好感度快照，本函数不再自己读库——
+     * `syncGameData` 会先 upsert 一行 `affinity=0`，之后读库会把这个 0 当成 legacy 值
+     * 算出 -100 基准（P1-5）。
+     */
+    private fun baseAttitudeFor(
+        name: String,
+        factionId: String?,
+        legacySnapshot: Map<String, Int> = emptyMap()
+    ): Int {
+        val legacy = legacySnapshot[name]?.let(::v3AffinityFromLegacy)
         return legacy ?: if (factionId != null) 0 else -10
     }
 
@@ -778,6 +785,19 @@ class GameRepository(
     // ======================== Room DB 同步 ========================
 
     /**
+     * P1-9：V2 五表（玩家/世界/背包/记忆/NPC）写入包进一个事务，任一 DAO 抛错时整体回滚，
+     * 不再留下半套数据。V3 `persistV3State` 仍走自己的事务，本批不合并。
+     */
+    private suspend fun syncGameData(
+        data: GameResponse,
+        oldPlayer: PlayerState,
+        oldWorld: WorldInfo,
+        postSnapshot: WorldSnapshot
+    ) {
+        database.withTransaction { syncGameDataInternal(data, oldPlayer, oldWorld, postSnapshot) }
+    }
+
+    /**
      * 将 GameResponse + 状态机裁决后快照同步到 Room DB。
      *
      * 权威数据源（从 postSnapshot 取，不信任 AI）：
@@ -789,7 +809,7 @@ class GameRepository(
      * 辅助数据源（从 AI statusUpdate 取，仅软数据）：
      * - innerThought / macroSituation / knownPoints / memory / NPC
      */
-    private suspend fun syncGameData(
+    private suspend fun syncGameDataInternal(
         data: GameResponse,
         oldPlayer: PlayerState,
         oldWorld: WorldInfo,
@@ -797,6 +817,9 @@ class GameRepository(
     ) {
         val update = data.statusUpdate
         val safeDoomLevel = stateMachine.doomLevel.coerceIn(1, 5)
+        // P1-5: legacy 好感度快照必须在任何写库之前抓——本轮 upsert 会插一行 affinity=0，
+        // 之后再读同一张表会把 0 当成 legacy 值（(0-50)*2 = -100）。
+        val legacyAffinityBefore = npcDao.getAllNpcs().first().associate { it.name to it.affinity }
 
         // 权威：伤病从状态机取
         val authStateTags = postSnapshot.activeTags.map { it.name }.filter { it.isNotBlank() }
@@ -829,7 +852,7 @@ class GameRepository(
         playerDao.updatePlayerState(
             oldPlayer.copy(
                 mentalStateTags = authStateTags,
-                innerThought = update.player.innerThought,  // AI 生成，软数据
+                innerThought = update.player.innerThought.orDefault(oldPlayer.innerThought),  // AI 生成，软数据
                 equippedItems = authEquipment,
                 doomLevel = safeDoomLevel,
                 // V2.2: 数值持久化（状态机权威数据）
@@ -849,7 +872,7 @@ class GameRepository(
                 currentDate = "第${stateMachine.clock.currentDay}天",
                 currentTime = String.format(Locale.ROOT, "%02d:%02d", stateMachine.clock.currentHour, stateMachine.clock.currentMinute),
                 locationScene = data.header.location,
-                macroSituation = update.world.macroSituation,  // AI 生成，软数据
+                macroSituation = update.world.macroSituation.orDefault(oldWorld.macroSituation),  // AI 生成，软数据
                 knownPointsJson = gson.toJson(update.resources.knownPoints),
                 // V2.2: 世界进程持久化
                 triggeredWorldEventIdsJson = gson.toJson(stateMachine.worldEventManager.getTriggeredEventIds()),
@@ -927,7 +950,9 @@ class GameRepository(
                     val record = newNpcRecord(
                         state = n,
                         needs = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50),
-                        affinity = npcEngine.initializeAffinity(baseAttitudeFor(npc.name, fid)),
+                        affinity = npcEngine.initializeAffinity(
+                            baseAttitudeFor(npc.name, fid, legacyAffinityBefore)
+                        ),
                         schedule = npcEngine.initializeSchedule(
                             n.currentLocationId, workLocationFor(n.currentLocationId)
                         )
@@ -1117,6 +1142,8 @@ class GameRepository(
             locationScene = "避难所", macroSituation = "灾难爆发。",
             knownPointsJson = "[]"
         )
+        // 新局不继承旧档的 legacy NPC 关系，否则首次提取会吃到旧好感度基准（P1-5）
+        npcDao.clearAll()
         playerDao.updatePlayerState(initialPlayer)
         worldDao.updateWorldInfo(initialWorld)
         memoryDao.insertMemory(Memory(location = "系统", event = "降临世界", result = "初始"))
@@ -1765,7 +1792,9 @@ class GameRepository(
         val loc = action.location.ifBlank { "R01" }
         val factionId = regions[loc]?.controllingFactionId
         // legacy 好感度只在这里读一次：首次提取时作为初始值，之后一律以 npcRuntime 为准。
-        val baseAttitude = baseAttitudeFor(target, factionId)
+        // 这里在任何写库之前，所以可以直接读库取快照。
+        val legacySnapshot = npcDao.getAllNpcs().first().associate { it.name to it.affinity }
+        val baseAttitude = baseAttitudeFor(target, factionId, legacySnapshot)
         val npc = npcEngine.initializeNewNpc(npcId, target, "居民", loc, factionId, baseAttitude)
         val record = newNpcRecord(
             state = npc,
@@ -1803,3 +1832,10 @@ class GameRepository(
         return goals.distinctBy { it.id }
     }
 }
+
+/**
+ * Gson 用 Unsafe 绕过构造器，AI 响应缺字段时非空类型实际是 null（P1-9）。
+ * 写库前把 null/空白兜底成旧值，避免把 null 带进 Room 实体构造。
+ */
+private fun String?.orDefault(default: String): String =
+    this?.takeIf { it.isNotBlank() } ?: default

@@ -99,6 +99,8 @@ class GameRepositoryDeathTest {
         every { prefs.edit() } returns prefsEdit
         every { prefsEdit.putString(any(), any()) } returns prefsEdit
         every { prefsEdit.apply() } just Runs
+        // 支线落库走 database.withTransaction：给 mock DB 一个同步执行的 executor，否则事务块永远不会被调度
+        every { db.transactionExecutor } returns java.util.concurrent.Executor { it.run() }
     }
 
     @After

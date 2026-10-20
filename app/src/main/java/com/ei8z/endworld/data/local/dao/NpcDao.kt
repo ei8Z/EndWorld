@@ -9,6 +9,10 @@ interface NpcDao {
     @Query("SELECT * FROM npc_relations")
     fun getAllNpcs(): Flow<List<NpcRelation>>
 
+    /** 新局清空 legacy NPC 关系，避免继承旧档的好感度基准。 */
+    @Query("DELETE FROM npc_relations")
+    suspend fun clearAll()
+
     @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertIfNotExist(npc: NpcRelation): Long
 
