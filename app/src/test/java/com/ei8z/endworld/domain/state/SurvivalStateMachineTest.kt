@@ -189,14 +189,26 @@ class SurvivalStateMachineTest {
     }
 
     @Test
-    fun `infection turns into septic shock after enough hourly ticks`() {
+    fun `infection turns into septic shock after enough accumulated action hours`() {
         machine.health.applyInjury("轻微擦伤") // infectionRisk=0.05/h, 24h 后自愈
 
-        // 单次行动上限 8 小时，20 小时需直接按小时推进伤病
-        machine.tickHours(20)
+        // 单次行动上限 8 小时：480 + 480 + 240 = 20 小时，跨行动的分钟必须累计
+        machine.processPreRuling(estimatedMinutes = 480, primaryType = "观察")
+        machine.processPreRuling(estimatedMinutes = 480, primaryType = "观察")
+        machine.processPreRuling(estimatedMinutes = 240, primaryType = "观察")
 
         assertNotNull(machine.health.activeTags.find { it.name == "伤口感染性休克" })
         assertNull(machine.health.activeTags.find { it.name == "轻微擦伤" })
+    }
+
+    @Test
+    fun `short actions accumulate minutes into whole injury hours`() {
+        machine.health.applyInjury("深度撕裂伤") // hpLoss=2/h
+
+        // 40 × 3 = 120 分钟：不足 1 小时的余量不能丢，必须累计成 2 个伤病小时
+        repeat(3) { machine.processPreRuling(estimatedMinutes = 40, primaryType = "观察") }
+
+        assertEquals(96, machine.vital.hp) // 2 小时 × 2 HP
     }
 
     @Test

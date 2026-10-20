@@ -38,6 +38,9 @@ class SurvivalStateMachine(
 
     private var seeded = false
 
+    /** 不足 1 小时的伤病推进余量（0-59 分钟），跨行动/加速切片累计。 */
+    private var injuryMinuteCarry = 0
+
     val plotManager: PlotManager = plotManager
         ?: PlotManager(listOf(ChapterDataLoader.buildFallbackChapter()))
 
@@ -94,7 +97,7 @@ class SurvivalStateMachine(
         weather.tick(hours)
         vital.applyPassiveConsumption(hours)
         vital.applyActionCost(primaryType, health.calculateSpPenalty())
-        tickHours(hours.toInt())
+        tickInjuryMinutes(minutes)
         return generatePreRulingSnapshot()
     }
 
@@ -111,6 +114,10 @@ class SurvivalStateMachine(
         result.injuriesApplied.forEach { health.applyInjury(it) }
         result.injuriesRecovered.forEach { health.recoverInjury(it) }
         health.checkInfection()
+        // 伤病集合变化后，本次行动之前累计的余量不再归属于新伤病（最多 1 小时误差，宁可少算）
+        if (result.injuriesApplied.isNotEmpty() || result.injuriesRecovered.isNotEmpty()) {
+            injuryMinuteCarry = 0
+        }
 
         val triggered = result.eventTriggered
         if (triggered != null) {
@@ -218,18 +225,25 @@ class SurvivalStateMachine(
         clock.advance(clamped)
         weather.tick(hours)
         vital.applyPassiveConsumption(hours)
-        tickHours(hours.toInt())
+        tickInjuryMinutes(clamped)
     }
 
-    /** 按整小时推进伤病：HP 损失、自然恢复、感染判定。 */
-    internal fun tickHours(hours: Int) {
-        repeat(hours.coerceAtLeast(0)) {
+    /**
+     * 按游戏分钟推进伤病：每满 1 小时结算一次 HP 损失、自然恢复和感染风险，
+     * 不足 1 小时的余量留到下次调用，避免短行动与加速切片被截断成 0。
+     *
+     * ponytail: 余量只在内存，进程重启最多丢 59 分钟伤病进度；需要严格连续时随伤病状态一并持久化。
+     */
+    internal fun tickInjuryMinutes(minutes: Int) {
+        val totalMinutes = injuryMinuteCarry + minutes.coerceAtLeast(0)
+        repeat(totalMinutes / 60) {
             val loss = health.calculateHourlyHpLoss()
             if (loss > 0) {
                 vital.applyResourceChange(ResourceChange("", "", "生命值", -loss.toFloat(), 0f))
             }
             health.tickHourly()
         }
+        injuryMinuteCarry = totalMinutes % 60
         health.checkInfection()
     }
 

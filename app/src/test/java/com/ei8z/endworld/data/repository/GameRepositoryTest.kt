@@ -224,6 +224,20 @@ class GameRepositoryTest {
     }
 
     @Test
+    fun `acceleration ticks injuries across fractional hours`() = runTest {
+        val repo = createRepo()
+        repo.stateMachine.health.applyInjury("深度撕裂伤") // 2 HP/小时，感染风险 0.20
+        repo.enterAcceleration(testPlayer())
+
+        // 每次加速 3 秒 = 45 游戏分钟；20 次 = 15 小时，不足 1 小时的切片必须累计
+        repeat(20) { repo.advanceAcceleration(realMillis = 3_000) }
+
+        assertEquals(70, repo.stateMachine.vital.hp)
+        val injury = repo.stateMachine.health.activeTags.first { it.name == "深度撕裂伤" }
+        assertEquals(0.95f, injury.infectionRisk, 0.01f)
+    }
+
+    @Test
     fun `acceleration catchup does not turn saturated needs into death`() = runTest {
         // P0-1 的第二个落点：加速追赶同样只推进需求，不把饱和落成死亡
         val repo = createRepo()
