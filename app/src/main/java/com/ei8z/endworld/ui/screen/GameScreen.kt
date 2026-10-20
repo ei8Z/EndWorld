@@ -187,7 +187,7 @@ fun GameScreen(viewModel: GameViewModel) {
                             placeholder = { Text("输入你的行动...") },
                             modifier = Modifier.weight(1f),
                             maxLines = 3,
-                            enabled = !isLoading
+                            enabled = !isLoading && speedMode != SpeedMode.ACCELERATION
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         IconButton(
@@ -197,7 +197,8 @@ fun GameScreen(viewModel: GameViewModel) {
                                     customAction = ""
                                 }
                             },
-                            enabled = !isLoading && customAction.isNotBlank()
+                            enabled = !isLoading && customAction.isNotBlank() &&
+                                speedMode != SpeedMode.ACCELERATION
                         ) {
                             Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送")
                         }
@@ -867,7 +868,7 @@ fun AccelerationPanel(statusText: String, onExitAcceleration: () -> Unit) {
     }
 }
 
-/** 死亡覆盖层 */
+/** 死亡覆盖层。C4 前读档/继承不可用，三个按钮一律禁用，只保留"重启游戏"这一条出路。 */
 @Composable
 fun DeathOverlay(
     cause: String, narrative: String,
@@ -894,17 +895,23 @@ fun DeathOverlay(
                     color = Color(0xFFD0D0D0), maxLines = 8, overflow = TextOverflow.Ellipsis)
                 Spacer(modifier = Modifier.height(24.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onReload, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(onClick = onReload, enabled = false, modifier = Modifier.weight(1f)) {
                         Text("读档")
                     }
-                    OutlinedButton(onClick = onObserve, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(onClick = onObserve, enabled = false, modifier = Modifier.weight(1f)) {
                         Text("观察世界")
                     }
                 }
                 Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onInherit, modifier = Modifier.fillMaxWidth()) {
+                Button(onClick = onInherit, enabled = false, modifier = Modifier.fillMaxWidth()) {
                     Text("继承 —— 新角色踏入同一个世界")
                 }
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    "当前版本死亡后请重启游戏；读档与继承将在 C4 提供",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF9E9E9E)
+                )
             }
         }
     }

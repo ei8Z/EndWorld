@@ -5,6 +5,7 @@ import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import android.content.Context
 import android.util.Log
+import androidx.room.withTransaction
 import com.ei8z.endworld.BuildConfig
 import com.ei8z.endworld.data.local.AppDatabase
 import com.ei8z.endworld.data.local.entity.*
@@ -295,6 +296,12 @@ class GameRepository(
             close()
             return@callbackFlow
         }
+        // P1-6 入口闸门：已死亡就不再喂 AI，也不推进任何时间
+        checkPlayerDeath(currentPlayer.hp, currentPlayer.hunger, currentPlayer.thirst)?.let { cause ->
+            trySend(StreamEvent.PlayerDied(cause = cause, narrative = "你已无法行动。"))
+            close()
+            return@callbackFlow
+        }
         val currentWorld = worldInfo.first() ?: run {
             trySend(StreamEvent.Error("未找到世界数据"))
             close()
@@ -418,13 +425,28 @@ class GameRepository(
         // 致死判定：先于叙事 Agent，避免"死者还在叙事"
         val deathCause = checkPlayerDeath(postSnapshot.hp, postSnapshot.hunger, postSnapshot.thirst)
         if (deathCause != null) {
-            playerDao.updatePlayerState(
-                player.copy(
-                    hp = postSnapshot.hp,
-                    hunger = postSnapshot.hunger,
-                    thirst = postSnapshot.thirst
+            // P1-6：死亡时刻的 HP/世界时间/结算账本一起落库，重启后仍是"死在这一刻"
+            database.withTransaction {
+                playerDao.updatePlayerState(
+                    player.copy(
+                        hp = postSnapshot.hp,
+                        hunger = postSnapshot.hunger,
+                        thirst = postSnapshot.thirst
+                    )
                 )
-            )
+                worldDao.updateWorldInfo(
+                    world.copy(
+                        totalGameMinutes = sm.clock.elapsedMinutes,
+                        currentDate = "第${sm.clock.currentDay}天",
+                        currentTime = String.format(
+                            Locale.ROOT, "%02d:%02d",
+                            sm.clock.currentHour, sm.clock.currentMinute
+                        )
+                    )
+                )
+                settlementLedger.mark(sm.clock.currentDay)
+            }
+            lastMidnightSettlementDay = sm.clock.currentDay
             trySend(
                 StreamEvent.PlayerDied(
                     cause = deathCause,
@@ -489,6 +511,19 @@ class GameRepository(
         }
         // 应用支线 SP 消耗（非被动消耗，为行动本身消耗）
         sm.vital.sp = (sm.vital.sp + branchType.spCost).coerceIn(0, sm.vital.spMax)
+
+        // P1-6：支线同样可能把玩家耗死——落 HP 后直接结束，不构建任何叙事响应
+        checkPlayerDeath(sm.vital.hp, sm.vital.hunger, sm.vital.thirst)?.let { cause ->
+            playerDao.updatePlayerState(
+                player.copy(
+                    hp = sm.vital.hp,
+                    hunger = sm.vital.hunger,
+                    thirst = sm.vital.thirst
+                )
+            )
+            trySend(StreamEvent.PlayerDied(cause = cause, narrative = "你已无法行动。"))
+            return
+        }
 
         val preSnapshot = sm.generatePreRulingSnapshot()
 
@@ -1554,6 +1589,14 @@ class GameRepository(
                 totalGameMinutes = stateMachine.clock.elapsedMinutes,
                 currentDate = "第${stateMachine.clock.currentDay}天",
                 currentTime = String.format(Locale.ROOT, "%02d:%02d", stateMachine.clock.currentHour, stateMachine.clock.currentMinute)
+            )
+        )
+        // P1-6：加速里也可能把 HP 耗到 0，玩家数值同样要落库；HP≤0 由 ViewModel 观察流捕获
+        playerDao.updatePlayerState(
+            player.copy(
+                hp = stateMachine.vital.hp,
+                hunger = stateMachine.vital.hunger,
+                thirst = stateMachine.vital.thirst
             )
         )
 

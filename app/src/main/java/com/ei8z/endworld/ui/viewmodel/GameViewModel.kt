@@ -118,16 +118,40 @@ class GameViewModel(
 
     private var accelerationJob: Job? = null
 
+    /**
+     * P1-6：死亡由 DB 里的玩家数值决定，重启后只要 HP≤0 就仍然锁定在死亡态，
+     * 不依赖某次流式事件是否送达。
+     */
+    init {
+        viewModelScope.launch {
+            playerState.collect { p ->
+                if (p == null) return@collect
+                val cause = repository.checkPlayerDeath(p.hp, p.hunger, p.thirst)
+                if (cause != null) {
+                    _isDead.value = true
+                    if (_deathCause.value.isBlank()) _deathCause.value = cause
+                } else {
+                    _isDead.value = false
+                }
+            }
+        }
+    }
+
     /** V3.0 速度模式切换（元行动——不消耗游戏时间） */
     fun setSpeedMode(mode: SpeedMode) {
-        val previous = _speedMode.value
+        // P1-7：任何离开加速的路径都必须走同一收尾，ACCEL→DECEL 也不例外
+        if (_speedMode.value == SpeedMode.ACCELERATION && mode != SpeedMode.ACCELERATION) {
+            exitAcceleration(targetMode = mode)
+            return
+        }
+        applySpeedMode(mode)
+    }
+
+    private fun applySpeedMode(mode: SpeedMode) {
         _speedMode.value = mode
         when (mode) {
             SpeedMode.ACCELERATION -> enterAcceleration()
-            SpeedMode.NORMAL -> {
-                if (previous == SpeedMode.ACCELERATION) exitAcceleration()
-                uiModeManager.settleMode(hasThreats = false, isSafeZone = true)
-            }
+            SpeedMode.NORMAL -> uiModeManager.settleMode(hasThreats = false, isSafeZone = true)
             SpeedMode.DECELERATION -> uiModeManager.settleMode(hasThreats = true, isSafeZone = false)
         }
     }
@@ -147,7 +171,7 @@ class GameViewModel(
         }
     }
 
-    private fun exitAcceleration() {
+    private fun exitAcceleration(targetMode: SpeedMode = SpeedMode.NORMAL) {
         accelerationJob?.cancel()
         viewModelScope.launch {
             val player = repository.playerState.first() ?: return@launch
@@ -156,8 +180,8 @@ class GameViewModel(
             val summary = repository.exitAcceleration(player, world)
             _isLoading.value = false
             _accelerationStatusText.value = ""
-            _speedMode.value = SpeedMode.NORMAL
-            uiModeManager.restoreFromAcceleration(hasThreats = false, isSafeZone = true)
+            // 收尾统一落到目标模式，不再硬编码 NORMAL
+            applySpeedMode(targetMode)
             // 将世界叙事摘要发送给叙事Agent生成初始场景
             sendAction("恢复正常速度", null)
         }
@@ -211,6 +235,11 @@ class GameViewModel(
 
     /** V2.1: [actionParsed] 非空=主线双Agent流程，空=支线简化流程 */
     fun sendAction(action: String, actionParsed: ActionParsed? = null) {
+        // P1-7：加速中禁止行动——时间正在快进，行动会与加速抢占同一套状态
+        if (_speedMode.value == SpeedMode.ACCELERATION) {
+            _error.value = "加速中无法行动，请先减速"
+            return
+        }
         lastAction = action
         lastActionParsed = actionParsed
         retryCount = 0
@@ -242,6 +271,11 @@ class GameViewModel(
      * 这种增量解析避免了等待完整 JSON 再渲染，极大降低首字延迟。
      */
     private fun startStream(action: String, actionParsed: ActionParsed? = null) {
+        // retry 直接调这里，绕不过 sendAction：加速中同样拒绝
+        if (_speedMode.value == SpeedMode.ACCELERATION) {
+            _error.value = "加速中无法行动，请先减速"
+            return
+        }
         streamJob?.cancel()
         streamJob = viewModelScope.launch {
             _isLoading.value = true
@@ -359,24 +393,22 @@ class GameViewModel(
         }
     }
 
-    /** V3.0 玩家死亡后选择继承 */
+    /** V3.0 玩家死亡后选择继承——C4 前不可用，只提示，不动任何状态 */
     fun inheritWorld() {
-        viewModelScope.launch {
-            val player = repository.playerState.first() ?: return@launch
-            repository.inheritWorld(player)
-            _isDead.value = false
-            _deathNarrative.value = ""
-            _deathCause.value = ""
-            _speedMode.value = SpeedMode.NORMAL
-        }
+        _error.value = "继承功能尚未开放（C4）"
     }
 
-    /** V3.0 玩家死亡后选择读档 */
+    /** V3.0 玩家死亡后选择读档——C4 前没有死亡前存档，重读 DB 后仍然死亡 */
     fun reloadFromSave() {
-        _isDead.value = false
-        _deathNarrative.value = ""
-        _deathCause.value = ""
-        _error.value = null
+        viewModelScope.launch {
+            val player = repository.playerState.first()
+            val cause = player?.let { repository.checkPlayerDeath(it.hp, it.hunger, it.thirst) }
+            if (cause != null) {
+                _isDead.value = true
+                if (_deathCause.value.isBlank()) _deathCause.value = cause
+            }
+            _error.value = "没有可用的死亡前存档"
+        }
     }
 
     companion object {
