@@ -172,6 +172,61 @@ class SurvivalStateMachineTest {
     }
 
     @Test
+    fun `injury drains HP hourly and raises SP cost`() {
+        machine.health.applyInjury("深度撕裂伤") // hpLoss=2/h, spPenalty=1.1
+
+        val snapshot = machine.processPreRuling(estimatedMinutes = 120, primaryType = "移动")
+
+        assertEquals(96, snapshot.hp) // 2 小时 × 2 HP
+        assertEquals(94, snapshot.sp) // 基础 -5 × 1.1 → -6
+    }
+
+    @Test
+    fun `no injury keeps the normal action cost`() {
+        val snapshot = machine.processPreRuling(estimatedMinutes = 120, primaryType = "移动")
+
+        assertEquals(95, snapshot.sp) // 基础 -5，无伤病惩罚
+    }
+
+    @Test
+    fun `infection turns into septic shock after enough hourly ticks`() {
+        machine.health.applyInjury("轻微擦伤") // infectionRisk=0.05/h, 24h 后自愈
+
+        // 单次行动上限 8 小时，20 小时需直接按小时推进伤病
+        machine.tickHours(20)
+
+        assertNotNull(machine.health.activeTags.find { it.name == "伤口感染性休克" })
+        assertNull(machine.health.activeTags.find { it.name == "轻微擦伤" })
+    }
+
+    @Test
+    fun `negative action minutes do not throw and leave the clock unchanged`() {
+        val before = machine.clock.elapsedMinutes
+
+        machine.processPreRuling(estimatedMinutes = -10, primaryType = "观察")
+
+        assertEquals(before, machine.clock.elapsedMinutes)
+    }
+
+    @Test
+    fun `huge action minutes are clamped to eight hours`() {
+        val before = machine.clock.elapsedMinutes
+
+        machine.processPreRuling(estimatedMinutes = 10_000, primaryType = "观察")
+
+        assertEquals(before + 480, machine.clock.elapsedMinutes)
+    }
+
+    @Test
+    fun `branch action minutes are clamped to eight hours`() {
+        val before = machine.clock.elapsedMinutes
+
+        machine.processBranchAction(minutes = 10_000)
+
+        assertEquals(before + 480, machine.clock.elapsedMinutes)
+    }
+
+    @Test
     fun `nan change amount is treated as zero`() {
         machine.applyActionResult(
             ActionResult(

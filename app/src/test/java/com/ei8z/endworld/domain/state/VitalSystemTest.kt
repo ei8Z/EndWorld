@@ -92,6 +92,17 @@ class VitalSystemTest {
     }
 
     @Test
+    fun `injury penalty raises action cost but not rest recovery`() {
+        val vital = VitalSystem()
+        vital.applyActionCost("移动", penalty = 0.1f)
+        assertEquals(94, vital.sp) // -5 × 1.1
+
+        vital.sp = 50
+        vital.applyActionCost("休息", penalty = 0.5f)
+        assertEquals(65, vital.sp) // 正向恢复不吃伤病惩罚
+    }
+
+    @Test
     fun `fatigue penalty scales correctly`() {
         val vital = VitalSystem()
         assertEquals(1.0f, vital.getFatiguePenalty())

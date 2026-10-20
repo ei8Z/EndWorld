@@ -103,11 +103,18 @@ class VitalSystem {
     /**
      * 按行动类型应用 SP 消耗。对应文档 8.4 资源消耗表。
      * 当前疲劳度≥80 时 SP 消耗 ×1.5（疲劳惩罚）。
+     * @param penalty 伤病带来的额外消耗倍率（0=无伤病），只作用于消耗，不影响休息的正向恢复。
      */
-    fun applyActionCost(primaryType: String) {
+    fun applyActionCost(primaryType: String, penalty: Float = 0f) {
         val baseCost = SP_COSTS[primaryType] ?: 0
         val fatigueMultiplier = if (fatigue >= 80) 1.5f else 1.0f
-        val actualCost = (baseCost * fatigueMultiplier).toInt()
+        // 只有消耗（负值）吃伤病惩罚；休息的正向恢复不受影响
+        val actualCost = if (baseCost < 0 && penalty > 0f) {
+            // 按消耗绝对值取整：-5×1.1 必须落到 -6，不能四舍五入回 -5（等于没惩罚）
+            -((-baseCost * fatigueMultiplier * (1f + penalty)).roundToInt())
+        } else {
+            (baseCost * fatigueMultiplier).toInt()
+        }
         sp = (sp + actualCost).coerceIn(0, spMax)
         clampAll()
     }

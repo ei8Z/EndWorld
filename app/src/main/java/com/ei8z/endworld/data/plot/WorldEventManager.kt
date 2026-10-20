@@ -16,17 +16,20 @@ class WorldEventManager {
     val allEvents: List<WorldEvent> = buildPresetEvents()
 
     /**
-     * 检查当天是否有待触发的全局事件。
+     * 检查是否有待触发的全局事件。
+     * 语义为"已到天数且未触发"：跨天/加速跳过的天数不会漏事件，同一事件只触发一次。
      * @param daysSurvived 当前存活天数
      * @param doomLevel 当前末日等级
-     * @return 本轮触发的新事件列表
+     * @return 本轮触发的新事件列表（按 triggerDay 升序）
      */
     fun checkAndTrigger(daysSurvived: Int, doomLevel: Int): List<WorldEvent> {
-        val matched = allEvents.filter { event ->
-            event.triggerDay == daysSurvived &&
-            doomLevel >= event.doomLevelRequired &&
-            event.id !in triggeredEvents
-        }
+        val matched = allEvents
+            .filter { event ->
+                event.triggerDay <= daysSurvived &&
+                    doomLevel >= event.doomLevelRequired &&
+                    event.id !in triggeredEvents
+            }
+            .sortedBy { it.triggerDay }
         matched.forEach { triggeredEvents.add(it.id) }
         return matched
     }

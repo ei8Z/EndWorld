@@ -1540,7 +1540,7 @@ class GameRepository(
         stateMachine.clock.advance(minutes)
         val hours = minutes / 60f
         stateMachine.vital.applyPassiveConsumption(hours)
-        repeat(hours.toInt()) { stateMachine.health.tickHourly() }
+        stateMachine.tickHours(hours.toInt())
     }
 
     suspend fun exitAcceleration(player: PlayerState, world: WorldInfo): String {

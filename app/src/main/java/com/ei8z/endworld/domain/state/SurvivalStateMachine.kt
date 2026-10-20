@@ -87,13 +87,14 @@ class SurvivalStateMachine(
     // ---- 行动处理 ----
 
     fun processPreRuling(estimatedMinutes: Int, primaryType: String): WorldSnapshot {
-        val hours = estimatedMinutes / 60f
+        val minutes = estimatedMinutes.coerceIn(0, MAX_ACTION_MINUTES)
+        val hours = minutes / 60f
         eventDeck.tickRound()
-        clock.advance(estimatedMinutes)
+        clock.advance(minutes)
         weather.tick(hours)
         vital.applyPassiveConsumption(hours)
-        vital.applyActionCost(primaryType)
-        repeat(hours.toInt()) { health.tickHourly() }
+        vital.applyActionCost(primaryType, health.calculateSpPenalty())
+        tickHours(hours.toInt())
         return generatePreRulingSnapshot()
     }
 
@@ -212,11 +213,24 @@ class SurvivalStateMachine(
     }
 
     fun processBranchAction(minutes: Int) {
-        val hours = minutes / 60f
-        clock.advance(minutes)
+        val clamped = minutes.coerceIn(0, MAX_ACTION_MINUTES)
+        val hours = clamped / 60f
+        clock.advance(clamped)
         weather.tick(hours)
         vital.applyPassiveConsumption(hours)
-        repeat(hours.toInt()) { health.tickHourly() }
+        tickHours(hours.toInt())
+    }
+
+    /** 按整小时推进伤病：HP 损失、自然恢复、感染判定。 */
+    internal fun tickHours(hours: Int) {
+        repeat(hours.coerceAtLeast(0)) {
+            val loss = health.calculateHourlyHpLoss()
+            if (loss > 0) {
+                vital.applyResourceChange(ResourceChange("", "", "生命值", -loss.toFloat(), 0f))
+            }
+            health.tickHourly()
+        }
+        health.checkInfection()
     }
 
     // ---- 持久化种子 ----
@@ -279,5 +293,10 @@ class SurvivalStateMachine(
 
     fun initLocation(location: String, type: String, description: String) {
         clock.updateLocation(location, type, description)
+    }
+
+    companion object {
+        /** 单次行动最多推进的游戏分钟数（8 小时），防止 AI 给出的超长时间跳天。 */
+        const val MAX_ACTION_MINUTES = 480
     }
 }
