@@ -1786,8 +1786,8 @@ class GameRepository(
     // === V3.0 RulingContext 辅助 ===
     private fun buildV3WorldProgressString(snapshot: WorldSnapshot): String = buildString {
         append(buildWorldProgressString(snapshot))
-        val loc = snapshot.location
-        val region = regions[loc]
+        // 玩家 location 仍是自由文本（如“避难所”），先映射成区域再取状态
+        val region = resolveRegion(snapshot.location, stateMachine.clock.location)
         if (region != null) {
             append("\n【V3区域状态】${region.name}: 威胁${region.threatLevel} 资源${region.resourceAbundance}")
             val cf = region.controllingFactionId?.let { fid -> factions.find { it.factionId == fid } }
@@ -1797,8 +1797,15 @@ class GameRepository(
     }
 
     private suspend fun buildV3NpcDepthContext(player: PlayerState, snapshot: WorldSnapshot): String {
+        // NPC 的 currentLocationId 已是 regionId，玩家 location 仍是自由文本：
+        // 精确相等保留给旧存档的自由文本 NPC，映射后的 regionId 命中新提取的 NPC。
+        val playerRegionId = resolveRegion(snapshot.location, stateMachine.clock.location)?.regionId
         val v3Npcs = npcRuntime.values
-            .filter { it.state.currentLocationId == snapshot.location && it.departure.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD }
+            .filter {
+                (it.state.currentLocationId == snapshot.location ||
+                    (playerRegionId != null && it.state.currentLocationId == playerRegionId)) &&
+                    it.departure.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEAD
+            }
         val v3Names = v3Npcs.map { it.state.name }.toSet()
         // V3 已有权威好感度的 NPC 不再出现在 V2 上下文，避免提示词里两套数值
         val v2Ctx = buildNpcDepthContext(player, snapshot.nearbyNpcs.filterNot { it in v3Names })

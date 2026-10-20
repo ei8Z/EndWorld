@@ -111,7 +111,7 @@ MEMOS_API_KEY=mpg-your-memos-api-key
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
-单元测试（当前 390 tests / 0 failed，2026-10-19 第 1E 批后）：
+单元测试（当前 394 tests / 0 failed，2026-10-19 第 1E 批后）：
 
 ```bash
 ./gradlew :app:testDebugUnitTest --no-daemon
