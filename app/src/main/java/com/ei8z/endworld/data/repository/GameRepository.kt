@@ -102,6 +102,14 @@ class GameRepository(
 
     private var v3Loaded = false
 
+    /**
+     * P1-5：本局 legacy 好感度快照只在第一次读库时冻结，之后所有提取路径只用它。
+     * `syncGameData` 的 upsert 会给未提取 NPC 插一行 `affinity=0`，这份 0 会跨轮留在表里；
+     * 若每轮提取都现读 `npc_relations`，下一轮会把它当 legacy 值算出 -100 基准并误判 MIGRATED。
+     * 旧档在首次加载时取到真实 legacy 值，新局由 [initializeNewGameV22] 清表并经 [resetV3World] 复位。
+     */
+    private var legacyAffinitySnapshot: Map<String, Int>? = null
+
     // ======================== V2.1 双Agent组件 ========================
 
     /** 生存状态机（客户端唯一数据权威）。PlotManager 从 assets 加载章节。 */
@@ -165,18 +173,22 @@ class GameRepository(
     internal fun v3DeltaFromLegacy(delta: Int): Int = delta * 2
 
     /**
-     * 首次建 NPC 的好感度基准；没有 legacy 记录时按阵营给 0/-10。
-     * [legacySnapshot] 是写库之前的 legacy 好感度快照，本函数不再自己读库——
-     * `syncGameData` 会先 upsert 一行 `affinity=0`，之后读库会把这个 0 当成 legacy 值
-     * 算出 -100 基准（P1-5）。
+     * 首次建 NPC 的好感度基准：只用本局冻结的 [legacyAffinitySnapshot]；
+     * 没有 legacy 记录时按阵营给 0/-10。
      */
     private fun baseAttitudeFor(
         name: String,
-        factionId: String?,
-        legacySnapshot: Map<String, Int> = emptyMap()
+        factionId: String?
     ): Int {
-        val legacy = legacySnapshot[name]?.let(::v3AffinityFromLegacy)
+        val legacy = legacyAffinitySnapshot?.get(name)?.let(::v3AffinityFromLegacy)
         return legacy ?: if (factionId != null) 0 else -10
+    }
+
+    /** 冻结本局 legacy 好感度快照；必须在任何 V2 写库之前调用，重复调用无副作用。 */
+    private suspend fun captureLegacyAffinitySnapshot() {
+        if (legacyAffinitySnapshot == null) {
+            legacyAffinitySnapshot = npcDao.getAllNpcs().first().associate { it.name to it.affinity }
+        }
     }
 
     /** 同名 NPC 的唯一身份：旧存档 id 形如 npc_名_日，新 id 为 npc_名。 */
@@ -817,9 +829,6 @@ class GameRepository(
     ) {
         val update = data.statusUpdate
         val safeDoomLevel = stateMachine.doomLevel.coerceIn(1, 5)
-        // P1-5: legacy 好感度快照必须在任何写库之前抓——本轮 upsert 会插一行 affinity=0，
-        // 之后再读同一张表会把 0 当成 legacy 值（(0-50)*2 = -100）。
-        val legacyAffinityBefore = npcDao.getAllNpcs().first().associate { it.name to it.affinity }
 
         // 权威：伤病从状态机取
         val authStateTags = postSnapshot.activeTags.map { it.name }.filter { it.isNotBlank() }
@@ -951,7 +960,7 @@ class GameRepository(
                         state = n,
                         needs = npcEngine.initializeNeeds(false, (regions[loc]?.threatLevel ?: 0) > 50),
                         affinity = npcEngine.initializeAffinity(
-                            baseAttitudeFor(npc.name, fid, legacyAffinityBefore)
+                            baseAttitudeFor(npc.name, fid)
                         ),
                         schedule = npcEngine.initializeSchedule(
                             n.currentLocationId, workLocationFor(n.currentLocationId)
@@ -1099,6 +1108,7 @@ class GameRepository(
         memosExtractor.clearPauseState()
         lastMidnightSettlementDay = 1
         settlementLedger.mark(1)
+        legacyAffinitySnapshot = null
         v3Loaded = false
     }
 
@@ -1284,6 +1294,8 @@ class GameRepository(
      * DB 为空（全新存档）才创建默认世界；重复调用是幂等的。
      */
     suspend fun ensureV3WorldLoaded() {
+        // P1-5：本局 legacy 快照只在这里及新局复位时确定，之后提取路径不再读 npc_relations。
+        captureLegacyAffinitySnapshot()
         if (v3Loaded) return
         val snapshot = v3Store.load()
 
@@ -1791,10 +1803,8 @@ class GameRepository(
         val npcId = "npc_$target"
         val loc = action.location.ifBlank { "R01" }
         val factionId = regions[loc]?.controllingFactionId
-        // legacy 好感度只在这里读一次：首次提取时作为初始值，之后一律以 npcRuntime 为准。
-        // 这里在任何写库之前，所以可以直接读库取快照。
-        val legacySnapshot = npcDao.getAllNpcs().first().associate { it.name to it.affinity }
-        val baseAttitude = baseAttitudeFor(target, factionId, legacySnapshot)
+        // legacy 好感度只来自本局冻结的快照：V2 表里可能有上一轮 upsert 插的 0 行，不能现读。
+        val baseAttitude = baseAttitudeFor(target, factionId)
         val npc = npcEngine.initializeNewNpc(npcId, target, "居民", loc, factionId, baseAttitude)
         val record = newNpcRecord(
             state = npc,

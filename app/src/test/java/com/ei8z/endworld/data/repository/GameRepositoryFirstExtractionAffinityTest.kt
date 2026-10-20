@@ -30,6 +30,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -86,12 +87,16 @@ class GameRepositoryFirstExtractionAffinityTest {
         )
     }
 
-    /** 主线两条 AI 流都塞合法响应；叙事流的 npcUpdate 由用例指定。 */
-    private fun stubMainlineApis(api: DeepSeekApiService, npcUpdateJson: String) {
+    /** 主线两条 AI 流都塞合法响应；叙事流的 npcUpdate / 裁决摘要由用例指定。 */
+    private fun stubMainlineApis(
+        api: DeepSeekApiService,
+        npcUpdateJson: String,
+        narrativeSummary: String = "你环顾四周"
+    ) {
         val actionResult = """
             {"actionResult":{"result":"部分成功","dcValue":50,"rollValue":60,"totalValue":55,
             "modifiersBreakdown":"","resourceChanges":[],"injuriesApplied":[],"injuriesRecovered":[],
-            "narrativeSummary":"你环顾四周","eventTriggered":null}}
+            "narrativeSummary":"$narrativeSummary","eventTriggered":null}}
         """.trimIndent()
         coEvery { api.getChatCompletions(any(), any()) } returns ChatResponse(
             "t", "m",
@@ -125,6 +130,9 @@ class GameRepositoryFirstExtractionAffinityTest {
 
     private val chatWithA = ActionParsed("社交", "聊天", "A", "避难所", "", "低", 10)
     private val npcUpdateA = """[{"name":"A","relation":"邻居","affinityDelta":10,"lastInteractionSummary":"聊了聊"}]"""
+    private val chatWithB = ActionParsed("社交", "聊天", "B", "避难所", "", "低", 10)
+    private val npcUpdateB = """[{"name":"B","relation":"邻居","affinityDelta":10,"lastInteractionSummary":"聊了聊"}]"""
+    private val chatWithC = ActionParsed("社交", "聊天", "C", "避难所", "", "低", 10)
 
     @Test
     fun `first extraction in a new game starts from the no-faction base instead of a zeroed legacy row`() =
@@ -157,6 +165,57 @@ class GameRepositoryFirstExtractionAffinityTest {
 
         // legacy 80 → (80-50)*2 = 60 基准，再吃 10×2 增量
         assertEquals(80, repo.affinityFor("npc_A")?.affinity)
+    }
+
+    @Test
+    fun `an earlier round that only upserts the npc does not poison the first extraction`() = runTest {
+        val api = mockk<DeepSeekApiService>(relaxed = true)
+        // 第 1 轮：B 出现在 npcUpdate 但增量不足 10，不提取，只在 V2 表留一行 affinity=0
+        stubMainlineApis(
+            api,
+            """[{"name":"B","relation":"邻居","affinityDelta":5,"lastInteractionSummary":"寒暄"}]"""
+        )
+        val repo = newRepo(api)
+        repo.initializeNewGameV22(
+            "新角色", "成年男性", "冷静", "", "丧尸", 1,
+            100, 100, 100, 100, 50, 50, 0
+        )
+        repo.sendActionStream("和B寒暄", chatWithB).toList()
+        // 前提钉死：上一轮确实只写了 0 行、没有提取
+        assertEquals(0, db.npcDao().getAllNpcs().first().single { it.name == "B" }.affinity)
+        assertNull(repo.affinityFor("npc_B"))
+
+        // 第 2 轮：增量达标触发提取；基准不能被上一轮插的 0 行污染
+        stubMainlineApis(api, npcUpdateB)
+        repo.sendActionStream("和B聊天", chatWithB).toList()
+
+        // 无 legacy、无阵营：-10 基准 + 10×2 增量
+        assertEquals(10, repo.affinityFor("npc_B")?.affinity)
+        assertNotEquals(DepartureStatus.MIGRATED, repo.npcRuntime.getValue("npc_B").departure.status)
+    }
+
+    @Test
+    fun `an earlier upsert does not poison the direct extraction path either`() = runTest {
+        val api = mockk<DeepSeekApiService>(relaxed = true)
+        stubMainlineApis(
+            api,
+            """[{"name":"C","relation":"邻居","affinityDelta":5,"lastInteractionSummary":"寒暄"}]"""
+        )
+        val repo = newRepo(api)
+        repo.initializeNewGameV22(
+            "新角色", "成年男性", "冷静", "", "丧尸", 1,
+            100, 100, 100, 100, 50, 50, 0
+        )
+        repo.sendActionStream("和C寒暄", chatWithC).toList()
+        assertEquals(0, db.npcDao().getAllNpcs().first().single { it.name == "C" }.affinity)
+
+        // 第 2 轮：情报触发 tryV3NpcExtraction（在 syncGameData 写库之前执行）
+        stubMainlineApis(api, "[]", narrativeSummary = "C向你透露了藏身处的位置")
+        repo.sendActionStream("把水给C", chatWithC).toList()
+
+        // 无 legacy、无阵营：-10 基准 + 首次互动 5
+        assertEquals(-5, repo.affinityFor("npc_C")?.affinity)
+        assertNotEquals(DepartureStatus.MIGRATED, repo.npcRuntime.getValue("npc_C").departure.status)
     }
 
     @Test
