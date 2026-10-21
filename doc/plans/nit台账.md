@@ -50,3 +50,13 @@
 - 场景 5 只剩破坏性互动与（未来）KEY 可达；普通 CONTACT 不再触发，属预期降噪。
 - `StorytellerApiClient.kt` / `WorldStorytellerApiClient.kt` 的 `reasoning_effort="height"` 疑似 `high` 笔误，pre-existing，超本批。
 - README SceneTrigger 注释未列场景 3 检测器（场景 3 仍因缺 KEY seed 不可达）。
+
+## 2026-10-19 3F-1 批
+
+- `restartGame()` 内 `NonCancellable` 的 persist/场景评估不受 VM cancel 影响；窗口极小。
+- `clearAllTables()` 抛错时 V3 内存已清、DB 未清；可重试，不损数据。
+- 重开测试缺失败路径：repo 抛错时 `_error` 有值、成功时 `_error == null` 均无断言；VM `catch` 吞 `CancellationException`。
+- 重开未重置 `accelerationStatus`/`uiMode`/`reasoning`/`canRetry`；`accelerationExiting` 未复位（生产不可达）。
+- 收尾协程被 cancel 后 `finally` 仍 `applySpeedMode(targetMode)`；重开进行中死亡层按钮无 disabled，可能显示旧全局 `error`。
+- 仓库层 `inheritWorld` 现仅测试调用，保留给 C4。
+- 重开测试的 V3 部分只覆盖 3/5 表且 globalEvent 无前置断言；`GameRepositoryTest` 有 `clearAllMocks` 无用调用；`withContext` 全限定名、KDoc 措辞。
