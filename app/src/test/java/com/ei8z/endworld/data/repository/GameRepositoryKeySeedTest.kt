@@ -172,4 +172,39 @@ class GameRepositoryKeySeedTest {
 
         assertEquals("KEY", db.npcStateDao().getNpc("npc_A")?.tier)
     }
+
+    @Test
+    fun `promoted key tier survives a fresh repository reload`() = runTest {
+        val repo = createRepo()
+        repo.ensureV3WorldLoaded()
+        seedNpc(repo, "A", affinity = 80)
+        repo.executeDailySettlement()
+
+        // 同库新 repo：走 V3StateMapper 的 tier 回读，而不是直接读 DAO 行
+        val reloaded = createRepo()
+        reloaded.ensureV3WorldLoaded()
+
+        assertEquals(NpcTier.KEY, reloaded.npcRuntime.getValue("npc_A").state.tier)
+    }
+
+    @Test
+    fun `promotion turns the same daily social into scene 5`() = runTest {
+        val repo = createRepo()
+        seedNpc(repo, "A", affinity = 80) // 已达标但仍为 CONTACT
+        seedNpc(repo, "B", affinity = 0)
+
+        val contactA = repo.npcRuntime.getValue("npc_A").state
+        val peer = repo.npcRuntime.getValue("npc_B").state
+        assertNull(
+            SceneTriggerDetector.detectRareInteraction(contactA, peer, NpcBehaviorEngine.InteractionType.DAILY_SOCIAL)
+        )
+
+        repo.promoteEligibleNpcs()
+
+        val promoted = repo.npcRuntime.getValue("npc_A").state
+        val trigger = SceneTriggerDetector.detectRareInteraction(
+            promoted, peer, NpcBehaviorEngine.InteractionType.DAILY_SOCIAL
+        )
+        assertEquals(SceneType.RARE_INTERACTION, trigger?.type)
+    }
 }

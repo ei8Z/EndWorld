@@ -13,7 +13,6 @@ import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.NpcTier
 import com.ei8z.endworld.domain.world.engine.WorldRulesEngine.BattleResult
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 import kotlin.random.Random
@@ -160,7 +159,8 @@ class SceneTriggerTest {
         val keyCasualties = BattleCasualtyEngine(Random(0)).roll(listOf(keyNpc), battle, "b1")
 
         assertEquals(1, keyCasualties.size)
-        assertNotNull(SceneTriggerDetector.detectKeyNpcCasualty(keyNpc, keyCasualties.single()))
+        val keyTrigger = SceneTriggerDetector.detectKeyNpcCasualty(keyNpc, keyCasualties.single())
+        assertEquals(SceneType.KEY_NPC_DEATH, keyTrigger?.type)
 
         val contactNpc = npc("c1", NpcTier.CONTACT, factionId = "F_A", combatRole = CombatRole.COMBATANT)
         val contactCasualties = BattleCasualtyEngine(Random(0)).roll(listOf(contactNpc), battle, "b2")
