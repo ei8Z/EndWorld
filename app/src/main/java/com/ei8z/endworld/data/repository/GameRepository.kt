@@ -42,6 +42,7 @@ import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.MemoryQueue
 import com.ei8z.endworld.domain.npc.model.NpcRecord
 import com.ei8z.endworld.domain.npc.model.NpcState
+import com.ei8z.endworld.domain.npc.model.NpcTier
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
 import com.ei8z.endworld.domain.npc.model.newNpcRecord
 import com.ei8z.endworld.domain.npc.model.toDisplayName
@@ -238,7 +239,25 @@ class GameRepository(
         val record = npcRuntime[npcId] ?: return null
         val updated = npcEngine.applyAffinityDelta(record.affinity, delta, currentGameDay)
         updateRecord(npcId) { it.copy(affinity = updated) }
+        promoteEligibleNpcs()
         return updated
+    }
+
+    /**
+     * 接触 NPC 自动升为 KEY：好感 ≥80、≤-50 或互动 >10。
+     * 只升不降，背景 NPC 永不提升；遍历前先拷 key，避免遍历中改写 map。
+     */
+    internal fun promoteEligibleNpcs() {
+        for (npcId in npcRuntime.keys.toList()) {
+            val record = npcRuntime[npcId] ?: continue
+            if (record.state.tier != NpcTier.CONTACT) continue
+            val eligible = record.affinity.affinity >= 80 ||
+                record.affinity.affinity <= -50 ||
+                record.affinity.interactionCount > 10
+            if (!eligible) continue
+            updateRecord(npcId) { it.copy(state = it.state.copy(tier = NpcTier.KEY)) }
+            Log.i(TAG, "NPC 升为 KEY: ${record.state.name} (affinity=${record.affinity.affinity}, interactions=${record.affinity.interactionCount})")
+        }
     }
 
     /** 场景评估结果，供下一轮叙事注入。 */
@@ -1460,6 +1479,9 @@ class GameRepository(
                 }
             }
         }
+
+        // KEY 提升：结算推进完互动/需求后统一判定，再随本轮落库
+        promoteEligibleNpcs()
 
         // 持久化
         persistV3State()
