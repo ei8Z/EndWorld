@@ -1209,19 +1209,21 @@ class GameRepository(
      * 调用前 VM 必须先取消流/加速协程，否则旧协程可能继续往刚清空的库里写。
      * 内部切 IO：`clearAllTables()` 在主线程会抛异常，而调用方（VM）就在 Main 上。
      */
-    suspend fun restartGame() = kotlinx.coroutines.withContext(Dispatchers.IO) {
-        resetV3World()
-        database.clearAllTables()
-        stateMachineInstance = null
-        memosAdapterInstance = null
-        synchronized(lastPlayerNpcInteractions) { lastPlayerNpcInteractions.clear() }
-        synchronized(pendingSceneNotes) { pendingSceneNotes.clear() }
-        expectedChanges = null
-        localSummaryLog.clear()
-        lastAccelerationSummary = ""
-        isAccelerating = false
-        context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE)
-            .edit().remove("stable_user_id").commit()
+    suspend fun restartGame() {
+        kotlinx.coroutines.withContext(Dispatchers.IO) {
+            resetV3World()
+            database.clearAllTables()
+            stateMachineInstance = null
+            context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE)
+                .edit().remove("stable_user_id").commit()
+            memosAdapterInstance = null
+            synchronized(lastPlayerNpcInteractions) { lastPlayerNpcInteractions.clear() }
+            synchronized(pendingSceneNotes) { pendingSceneNotes.clear() }
+            expectedChanges = null
+            localSummaryLog.clear()
+            lastAccelerationSummary = ""
+            isAccelerating = false
+        }
     }
 
     // ======================== 调试 ========================
