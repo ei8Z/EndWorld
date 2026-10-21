@@ -1,8 +1,9 @@
 # 3F-2 KEY seed Spec
 
-> 日期：2026-10-19　｜　状态：待评审
+> 日期：2026-10-19　｜　状态：已实现
 > 上游：`doc/v3/NPC自主行为系统详细设计 V1.0.md` §2.3；10-19 报告 P1-4 未闭合项
 > 范围：只实现自动 KEY 判定（好感阈值 + 互动次数）；剧情注册、玩家标记、降级不做。
+> 实现：`f2624fe`（提升函数与两个调用点）、`7edc654`/`504c43f`（持久化与场景 3/5 可达性）；全量 **413 / 0（52 类）**，`assembleDebug` 成功。
 
 ## 目标
 
@@ -72,7 +73,7 @@ internal fun promoteEligibleNpcs() {
 2. **互动次数**：11 次提升；10 次不提升。
 3. **持久化**：提升后 `persistV3State` → 新 repo `ensureV3WorldLoaded` → tier 仍为 KEY。
 4. **场景 5**：同一对 NPC，CONTACT 普通互动不触发；提升为 KEY 后触发。
-5. **场景 3 可达**：带 faction 的 KEY + 一次战斗伤亡 → 触发 `KEY_NPC_DEATH` 评估；同条件 CONTACT 不触发。
+5. **场景 3 可达**：带 faction 的 KEY + 一次战斗伤亡 → 触发 `KEY_NPC_DEATH` 检测信号；同条件 CONTACT 不触发。`executeDailySettlement`→`evaluateScene3` 的异步 AI 裁决与回写未做集成，属书面遗留（见 nit 台账）。
 6. **不越界**：BACKGROUND 即使好感 100 也不提升。
 
 测试优先用真 Room（层级持久化）与现有场景触发纯函数；场景 3 裁决 AI 可用 relaxed mock。

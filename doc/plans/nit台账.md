@@ -60,3 +60,10 @@
 - 收尾协程被 cancel 后 `finally` 仍 `applySpeedMode(targetMode)`；重开进行中死亡层按钮无 disabled，可能显示旧全局 `error`。
 - 仓库层 `inheritWorld` 现仅测试调用，保留给 C4。
 - 重开测试的 V3 部分只覆盖 3/5 表且 globalEvent 无前置断言；`GameRepositoryTest` 有 `clearAllMocks` 无用调用；`withContext` 全限定名、KDoc 措辞。
+
+## 2026-10-19 3F-2 批
+
+- `promoteEligibleNpcs()` 只看 `tier`，不看 `NpcRecord.departure.status`：已 `DEAD` 的 CONTACT 若好感/互动达标也会升 KEY；死者不再互动，但战斗抽签仍含 DEAD（P2-8），叠加后可能对死者触发场景 3。去向：提升前过滤 `PRESENT`，或随 P2-8 一并处理。
+- 场景 5 与提升的当日顺序：`executeDailySettlement` 里 `resolveNpcSettlement()` 的 `detectRareInteraction` 早于 `promoteEligibleNpcs()`，当日刚达标的 NPC 当天仍按 CONTACT 判定，场景 5 最早次日触发；属降噪方向，不阻塞。
+- 场景 3 执行链未覆盖（书面遗留）：`executeDailySettlement` 内 casualties→`evaluateScene3` 的异步 AI 裁决与回写分支未做集成测试，只证到 `BattleCasualtyEngine`→`detectKeyNpcCasualty` 给出 `KEY_NPC_DEATH`；该分支依赖当日真实开战与抽签随机，单测成本高、易 flaky。去向：批次收口或后续 Spec。
+- 用例命名偏乐观：`promotion turns the same daily social into scene 5` 实际直接调用 `detectRareInteraction` 断言检测器，未驱动每日社交循环；断言有效，但名字容易被读成端到端集成。

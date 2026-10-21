@@ -79,7 +79,7 @@
 ./gradlew :app:assembleDebug --no-daemon
 ```
 
-- 当前基线：**401 tests / 0 failed（51 个测试类）**（2026-10-19，3F-1 重新开局后）。
+- 当前基线：**413 tests / 0 failed（52 个测试类）**（2026-10-19，3F-2 KEY seed 后）。
 - 测试数不得减少；新增测试必须断言行为。
 - JDK 17/20/25 均可（`jvmTarget=11`）；daemon 由 `gradle/gradle-daemon-jvm.properties` 指定。
 
@@ -88,6 +88,7 @@
 - 唯一 NPC 状态容器：`GameRepository.npcRuntime: LinkedHashMap<String, NpcRecord>`；不新增平行 map。
 - 同名 NPC 唯一：id `npc_<name>`；旧 `npc_<name>_<day>` 保持可读。
 - 好感度只由模拟层写：AI 增量经 `NpcBehaviorEngine.applyAffinityDelta`（±20 夹取、阶段重算）。
+- KEY 层级只自动升：`GameRepository.promoteEligibleNpcs()` 按好感 `>= 80`/`<= -50` 或互动 `> 10` 把 `CONTACT` 升为 `KEY`；只升不降，`BACKGROUND` 不参与，无 DB 迁移。
 - 场景 3/6 效果函数是纯函数：收/返 `NpcRecord?`，不直接写外部状态。
 - 不引入 `!!`；不为编译通过改断言或删测试。
 
