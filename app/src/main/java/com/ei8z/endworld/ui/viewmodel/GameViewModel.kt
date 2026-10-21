@@ -118,6 +118,9 @@ class GameViewModel(
 
     private var accelerationJob: Job? = null
 
+    /** 重新开局进行中的任务：清库+轮换身份期间，重复点击必须忽略 */
+    private var restartJob: Job? = null
+
     /**
      * P1-6：死亡由 DB 里的玩家数值决定，重启后只要 HP≤0 就仍然锁定在死亡态，
      * 不依赖某次流式事件是否送达。
@@ -418,6 +421,33 @@ class GameViewModel(
                 if (_deathCause.value.isBlank()) _deathCause.value = cause
             }
             _error.value = "没有可用的死亡前存档"
+        }
+    }
+
+    /**
+     * C4：重新开局——清库并轮换身份，回到未开局态。
+     * 清库前必须先停掉在跑的流式/加速协程，否则它们会把旧局的状态写回来。
+     */
+    fun restartGame() {
+        if (restartJob?.isActive == true) return
+        streamJob?.cancel()
+        accelerationJob?.cancel()
+        restartJob = viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                repository.restartGame()
+                _isDead.value = false
+                _deathCause.value = ""
+                _deathNarrative.value = ""
+                _speedMode.value = SpeedMode.NORMAL
+                _suggestions.value = emptyList()
+                _currentStory.value = ""
+                _error.value = null
+            } catch (e: Exception) {
+                _error.value = "重新开始失败: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
         }
     }
 

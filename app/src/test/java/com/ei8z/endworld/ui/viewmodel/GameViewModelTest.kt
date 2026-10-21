@@ -8,13 +8,16 @@ import com.ei8z.endworld.data.model.SpeedMode
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.repository.GameRepository
 import com.ei8z.endworld.data.repository.GmStrategy
+import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
+import io.mockk.just
 import io.mockk.mockk
 import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
@@ -25,6 +28,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -173,4 +177,35 @@ class GameViewModelTest {
             // 收尾提前 return 也必须落到目标模式，否则输入/时钟永久卡在「加速中」
             assertEquals(SpeedMode.NORMAL, vm.speedMode.value)
         }
+
+    @Test
+    fun `restartGame clears death state and delegates to repository`() =
+        runTest(dispatcher.scheduler) {
+            // 先真的进入死亡态，否则「清死亡态」的断言永远成立，测不出回归
+            player.value = testPlayer().copy(hp = 0)
+            coEvery { repository.restartGame() } just Runs
+            val vm = createViewModel()
+            advanceUntilIdle()
+            assertTrue("前置：开局必须是死亡态", vm.isDead.value)
+
+            vm.restartGame()
+            advanceUntilIdle()
+
+            assertFalse(vm.isDead.value)
+            assertEquals("", vm.deathCause.value)
+            assertEquals("", vm.deathNarrative.value)
+            coVerify(exactly = 1) { repository.restartGame() }
+        }
+
+    @Test
+    fun `repeated restart taps only clear once`() = runTest(dispatcher.scheduler) {
+        coEvery { repository.restartGame() } coAnswers { delay(50) }
+        val vm = createViewModel()
+
+        vm.restartGame()
+        vm.restartGame()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.restartGame() }
+    }
 }
