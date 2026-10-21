@@ -118,6 +118,9 @@ class GameViewModel(
 
     private var accelerationJob: Job? = null
 
+    /** 离开加速的收尾协程：重开时要一起取消，否则它会把旧局的世界推进与行动写回新局 */
+    private var accelerationExitJob: Job? = null
+
     /** 重新开局进行中的任务：清库+轮换身份期间，重复点击必须忽略 */
     private var restartJob: Job? = null
 
@@ -182,7 +185,7 @@ class GameViewModel(
 
     private fun exitAcceleration(targetMode: SpeedMode = SpeedMode.NORMAL) {
         accelerationJob?.cancel()
-        viewModelScope.launch {
+        accelerationExitJob = viewModelScope.launch {
             try {
                 val player = repository.playerState.first() ?: return@launch
                 val world = repository.worldInfo.first() ?: return@launch
@@ -406,32 +409,15 @@ class GameViewModel(
         }
     }
 
-    /** V3.0 玩家死亡后选择继承——C4 前不可用，只提示，不动任何状态 */
-    fun inheritWorld() {
-        _error.value = "继承功能尚未开放（C4）"
-    }
-
-    /** V3.0 玩家死亡后选择读档——C4 前没有死亡前存档，重读 DB 后仍然死亡 */
-    fun reloadFromSave() {
-        viewModelScope.launch {
-            val player = repository.playerState.first()
-            val cause = player?.let { repository.checkPlayerDeath(it.hp, it.hunger, it.thirst) }
-            if (cause != null) {
-                _isDead.value = true
-                if (_deathCause.value.isBlank()) _deathCause.value = cause
-            }
-            _error.value = "没有可用的死亡前存档"
-        }
-    }
-
     /**
      * C4：重新开局——清库并轮换身份，回到未开局态。
-     * 清库前必须先停掉在跑的流式/加速协程，否则它们会把旧局的状态写回来。
+     * 清库前必须先停掉在跑的流式/加速/加速收尾协程，否则它们会把旧局的状态写回来。
      */
     fun restartGame() {
         if (restartJob?.isActive == true) return
         streamJob?.cancel()
         accelerationJob?.cancel()
+        accelerationExitJob?.cancel()
         restartJob = viewModelScope.launch {
             _isLoading.value = true
             try {

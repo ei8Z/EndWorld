@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -103,23 +104,6 @@ class GameViewModelTest {
     }
 
     @Test
-    fun `fake recovery is disabled after death`() = runTest(dispatcher.scheduler) {
-        player.value = testPlayer().copy(hp = 0)
-        val vm = createViewModel()
-        advanceUntilIdle()
-        assertTrue(vm.isDead.value)
-
-        vm.inheritWorld()
-        assertEquals("继承功能尚未开放（C4）", vm.error.value)
-        assertTrue("继承不能假装复活", vm.isDead.value)
-
-        vm.reloadFromSave()
-        advanceUntilIdle()
-        assertTrue("读档不能假装复活", vm.isDead.value)
-        assertEquals("没有可用的死亡前存档", vm.error.value)
-    }
-
-    @Test
     fun `leaving acceleration for deceleration runs the exit and lands on deceleration`() =
         runTest(dispatcher.scheduler) {
             coEvery { repository.exitAcceleration(any(), any()) } returns "加速了1小时。"
@@ -196,6 +180,29 @@ class GameViewModelTest {
             assertEquals("", vm.deathNarrative.value)
             coVerify(exactly = 1) { repository.restartGame() }
         }
+
+    @Test
+    fun `restart cancels the in flight acceleration exit`() = runTest(dispatcher.scheduler) {
+        coEvery { repository.exitAcceleration(any(), any()) } coAnswers {
+            delay(1_000)
+            "加速了1小时。"
+        }
+        coEvery { repository.restartGame() } just Runs
+        val vm = createViewModel()
+
+        vm.setSpeedMode(SpeedMode.ACCELERATION)
+        vm.setSpeedMode(SpeedMode.NORMAL)
+        // 收尾协程此刻挂在 repository.exitAcceleration 上，正好是「重开」发生的窗口
+        advanceTimeBy(100)
+
+        vm.restartGame()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.restartGame() }
+        assertEquals(SpeedMode.NORMAL, vm.speedMode.value)
+        // 收尾必须随重开一起取消：否则新局会收到旧局的「恢复正常速度」行动
+        verify(exactly = 0) { repository.sendActionStream("恢复正常速度", null) }
+    }
 
     @Test
     fun `repeated restart taps only clear once`() = runTest(dispatcher.scheduler) {

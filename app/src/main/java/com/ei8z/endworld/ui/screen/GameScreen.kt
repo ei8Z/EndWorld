@@ -269,9 +269,8 @@ fun GameScreen(viewModel: GameViewModel) {
         DeathOverlay(
             cause = deathCause,
             narrative = deathNarrative,
-            onInherit = { viewModel.inheritWorld() },
-            onReload = { viewModel.reloadFromSave() },
-            onObserve = { viewModel.reloadFromSave() }
+            error = error,
+            onRestart = { viewModel.restartGame() }
         )
     }
 
@@ -868,12 +867,12 @@ fun AccelerationPanel(statusText: String, onExitAcceleration: () -> Unit) {
     }
 }
 
-/** 死亡覆盖层。C4 前读档/继承不可用，三个按钮一律禁用；死亡即本局终点，重启后仍是死亡态。 */
+/** 死亡覆盖层：死亡即本局终点，重新开始会清库，必须二次确认。 */
 @Composable
 fun DeathOverlay(
-    cause: String, narrative: String,
-    onInherit: () -> Unit, onReload: () -> Unit, onObserve: () -> Unit
+    cause: String, narrative: String, error: String?, onRestart: () -> Unit
 ) {
+    var showConfirm by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier.fillMaxSize()
             .background(Color.Black.copy(alpha = 0.92f))
@@ -893,26 +892,38 @@ fun DeathOverlay(
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(narrative, style = MaterialTheme.typography.bodyMedium,
                     color = Color(0xFFD0D0D0), maxLines = 8, overflow = TextOverflow.Ellipsis)
+                // 重开失败必须让玩家看见，否则覆盖层会静默停在原地
+                if (error != null) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(error, style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFFFF5252))
+                }
                 Spacer(modifier = Modifier.height(24.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = onReload, enabled = false, modifier = Modifier.weight(1f)) {
-                        Text("读档")
-                    }
-                    OutlinedButton(onClick = onObserve, enabled = false, modifier = Modifier.weight(1f)) {
-                        Text("观察世界")
-                    }
+                Button(onClick = { showConfirm = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("重新开始")
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                Button(onClick = onInherit, enabled = false, modifier = Modifier.fillMaxWidth()) {
-                    Text("继承 —— 新角色踏入同一个世界")
-                }
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    "本局到此为止；读档与继承将在 C4 提供（当前需清除应用数据才能开始新的一局）",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF9E9E9E)
-                )
             }
         }
+    }
+
+    if (showConfirm) {
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            title = { Text("重新开始？") },
+            text = { Text("将清除本局所有进度（角色、世界、NPC、记忆、历史），不可恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirm = false
+                    onRestart()
+                }) {
+                    Text("重新开始")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
