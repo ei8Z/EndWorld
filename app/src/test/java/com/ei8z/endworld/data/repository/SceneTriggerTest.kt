@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.repository
 
+import com.ei8z.endworld.domain.npc.engine.BattleCasualtyEngine
 import com.ei8z.endworld.domain.npc.engine.Casualty
 import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
 import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine
@@ -10,9 +11,12 @@ import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.NeedState
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.NpcTier
+import com.ei8z.endworld.domain.world.engine.WorldRulesEngine.BattleResult
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
+import kotlin.random.Random
 
 class SceneTriggerTest {
 
@@ -59,10 +63,15 @@ class SceneTriggerTest {
         assertEquals(SceneType.NEEDS_MUTATION, trigger?.type)
         assertEquals("饮水", trigger?.detail?.get("mutation"))
     }
-    private fun npc(id: String, tier: NpcTier) = NpcState(
+    private fun npc(
+        id: String,
+        tier: NpcTier,
+        factionId: String? = null,
+        combatRole: CombatRole = CombatRole.NON_COMBATANT
+    ) = NpcState(
         npcId = id, name = "NPC$id", identity = "居民",
-        combatRole = CombatRole.NON_COMBATANT, currentLocationId = "R01",
-        factionId = null, personalityTags = emptyList(),
+        combatRole = combatRole, currentLocationId = "R01",
+        factionId = factionId, personalityTags = emptyList(),
         statusTags = mutableListOf(), tier = tier
     )
 
@@ -136,6 +145,28 @@ class SceneTriggerTest {
                 Casualty("c1", CasualtySeverity.WOUNDED, "battle", "F_A")
             )
         )
+    }
+
+    @Test
+    fun `rolled battle casualty on a key npc reaches scene 3 while contact is filtered`() {
+        // 伤亡率 1.0 × COMBATANT 1.0 = 必中，数据链只由阵营与层级决定
+        val battle = BattleResult(
+            attackerFactionId = "F_A", defenderFactionId = "F_B",
+            attackerStartingStrength = 100, defenderStartingStrength = 100,
+            attackerRemaining = 60, defenderRemaining = 40,
+            attackerCasualtyRate = 1.0f, defenderCasualtyRate = 1.0f
+        )
+        val keyNpc = npc("k1", NpcTier.KEY, factionId = "F_A", combatRole = CombatRole.COMBATANT)
+        val keyCasualties = BattleCasualtyEngine(Random(0)).roll(listOf(keyNpc), battle, "b1")
+
+        assertEquals(1, keyCasualties.size)
+        assertNotNull(SceneTriggerDetector.detectKeyNpcCasualty(keyNpc, keyCasualties.single()))
+
+        val contactNpc = npc("c1", NpcTier.CONTACT, factionId = "F_A", combatRole = CombatRole.COMBATANT)
+        val contactCasualties = BattleCasualtyEngine(Random(0)).roll(listOf(contactNpc), battle, "b2")
+
+        assertEquals(1, contactCasualties.size)
+        assertNull(SceneTriggerDetector.detectKeyNpcCasualty(contactNpc, contactCasualties.single()))
     }
 
     @Test

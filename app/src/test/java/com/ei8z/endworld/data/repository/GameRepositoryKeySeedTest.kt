@@ -14,6 +14,7 @@ import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -23,8 +24,8 @@ import org.robolectric.annotation.Config
 /**
  * 3F-2：接触 NPC 的好感/互动达到阈值后自动升为 KEY。
  *
- * 阈值边界成对覆盖（80/79、-50/-49、11/10），背景 NPC 永不提升；
- * 另有两个调用点的接线测试（好感落地、每日结算）。
+ * 阈值边界成对覆盖（80/79、-50/-49、11/10），背景 NPC 永不提升、KEY 不降级；
+ * 另有两个调用点的接线测试（好感落地、每日结算）与结算末落库断言。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [33])
@@ -129,6 +130,16 @@ class GameRepositoryKeySeedTest {
     }
 
     @Test
+    fun `key npc stays key`() = runTest {
+        val repo = createRepo()
+        seedNpc(repo, "A", affinity = 80, tier = NpcTier.KEY)
+
+        repo.promoteEligibleNpcs()
+
+        assertEquals(NpcTier.KEY, repo.tierOf("A"))
+    }
+
+    @Test
     fun `applyInteractionAffinity promotes once the threshold is crossed`() = runTest {
         val repo = createRepo()
         seedNpc(repo, "A", affinity = 70)
@@ -147,5 +158,18 @@ class GameRepositoryKeySeedTest {
         repo.executeDailySettlement()
 
         assertEquals(NpcTier.KEY, repo.tierOf("A"))
+    }
+
+    @Test
+    fun `daily settlement persists the promoted key tier`() = runTest {
+        val repo = createRepo()
+        repo.ensureV3WorldLoaded()
+        seedNpc(repo, "A", affinity = 80)
+        // 种子只进内存；落库发生在本轮结算末尾
+        assertNull(db.npcStateDao().getNpc("npc_A"))
+
+        repo.executeDailySettlement()
+
+        assertEquals("KEY", db.npcStateDao().getNpc("npc_A")?.tier)
     }
 }
