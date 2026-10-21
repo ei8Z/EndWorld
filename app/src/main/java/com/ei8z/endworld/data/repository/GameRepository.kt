@@ -1204,15 +1204,16 @@ class GameRepository(
     /**
      * 3F-1 重新开局：把本局 DB、内存状态与 MemOS 身份全部抹掉，回到首次进入前的状态。
      *
-     * 顺序有讲究：先清 V3（内存 + 五张表 + 账本），再清全库；最后丢状态机/适配器实例并
-     * 轮换 stable_user_id，下一次 [initializeNewGameV22] 才会按新身份从零建局。
+     * 顺序有讲究：先清 V3（内存 + 五张表 + 账本），再把非 DB 复位（状态机/身份/适配器/缓存）
+     * 全部做完，最后才清全库。`clearAllTables()` 在 DELETE 提交后还会做 checkpoint/VACUUM，
+     * 可能抛错；放在最后，失败时状态机与身份已经换新，不会出现"库清了、新局却还用旧状态机
+     * （seeded 直接 return）或旧 MemOS 身份"的半复位状态。
      * 调用前 VM 必须先取消流/加速协程，否则旧协程可能继续往刚清空的库里写。
      * 内部切 IO：`clearAllTables()` 在主线程会抛异常，而调用方（VM）就在 Main 上。
      */
     suspend fun restartGame() {
         kotlinx.coroutines.withContext(Dispatchers.IO) {
             resetV3World()
-            database.clearAllTables()
             stateMachineInstance = null
             context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE)
                 .edit().remove("stable_user_id").commit()
@@ -1223,6 +1224,7 @@ class GameRepository(
             localSummaryLog.clear()
             lastAccelerationSummary = ""
             isAccelerating = false
+            database.clearAllTables()
         }
     }
 
