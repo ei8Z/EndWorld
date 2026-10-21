@@ -1,0 +1,968 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 12,
+    "identityHash": "9677eb8ae4f33936544a0b6416022ed5",
+    "entities": [
+      {
+        "tableName": "player_state",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `userId` TEXT NOT NULL, `name` TEXT NOT NULL, `genderPhysique` TEXT NOT NULL, `personality` TEXT NOT NULL, `adultProfile` TEXT NOT NULL, `baseDescription` TEXT NOT NULL, `doomType` TEXT NOT NULL, `doomLevel` INTEGER NOT NULL, `hp` INTEGER NOT NULL, `hpMax` INTEGER NOT NULL, `sp` INTEGER NOT NULL, `spMax` INTEGER NOT NULL, `hunger` INTEGER NOT NULL, `thirst` INTEGER NOT NULL, `fatigue` INTEGER NOT NULL, `accumulatedPartialHours` REAL NOT NULL, `mentalStateTags` TEXT NOT NULL, `innerThought` TEXT NOT NULL, `equippedItems` TEXT NOT NULL, `skillTags` TEXT NOT NULL, `injuryStatesJson` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "userId",
+            "columnName": "userId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "genderPhysique",
+            "columnName": "genderPhysique",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "personality",
+            "columnName": "personality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "adultProfile",
+            "columnName": "adultProfile",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "baseDescription",
+            "columnName": "baseDescription",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "doomType",
+            "columnName": "doomType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "doomLevel",
+            "columnName": "doomLevel",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hp",
+            "columnName": "hp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hpMax",
+            "columnName": "hpMax",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sp",
+            "columnName": "sp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "spMax",
+            "columnName": "spMax",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "hunger",
+            "columnName": "hunger",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "thirst",
+            "columnName": "thirst",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fatigue",
+            "columnName": "fatigue",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accumulatedPartialHours",
+            "columnName": "accumulatedPartialHours",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "mentalStateTags",
+            "columnName": "mentalStateTags",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "innerThought",
+            "columnName": "innerThought",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "equippedItems",
+            "columnName": "equippedItems",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "skillTags",
+            "columnName": "skillTags",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "injuryStatesJson",
+            "columnName": "injuryStatesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "inventory",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `itemId` TEXT NOT NULL, `category` TEXT NOT NULL, `name` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `weight` REAL NOT NULL, `measureType` TEXT NOT NULL, `measureUnit` TEXT NOT NULL, `totalMeasure` REAL NOT NULL, `currentMeasure` REAL NOT NULL, `isStackable` INTEGER NOT NULL, `unitNutrition` REAL NOT NULL, `unitHydration` REAL NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "itemId",
+            "columnName": "itemId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "category",
+            "columnName": "category",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "quantity",
+            "columnName": "quantity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "weight",
+            "columnName": "weight",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "measureType",
+            "columnName": "measureType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "measureUnit",
+            "columnName": "measureUnit",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalMeasure",
+            "columnName": "totalMeasure",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentMeasure",
+            "columnName": "currentMeasure",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isStackable",
+            "columnName": "isStackable",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitNutrition",
+            "columnName": "unitNutrition",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitHydration",
+            "columnName": "unitHydration",
+            "affinity": "REAL",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "memories",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `timestamp` INTEGER NOT NULL, `location` TEXT NOT NULL, `event` TEXT NOT NULL, `result` TEXT NOT NULL, `isPermanent` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "location",
+            "columnName": "location",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "event",
+            "columnName": "event",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "result",
+            "columnName": "result",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPermanent",
+            "columnName": "isPermanent",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "npc_relations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`name` TEXT NOT NULL, `relation` TEXT NOT NULL, `affinity` INTEGER NOT NULL, `personalityTags` TEXT NOT NULL, `currentNeed` TEXT, `lastInteractionSummary` TEXT, `interactionCount` INTEGER NOT NULL, PRIMARY KEY(`name`))",
+        "fields": [
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relation",
+            "columnName": "relation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "affinity",
+            "columnName": "affinity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "personalityTags",
+            "columnName": "personalityTags",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentNeed",
+            "columnName": "currentNeed",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "lastInteractionSummary",
+            "columnName": "lastInteractionSummary",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "interactionCount",
+            "columnName": "interactionCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "name"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "world_info",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER NOT NULL, `currentDate` TEXT NOT NULL, `currentTime` TEXT NOT NULL, `locationScene` TEXT NOT NULL, `macroSituation` TEXT NOT NULL, `knownPointsJson` TEXT NOT NULL, `triggeredWorldEventIdsJson` TEXT NOT NULL, `totalGameMinutes` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentDate",
+            "columnName": "currentDate",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentTime",
+            "columnName": "currentTime",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "locationScene",
+            "columnName": "locationScene",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "macroSituation",
+            "columnName": "macroSituation",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "knownPointsJson",
+            "columnName": "knownPointsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "triggeredWorldEventIdsJson",
+            "columnName": "triggeredWorldEventIdsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "totalGameMinutes",
+            "columnName": "totalGameMinutes",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "story_history",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `action` TEXT NOT NULL, `reasoning` TEXT NOT NULL, `story` TEXT NOT NULL, `timestamp` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "action",
+            "columnName": "action",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "reasoning",
+            "columnName": "reasoning",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "story",
+            "columnName": "story",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "faction_entities",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`factionId` TEXT NOT NULL, `name` TEXT NOT NULL, `factionType` TEXT NOT NULL, `population` INTEGER NOT NULL, `militaryStrength` INTEGER NOT NULL, `armamentRate` REAL NOT NULL, `unitCombatCoefficient` REAL NOT NULL, `controlledRegionsJson` TEXT NOT NULL, `relationshipMatrixJson` TEXT NOT NULL, `leaderPersonality` TEXT NOT NULL, `factionGoal` TEXT NOT NULL, `stateTagsJson` TEXT NOT NULL, `foodReserve` REAL NOT NULL, `waterReserve` REAL NOT NULL, `medicalSupplies` REAL NOT NULL, `ammunitionReserve` REAL NOT NULL, `morale` INTEGER NOT NULL, PRIMARY KEY(`factionId`))",
+        "fields": [
+          {
+            "fieldPath": "factionId",
+            "columnName": "factionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "factionType",
+            "columnName": "factionType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "population",
+            "columnName": "population",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "militaryStrength",
+            "columnName": "militaryStrength",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "armamentRate",
+            "columnName": "armamentRate",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "unitCombatCoefficient",
+            "columnName": "unitCombatCoefficient",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "controlledRegionsJson",
+            "columnName": "controlledRegionsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relationshipMatrixJson",
+            "columnName": "relationshipMatrixJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "leaderPersonality",
+            "columnName": "leaderPersonality",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "factionGoal",
+            "columnName": "factionGoal",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stateTagsJson",
+            "columnName": "stateTagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "foodReserve",
+            "columnName": "foodReserve",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "waterReserve",
+            "columnName": "waterReserve",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "medicalSupplies",
+            "columnName": "medicalSupplies",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ammunitionReserve",
+            "columnName": "ammunitionReserve",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "morale",
+            "columnName": "morale",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "factionId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "region_entities",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`regionId` TEXT NOT NULL, `name` TEXT NOT NULL, `terrainType` TEXT NOT NULL, `resourceAbundance` INTEGER NOT NULL, `threatLevel` INTEGER NOT NULL, `controllingFactionId` TEXT, `adjacentRegionsJson` TEXT NOT NULL, `connectionStrengthJson` TEXT NOT NULL, `doomLevelCoefficient` REAL NOT NULL, `stateTagsJson` TEXT NOT NULL, PRIMARY KEY(`regionId`))",
+        "fields": [
+          {
+            "fieldPath": "regionId",
+            "columnName": "regionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "terrainType",
+            "columnName": "terrainType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "resourceAbundance",
+            "columnName": "resourceAbundance",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "threatLevel",
+            "columnName": "threatLevel",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "controllingFactionId",
+            "columnName": "controllingFactionId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "adjacentRegionsJson",
+            "columnName": "adjacentRegionsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "connectionStrengthJson",
+            "columnName": "connectionStrengthJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "doomLevelCoefficient",
+            "columnName": "doomLevelCoefficient",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stateTagsJson",
+            "columnName": "stateTagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "regionId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "global_event_entities",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`eventId` TEXT NOT NULL, `eventType` TEXT NOT NULL, `affectedRegionsJson` TEXT NOT NULL, `propagationRate` REAL NOT NULL, `remainingDays` INTEGER NOT NULL, `intensity` INTEGER NOT NULL, `sourceRegionId` TEXT NOT NULL, `associatedFactionId` TEXT, PRIMARY KEY(`eventId`))",
+        "fields": [
+          {
+            "fieldPath": "eventId",
+            "columnName": "eventId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "eventType",
+            "columnName": "eventType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "affectedRegionsJson",
+            "columnName": "affectedRegionsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "propagationRate",
+            "columnName": "propagationRate",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remainingDays",
+            "columnName": "remainingDays",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "intensity",
+            "columnName": "intensity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sourceRegionId",
+            "columnName": "sourceRegionId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "associatedFactionId",
+            "columnName": "associatedFactionId",
+            "affinity": "TEXT",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "eventId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "npc_state_entities",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`npcId` TEXT NOT NULL, `name` TEXT NOT NULL, `identity` TEXT NOT NULL, `combatRole` TEXT NOT NULL, `currentLocationId` TEXT NOT NULL, `factionId` TEXT, `personalityTagsJson` TEXT NOT NULL, `statusTagsJson` TEXT NOT NULL, `tier` TEXT NOT NULL, `affinity` INTEGER NOT NULL, `relationshipStage` TEXT NOT NULL, `emotionalTagsJson` TEXT NOT NULL, `interactionCount` INTEGER NOT NULL, `lastInteractionGameDay` INTEGER NOT NULL, `foodUrgency` INTEGER NOT NULL, `waterUrgency` INTEGER NOT NULL, `medicalUrgency` INTEGER NOT NULL, `safetyUrgency` INTEGER NOT NULL, `socialUrgency` INTEGER NOT NULL, `detailedMemoriesJson` TEXT NOT NULL, `remoteSummary` TEXT NOT NULL, `departureStatus` TEXT NOT NULL, `departureReason` TEXT NOT NULL, `expectedReturnDay` INTEGER, PRIMARY KEY(`npcId`))",
+        "fields": [
+          {
+            "fieldPath": "npcId",
+            "columnName": "npcId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "identity",
+            "columnName": "identity",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "combatRole",
+            "columnName": "combatRole",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "currentLocationId",
+            "columnName": "currentLocationId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "factionId",
+            "columnName": "factionId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "personalityTagsJson",
+            "columnName": "personalityTagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "statusTagsJson",
+            "columnName": "statusTagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "tier",
+            "columnName": "tier",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "affinity",
+            "columnName": "affinity",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "relationshipStage",
+            "columnName": "relationshipStage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emotionalTagsJson",
+            "columnName": "emotionalTagsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "interactionCount",
+            "columnName": "interactionCount",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastInteractionGameDay",
+            "columnName": "lastInteractionGameDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "foodUrgency",
+            "columnName": "foodUrgency",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "waterUrgency",
+            "columnName": "waterUrgency",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "medicalUrgency",
+            "columnName": "medicalUrgency",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "safetyUrgency",
+            "columnName": "safetyUrgency",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "socialUrgency",
+            "columnName": "socialUrgency",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "detailedMemoriesJson",
+            "columnName": "detailedMemoriesJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "remoteSummary",
+            "columnName": "remoteSummary",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "departureStatus",
+            "columnName": "departureStatus",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "departureReason",
+            "columnName": "departureReason",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "expectedReturnDay",
+            "columnName": "expectedReturnDay",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "npcId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "npc_schedules",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`npcId` TEXT NOT NULL, `timeSlotsJson` TEXT NOT NULL, `overriddenBy` TEXT, `overrideUntilDay` INTEGER, PRIMARY KEY(`npcId`))",
+        "fields": [
+          {
+            "fieldPath": "npcId",
+            "columnName": "npcId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timeSlotsJson",
+            "columnName": "timeSlotsJson",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "overriddenBy",
+            "columnName": "overriddenBy",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "overrideUntilDay",
+            "columnName": "overrideUntilDay",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "npcId"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "npc_pair_relations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`pairKey` TEXT NOT NULL, `npcAId` TEXT NOT NULL, `npcBId` TEXT NOT NULL, `affinityAtoB` INTEGER NOT NULL, `affinityBtoA` INTEGER NOT NULL, `lastInteractionDay` INTEGER NOT NULL, `lastType` TEXT NOT NULL, PRIMARY KEY(`pairKey`))",
+        "fields": [
+          {
+            "fieldPath": "pairKey",
+            "columnName": "pairKey",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "npcAId",
+            "columnName": "npcAId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "npcBId",
+            "columnName": "npcBId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "affinityAtoB",
+            "columnName": "affinityAtoB",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "affinityBtoA",
+            "columnName": "affinityBtoA",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastInteractionDay",
+            "columnName": "lastInteractionDay",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastType",
+            "columnName": "lastType",
+            "affinity": "TEXT",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "pairKey"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9677eb8ae4f33936544a0b6416022ed5')"
+    ]
+  }
+}

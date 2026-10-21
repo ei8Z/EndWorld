@@ -22,7 +22,8 @@ import com.ei8z.endworld.domain.world.dao.*
         RegionEntity::class,
         GlobalEventEntity::class,
         NpcStateEntity::class,
-        NpcScheduleEntity::class
+        NpcScheduleEntity::class,
+        NpcPairRelationEntity::class
     ],
     version = DatabasePolicy.VERSION,
     exportSchema = true
@@ -41,6 +42,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun globalEventDao(): GlobalEventDao
     abstract fun npcStateDao(): NpcStateDao
     abstract fun npcScheduleDao(): NpcScheduleDao
+    abstract fun npcPairRelationDao(): NpcPairRelationDao
 
     companion object {
         @Volatile
@@ -52,7 +54,10 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "end_world_database"
-                ).addMigrations(DatabasePolicy.migration10To11())
+                ).addMigrations(
+                    DatabasePolicy.migration10To11(),
+                    DatabasePolicy.migration11To12()
+                )
                 if (DatabasePolicy.destructiveFallbackEnabled(BuildConfig.DEBUG)) {
                     builder.fallbackToDestructiveMigration()
                 }

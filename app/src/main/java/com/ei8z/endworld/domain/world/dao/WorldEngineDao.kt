@@ -86,6 +86,22 @@ interface NpcStateDao {
     suspend fun clearAll()
 }
 
+/**
+ * NPC 两两关系（3F-3）。pairKey 由两个 npcId 归一化拼成，A/B 顺序固定，
+ * 好感分方向存在 affinityAtoB / affinityBtoA。
+ */
+@Dao
+interface NpcPairRelationDao {
+    @Query("SELECT * FROM npc_pair_relations")
+    suspend fun getAll(): List<NpcPairRelationEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(rows: List<NpcPairRelationEntity>)
+
+    @Query("DELETE FROM npc_pair_relations")
+    suspend fun clearAll()
+}
+
 // === Room Entities (持久化数据) ===
 
 @Entity(tableName = "faction_entities")
@@ -161,4 +177,15 @@ data class NpcStateEntity(
     val departureStatus: String,
     val departureReason: String,
     val expectedReturnDay: Int?
+)
+
+@Entity(tableName = "npc_pair_relations")
+data class NpcPairRelationEntity(
+    @PrimaryKey val pairKey: String,
+    val npcAId: String,
+    val npcBId: String,
+    val affinityAtoB: Int,
+    val affinityBtoA: Int,
+    val lastInteractionDay: Int,
+    val lastType: String
 )

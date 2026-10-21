@@ -10,11 +10,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
  * 没有 Migration 历史。发布版绝不允许静默清档——release 遇到版本不匹配必须抛错，
  * 由开发者补 Migration；debug 保留破坏性回退，避免开发期反复卸载。
  *
- * v11（第三批B-2）新增 npc_schedules 表承载场景7 的 NPC 时间表。迁移 SQL 必须与
- * Room 由实体生成的建表语句逐字一致，由 DatabasePolicyTest 用导出的 schema JSON 校验。
+ * v11（第三批B-2）新增 npc_schedules 表承载场景7 的 NPC 时间表。v12（3F-3）新增
+ * npc_pair_relations 表承载 NPC 两两关系。迁移 SQL 必须与 Room 由实体生成的建表语句
+ * 逐字一致，由 DatabasePolicyTest 用导出的 schema JSON 校验。
  */
 object DatabasePolicy {
-    const val VERSION = 11
+    const val VERSION = 12
 
     fun destructiveFallbackEnabled(debug: Boolean): Boolean = debug
 
@@ -24,6 +25,18 @@ object DatabasePolicy {
                 "CREATE TABLE IF NOT EXISTS `npc_schedules` (" +
                     "`npcId` TEXT NOT NULL, `timeSlotsJson` TEXT NOT NULL, " +
                     "`overriddenBy` TEXT, `overrideUntilDay` INTEGER, PRIMARY KEY(`npcId`))"
+            )
+        }
+    }
+
+    fun migration11To12(): Migration = object : Migration(11, 12) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                "CREATE TABLE IF NOT EXISTS `npc_pair_relations` (`pairKey` TEXT NOT NULL, " +
+                    "`npcAId` TEXT NOT NULL, `npcBId` TEXT NOT NULL, " +
+                    "`affinityAtoB` INTEGER NOT NULL, `affinityBtoA` INTEGER NOT NULL, " +
+                    "`lastInteractionDay` INTEGER NOT NULL, `lastType` TEXT NOT NULL, " +
+                    "PRIMARY KEY(`pairKey`))"
             )
         }
     }

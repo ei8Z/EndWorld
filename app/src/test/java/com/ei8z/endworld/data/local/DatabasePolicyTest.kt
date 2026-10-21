@@ -1,5 +1,6 @@
 package com.ei8z.endworld.data.local
 
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
@@ -25,27 +26,48 @@ class DatabasePolicyTest {
      * 期望值取自 KSP 导出的 schema JSON（Room 校验时用的同一份真值），不是重抄迁移代码。
      */
     @Test
-    fun `database is version 11 and migration 10 to 11 creates exactly the npc_schedules table Room expects`() {
-        assertEquals(11, DatabasePolicy.VERSION)
+    fun `database is version 12 and migration 11 to 12 creates npc_pair_relations`() {
+        assertEquals(12, DatabasePolicy.VERSION)
 
-        val database = schemaJson(version = 11).getAsJsonObject("database")
-        assertEquals(11, database.get("version").asInt)
-        val expectedSql = database.getAsJsonArray("entities")
-            .map { it.asJsonObject }
-            .first { it.get("tableName").asString == "npc_schedules" }
-            .get("createSql").asString
-            .replace("\${TABLE_NAME}", "npc_schedules")
+        val migration = DatabasePolicy.migration11To12()
+        assertEquals(11, migration.startVersion)
+        assertEquals(12, migration.endVersion)
 
+        assertEquals(
+            listOf(expectedCreateSql(version = 12, table = "npc_pair_relations")),
+            executedSql(migration)
+        )
+    }
+
+    @Test
+    fun `migration 10 to 11 still creates exactly the npc_schedules table Room expects`() {
         val migration = DatabasePolicy.migration10To11()
         assertEquals(10, migration.startVersion)
         assertEquals(11, migration.endVersion)
 
+        assertEquals(
+            listOf(expectedCreateSql(version = 11, table = "npc_schedules")),
+            executedSql(migration)
+        )
+    }
+
+    private fun expectedCreateSql(version: Int, table: String): String {
+        val database = schemaJson(version).getAsJsonObject("database")
+        assertEquals(version, database.get("version").asInt)
+        return database.getAsJsonArray("entities")
+            .map { it.asJsonObject }
+            .first { it.get("tableName").asString == table }
+            .get("createSql").asString
+            .replace("\${TABLE_NAME}", table)
+            .trim()
+    }
+
+    private fun executedSql(migration: Migration): List<String> {
         val executed = mutableListOf<String>()
         val db = mockk<SupportSQLiteDatabase>(relaxed = true)
         every { db.execSQL(any<String>()) } answers { executed += firstArg<String>() }
         migration.migrate(db)
-
-        assertEquals(listOf(expectedSql.trim()), executed.map { it.trim() })
+        return executed.map { it.trim() }
     }
 
     private fun schemaJson(version: Int): JsonObject {
