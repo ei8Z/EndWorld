@@ -113,11 +113,19 @@ class GameRepository(
 
     // ======================== V2.1 双Agent组件 ========================
 
-    /** 生存状态机（客户端唯一数据权威）。PlotManager 从 assets 加载章节。 */
-    val stateMachine: SurvivalStateMachine by lazy {
+    /** 生存状态机（客户端唯一数据权威）。PlotManager 从 assets 加载章节。重启后换成新实例。 */
+    @Volatile
+    private var stateMachineInstance: SurvivalStateMachine? = null
+
+    val stateMachine: SurvivalStateMachine
+        get() = stateMachineInstance ?: synchronized(this) {
+            stateMachineInstance ?: createStateMachine().also { stateMachineInstance = it }
+        }
+
+    private fun createStateMachine(): SurvivalStateMachine {
         val gameConfig = GameConfigLoader.load(context)
         val templates = gameConfig.items.associateBy { it.name }
-        SurvivalStateMachine(
+        return SurvivalStateMachine(
             plotManager = PlotManager(ChapterDataLoader.loadChapters(context)),
             itemTemplates = templates
         )
@@ -303,13 +311,20 @@ class GameRepository(
         return uid
     }
 
-    val userId: String by lazy { getOrCreateStableUserId() }
-    private val conversationId: String by lazy { "conv_$userId" }
+    /** 动态读 Prefs：重新开局会轮换 stable_user_id，下一次访问拿到新身份。 */
+    val userId: String get() = getOrCreateStableUserId()
+    private val conversationId: String get() = "conv_$userId"
 
-    /** MemOS 记忆适配器（userId/conversationId 延迟初始化） */
-    private val memosAdapter: MemOSAdapter by lazy {
-        MemOSAdapter(memosApiService, memosAuthHeader, userId, conversationId)
-    }
+    /** MemOS 记忆适配器（userId/conversationId 延迟初始化，重启后按新身份重建） */
+    @Volatile
+    private var memosAdapterInstance: MemOSAdapter? = null
+
+    private val memosAdapter: MemOSAdapter
+        get() = memosAdapterInstance ?: synchronized(this) {
+            memosAdapterInstance ?: MemOSAdapter(
+                memosApiService, memosAuthHeader, userId, conversationId
+            ).also { memosAdapterInstance = it }
+        }
 
     // ---- Flow 属性 ----
 
@@ -1184,6 +1199,29 @@ class GameRepository(
         memoryDao.insertMemory(Memory(location = "系统", event = "降临世界", result = "初始"))
         historyDao.clearHistory()
         resetV3World()
+    }
+
+    /**
+     * 3F-1 重新开局：把本局 DB、内存状态与 MemOS 身份全部抹掉，回到首次进入前的状态。
+     *
+     * 顺序有讲究：先清 V3（内存 + 五张表 + 账本），再清全库；最后丢状态机/适配器实例并
+     * 轮换 stable_user_id，下一次 [initializeNewGameV22] 才会按新身份从零建局。
+     * 调用前 VM 必须先取消流/加速协程，否则旧协程可能继续往刚清空的库里写。
+     * 内部切 IO：`clearAllTables()` 在主线程会抛异常，而调用方（VM）就在 Main 上。
+     */
+    suspend fun restartGame() = kotlinx.coroutines.withContext(Dispatchers.IO) {
+        resetV3World()
+        database.clearAllTables()
+        stateMachineInstance = null
+        memosAdapterInstance = null
+        synchronized(lastPlayerNpcInteractions) { lastPlayerNpcInteractions.clear() }
+        synchronized(pendingSceneNotes) { pendingSceneNotes.clear() }
+        expectedChanges = null
+        localSummaryLog.clear()
+        lastAccelerationSummary = ""
+        isAccelerating = false
+        context.getSharedPreferences("endworld_cache", Context.MODE_PRIVATE)
+            .edit().remove("stable_user_id").commit()
     }
 
     // ======================== 调试 ========================
