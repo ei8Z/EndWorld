@@ -2,11 +2,13 @@ package com.ei8z.endworld.data.repository
 
 import androidx.room.withTransaction
 import com.ei8z.endworld.data.local.AppDatabase
+import com.ei8z.endworld.domain.npc.model.NpcPairRelation
 import com.ei8z.endworld.domain.npc.model.NpcRecord
 import com.ei8z.endworld.domain.npc.model.Schedule
 import com.ei8z.endworld.domain.npc.model.newNpcRecord
 import com.ei8z.endworld.domain.world.dao.FactionEntity
 import com.ei8z.endworld.domain.world.dao.GlobalEventEntity
+import com.ei8z.endworld.domain.world.dao.NpcPairRelationEntity
 import com.ei8z.endworld.domain.world.dao.NpcStateEntity
 import com.ei8z.endworld.domain.world.dao.RegionEntity
 import com.ei8z.endworld.domain.world.model.Faction
@@ -20,15 +22,16 @@ data class V3WorldSnapshot(
     val factions: List<Faction> = emptyList(),
     val regions: Map<String, Region> = emptyMap(),
     val events: List<GlobalEvent> = emptyList(),
-    val npcs: Map<String, NpcRecord> = emptyMap()
+    val npcs: Map<String, NpcRecord> = emptyMap(),
+    val pairRelations: Map<String, NpcPairRelation> = emptyMap()
 )
 
 /**
- * V3 五张表的读写边界。
+ * V3 六张表的读写边界。
  *
- * - [load]：五表回读为域模型快照。
- * - [save]：在一个 Room 事务里写入五表（事件与时间表先清后写，势力/区域/NPC upsert）；异常穿透，由事务回滚。
- * - [clear]：同样在一个事务里清空五表。
+ * - [load]：六表回读为域模型快照。
+ * - [save]：在一个 Room 事务里写入六表（事件/时间表/对关系先清后写，势力/区域/NPC upsert）；异常穿透，由事务回滚。
+ * - [clear]：同样在一个事务里清空六表。
  *
  * 事务所有权只在这里，调用方（GameRepository）不得再套 `withTransaction`。
  */
@@ -41,6 +44,7 @@ class V3WorldStateStore(private val db: AppDatabase) {
     private val eventDao by lazy { db.globalEventDao() }
     private val npcStateDao by lazy { db.npcStateDao() }
     private val npcScheduleDao by lazy { db.npcScheduleDao() }
+    private val npcPairRelationDao by lazy { db.npcPairRelationDao() }
 
     suspend fun load(): V3WorldSnapshot {
         val storedFactions = factionDao.getAllFactions().first()
@@ -48,6 +52,7 @@ class V3WorldStateStore(private val db: AppDatabase) {
         val storedEvents = eventDao.getAllEvents().first()
         val storedNpcs = npcStateDao.getAllNpcs().first()
         val storedSchedules = npcScheduleDao.getAll().first()
+        val storedPairs = npcPairRelationDao.getAll()
         val schedulesByNpc = storedSchedules.associate { it.npcId to V3StateMapper.schedule(it) }
 
         return V3WorldSnapshot(
@@ -64,11 +69,18 @@ class V3WorldStateStore(private val db: AppDatabase) {
                     // 旧存档没有时间表行：留空表，由 GameRepository 按当前位置回填
                     schedule = schedulesByNpc[entity.npcId] ?: Schedule(timeSlots = mutableMapOf())
                 )
+            },
+            pairRelations = storedPairs.associate { row ->
+                row.pairKey to NpcPairRelation(
+                    pairKey = row.pairKey, npcAId = row.npcAId, npcBId = row.npcBId,
+                    affinityAtoB = row.affinityAtoB, affinityBtoA = row.affinityBtoA,
+                    lastInteractionDay = row.lastInteractionDay, lastType = row.lastType
+                )
             }
         )
     }
 
-    /** 整体替换五表；异常必须抛出，Room 事务才能回滚。 */
+    /** 整体替换六表；异常必须抛出，Room 事务才能回滚。 */
     suspend fun save(snapshot: V3WorldSnapshot) {
         db.withTransaction {
             factionDao.clearAll()
@@ -135,6 +147,15 @@ class V3WorldStateStore(private val db: AppDatabase) {
                 )
                 npcScheduleDao.upsert(V3StateMapper.scheduleEntity(npc.npcId, record.schedule))
             }
+            npcPairRelationDao.clearAll()
+            npcPairRelationDao.upsertAll(
+                snapshot.pairRelations.values.map { p ->
+                    NpcPairRelationEntity(
+                        p.pairKey, p.npcAId, p.npcBId,
+                        p.affinityAtoB, p.affinityBtoA, p.lastInteractionDay, p.lastType
+                    )
+                }
+            )
         }
     }
 
@@ -145,6 +166,7 @@ class V3WorldStateStore(private val db: AppDatabase) {
             eventDao.clearAll()
             npcStateDao.clearAll()
             npcScheduleDao.clearAll()
+            npcPairRelationDao.clearAll()
         }
     }
 }

@@ -40,10 +40,12 @@ import com.ei8z.endworld.domain.npc.model.AffinityState
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
 import com.ei8z.endworld.domain.npc.model.MemoryQueue
+import com.ei8z.endworld.domain.npc.model.NpcPairRelation
 import com.ei8z.endworld.domain.npc.model.NpcRecord
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.NpcTier
 import com.ei8z.endworld.domain.npc.model.RelationshipStage
+import com.ei8z.endworld.domain.npc.model.applyPairRelation
 import com.ei8z.endworld.domain.npc.model.newNpcRecord
 import com.ei8z.endworld.domain.npc.model.toDisplayName
 import com.ei8z.endworld.domain.npc.model.toRelationshipStage
@@ -1152,7 +1154,8 @@ class GameRepository(
         factions = factions.toList(),
         regions = regions.toMap(),
         events = activeEvents.toList(),
-        npcs = npcRuntime.toMap()
+        npcs = npcRuntime.toMap(),
+        pairRelations = pairRelations.toMap()
     )
 
     /** 清表 + 清内存 + 复位初始化标记；下一次 ensure 会重建默认世界。 */
@@ -1162,6 +1165,7 @@ class GameRepository(
         regions.clear()
         activeEvents.clear()
         npcRuntime.clear()
+        pairRelations.clear()
         fallbackSpareDay.clear()
         sceneFallbackGuard.reset()
         memosExtractor.clearPauseState()
@@ -1331,6 +1335,18 @@ class GameRepository(
     val activeEvents = mutableListOf<com.ei8z.endworld.domain.world.model.GlobalEvent>()
     /** 六部分聚合为一条记录；插入序与旧 map 一致，快照与持久化顺序不变。 */
     internal val npcRuntime = linkedMapOf<String, NpcRecord>()
+    /** NPC 对关系的唯一容器，键为规范化后的 pairKey（min|max）。 */
+    internal val pairRelations = linkedMapOf<String, NpcPairRelation>()
+
+    /** 每日互动落地的唯一入口：累加双向好感、夹取并写回 [pairRelations]。 */
+    internal fun applyPairRelation(
+        aId: String,
+        bId: String,
+        deltaAtoB: Int,
+        deltaBtoA: Int,
+        type: String,
+        day: Int
+    ): NpcPairRelation = pairRelations.applyPairRelation(aId, bId, deltaAtoB, deltaBtoA, type, day)
 
     /** 单条记录的唯一回写入点：记录不存在就不新建，变换作用在当下值而不是局部快照。 */
     private inline fun updateRecord(id: String, transform: (NpcRecord) -> NpcRecord) {
@@ -1407,6 +1423,8 @@ class GameRepository(
                 }
             }
         }
+        pairRelations.clear()
+        pairRelations.putAll(snapshot.pairRelations)
         v3Loaded = true
     }
 

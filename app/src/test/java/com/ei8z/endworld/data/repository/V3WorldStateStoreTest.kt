@@ -6,11 +6,13 @@ import androidx.test.core.app.ApplicationProvider
 import com.ei8z.endworld.data.local.AppDatabase
 import com.ei8z.endworld.data.local.entity.NpcScheduleEntity
 import com.ei8z.endworld.domain.npc.model.CombatRole
+import com.ei8z.endworld.domain.npc.model.NpcPairRelation
 import com.ei8z.endworld.domain.npc.model.NpcState
 import com.ei8z.endworld.domain.npc.model.NpcTier
 import com.ei8z.endworld.domain.npc.model.Schedule
 import com.ei8z.endworld.domain.npc.model.TimeSlot
 import com.ei8z.endworld.domain.world.dao.GlobalEventEntity
+import com.ei8z.endworld.domain.world.dao.NpcPairRelationEntity
 import com.ei8z.endworld.domain.world.dao.NpcStateEntity
 import com.ei8z.endworld.domain.world.model.ConnectionStrength
 import com.ei8z.endworld.domain.world.model.Faction
@@ -96,7 +98,40 @@ class V3WorldStateStoreTest {
     }
 
     @Test
-    fun `clear empties all five v3 tables`() = runTest {
+    fun `save then load keeps both direction values of a pair relation`() = runTest {
+        // 旧行先落库：save 必须整体替换，而不是把快照追加到旧行后面
+        db.npcPairRelationDao().upsertAll(
+            listOf(
+                NpcPairRelationEntity("npc_A|npc_B", "npc_A", "npc_B", 1, 2, 1, "STALE"),
+                NpcPairRelationEntity("npc_C|npc_D", "npc_C", "npc_D", 9, 9, 2, "STALE")
+            )
+        )
+
+        store.save(
+            snapshot(
+                pairRelations = mapOf(
+                    "npc_A|npc_B" to NpcPairRelation(
+                        pairKey = "npc_A|npc_B", npcAId = "npc_A", npcBId = "npc_B",
+                        affinityAtoB = 42, affinityBtoA = -17,
+                        lastInteractionDay = 6, lastType = "ARGUMENT"
+                    )
+                )
+            )
+        )
+
+        val loaded = store.load().pairRelations
+        assertEquals(setOf("npc_A|npc_B"), loaded.keys)
+        val row = loaded.getValue("npc_A|npc_B")
+        assertEquals("npc_A", row.npcAId)
+        assertEquals("npc_B", row.npcBId)
+        assertEquals(42, row.affinityAtoB)
+        assertEquals(-17, row.affinityBtoA)
+        assertEquals(6, row.lastInteractionDay)
+        assertEquals("ARGUMENT", row.lastType)
+    }
+
+    @Test
+    fun `clear empties every v3 table`() = runTest {
         store.save(snapshot())
 
         store.clear()
@@ -106,9 +141,13 @@ class V3WorldStateStoreTest {
         assertTrue(db.globalEventDao().getAllEvents().first().isEmpty())
         assertTrue(db.npcStateDao().getAllNpcs().first().isEmpty())
         assertTrue(db.npcScheduleDao().getAll().first().isEmpty())
+        assertTrue(db.npcPairRelationDao().getAll().isEmpty())
     }
 
-    private fun snapshot(eventId: String = "E01") = V3WorldSnapshot(
+    private fun snapshot(
+        eventId: String = "E01",
+        pairRelations: Map<String, NpcPairRelation> = emptyMap()
+    ) = V3WorldSnapshot(
         factions = listOf(
             Faction(
                 factionId = "F01", name = "红松营地", factionType = FactionType.SURVIVOR_SETTLEMENT,
@@ -138,7 +177,8 @@ class V3WorldStateStoreTest {
                 ),
                 schedule = Schedule(mapOf(TimeSlot.MORNING to "R02"))
             )
-        )
+        ),
+        pairRelations = pairRelations
     )
 
     private fun event(id: String) = GlobalEvent(

@@ -97,6 +97,26 @@ class V3StateRoundTripTest {
     }
 
     @Test
+    fun `pair relations survive persist and reload through a fresh repository`() = runTest {
+        val first = newRepo()
+        first.ensureV3WorldLoaded() // 空库 → 默认世界
+        // 反向入参：-15 落在规范化的 A→B，-10 才是 B→A
+        first.applyPairRelation("npc_B", "npc_A", -10, -15, "ARGUMENT", 3)
+        assertEquals(1, first.pairRelations.size)
+        first.persistV3State()
+
+        // 模拟重启：新 Repository 读同一个 DB，ensureV3WorldLoaded 填充容器
+        val second = newRepo()
+        second.ensureV3WorldLoaded()
+
+        val row = second.pairRelations.getValue("npc_A|npc_B")
+        assertEquals(-15, row.affinityAtoB)
+        assertEquals(-10, row.affinityBtoA)
+        assertEquals(3, row.lastInteractionDay)
+        assertEquals("ARGUMENT", row.lastType)
+    }
+
+    @Test
     fun `v3 state survives write then reload`() = runTest {
         val first = newRepo()
         first.ensureV3WorldLoaded() // 空库 → 默认世界
