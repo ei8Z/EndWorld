@@ -238,6 +238,8 @@ class GameViewModel(
 
                 _suggestions.value = emptyList()
                 repository.saveSuggestions(emptyList())
+                // 新局不能带着继承来的前代纪事
+                _legacySummary.value = ""
                 sendAction(initialAction, initialActionParsed)
             } catch (e: Exception) {
                 _error.value = "初始化失败: ${e.message}"
@@ -435,6 +437,7 @@ class GameViewModel(
                 _speedMode.value = SpeedMode.NORMAL
                 _suggestions.value = emptyList()
                 _currentStory.value = ""
+                _legacySummary.value = ""
                 _error.value = null
             } catch (e: Exception) {
                 _error.value = "重新开始失败: ${e.message}"
@@ -473,7 +476,10 @@ class GameViewModel(
                 sendAction(action, parsed)
             } catch (e: Exception) {
                 _error.value = "继承失败: ${e.message}"
-            } finally {
+                // 加速任务已被取消，失败也要落回 NORMAL：否则 UI 停在加速面板且行动被守卫拒绝
+                _speedMode.value = SpeedMode.NORMAL
+                _accelerationStatusText.value = ""
+                // 成功路径的 loading 由开局流的 onCompletion 收起，这里只处理失败
                 _isLoading.value = false
             }
         }

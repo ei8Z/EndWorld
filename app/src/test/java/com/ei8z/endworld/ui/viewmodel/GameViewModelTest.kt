@@ -20,10 +20,14 @@ import io.mockk.verify
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -333,6 +337,76 @@ class GameViewModelTest {
             assertEquals(SpeedMode.NORMAL, vm.speedMode.value)
             verify(exactly = 1) { repository.sendActionStream("查看四周", parsed) }
             assertNull(vm.error.value)
+        }
+
+    @Test
+    fun `inheritWorld keeps loading on until the opening stream completes`() =
+        runTest(dispatcher.scheduler) {
+            coEvery { repository.inheritWorldV22() } returns legacySummaryText
+            coEvery { repository.generateOpeningAction(any()) } returns
+                Pair("查看四周", mockk(relaxed = true))
+            every { repository.sendActionStream(any(), any()) } returns flow { delay(10_000) }
+            val vm = createViewModel()
+
+            // 只看结束态不够：sendAction 的协程会再次把 loading 置 true，掩盖中间的回落。
+            // loading 在开局流结束前回落，正是用户能提前行动并取消开局流的窗口。
+            val seen = mutableListOf<Boolean>()
+            val recording = launch(UnconfinedTestDispatcher(dispatcher.scheduler)) {
+                vm.isLoading.collect { seen += it }
+            }
+
+            vm.inheritWorld()
+            advanceTimeBy(100)
+
+            assertTrue("开局流式期间必须保持 loading", vm.isLoading.value)
+            val afterLoaded = seen.dropWhile { !it }
+            assertTrue("前置：继承成功必须把 loading 置 true", afterLoaded.isNotEmpty())
+            assertFalse("loading 不得在开局流结束前回落：$seen", afterLoaded.any { !it })
+
+            advanceTimeBy(10_000)
+            assertFalse("开场流结束后必须收起 loading", vm.isLoading.value)
+            recording.cancel()
+        }
+
+    @Test
+    fun `inherit failure leaves acceleration mode and clears the acceleration status`() =
+        runTest(dispatcher.scheduler) {
+            every { repository.generateAccelStatusText() } returns "时间流逝中..."
+            val vm = createViewModel()
+            vm.setSpeedMode(SpeedMode.ACCELERATION)
+            // 跑出第一次加速 tick：面板文案非空，后面「清空」的断言才不是恒真
+            advanceTimeBy(3_001)
+            assertEquals("时间流逝中...", vm.accelerationStatusText.value)
+
+            coEvery { repository.inheritWorldV22() } throws IllegalStateException("没有可继承的玩家")
+
+            vm.inheritWorld()
+            advanceUntilIdle()
+
+            assertEquals(
+                "继承失败也必须离开加速模式，否则行动会被加速守卫拒绝",
+                SpeedMode.NORMAL, vm.speedMode.value
+            )
+            assertEquals("继承失败后加速面板文案必须清空", "", vm.accelerationStatusText.value)
+        }
+
+    @Test
+    fun `restarting after an inheritance clears the legacy summary`() =
+        runTest(dispatcher.scheduler) {
+            coEvery { repository.inheritWorldV22() } returns legacySummaryText
+            coEvery { repository.generateOpeningAction(any()) } returns
+                Pair("查看四周", mockk(relaxed = true))
+            coEvery { repository.restartGame() } just Runs
+            val vm = createViewModel()
+
+            vm.inheritWorld()
+            advanceUntilIdle()
+            assertEquals(legacySummaryText, vm.legacySummary.value)
+
+            vm.restartGame()
+            advanceUntilIdle()
+
+            assertEquals("重开新局不能带着上一条纪事卡片", "", vm.legacySummary.value)
         }
 
     private val legacySummaryText = "【前代纪事】\n- 前进：你倒在了避难所门口。"
