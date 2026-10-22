@@ -1144,14 +1144,19 @@ class GameRepository(
     private val persistMutex = Mutex()
 
     /** 串行 + 事务：快照要么全写进去，要么全不写；事务由 [V3WorldStateStore] 持有。 */
-    suspend fun persistV3State() = persistMutex.withLock {
+    suspend fun persistV3State() {
         try {
-            v3Store.save(snapshotV3State())
-        } catch (e: kotlinx.coroutines.CancellationException) {
+            persistV3StateOrThrow()
+        } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "V3持久化失败: ${e.message}", e)
         }
+    }
+
+    /** [persistV3State] 的抛异常版本：继承失败必须让调用方知道，不能静默留下半套状态。 */
+    private suspend fun persistV3StateOrThrow() = persistMutex.withLock {
+        v3Store.save(snapshotV3State())
     }
 
     /** 把内存记录拆成快照，避免写入过程中被其它线程改到一半。 */
@@ -1853,21 +1858,90 @@ class GameRepository(
         return null
     }
 
-    fun inheritWorld(player: PlayerState): Map<String, Int> {
-        val transferred = mutableMapOf<String, Int>()
-        for ((id, record) in npcRuntime) {
-            val aff = record.affinity
-            if (kotlin.math.abs(aff.affinity) >= 20) {
-                val t = (aff.affinity * 0.3f).toInt().coerceIn(-80, 80)
-                transferred[id] = t; aff.affinity = t
-                aff.relationshipStage = t.toRelationshipStage(); aff.emotionalTags.clear()
-            }
+    /**
+     * C4 继承：保留世界（势力/区域/事件/NPC/对关系/已触发事件/已知地点），重建默认继承者，
+     * 好感按 30% 折算，时间回第 1 天；返回前代纪事文本（无历史时为空串）。
+     *
+     * 状态机必须换新（否则还带着旧角色 seed 的状态）；但 `v3Loaded` 不能复位——
+     * 一旦复位，下次读取会从 DB 重载并覆盖刚折算的内存世界（半继承）。
+     */
+    suspend fun inheritWorldV22(): String {
+        val oldPlayer = playerDao.getPlayer().first() ?: error("没有可继承的玩家")
+        val oldWorld = worldDao.getWorldInfo().first() ?: error("没有可继承的世界")
+        val summary = buildLegacySummary(historyDao.getAllHistory().first())
+
+        database.withTransaction {
+            playerDao.updatePlayerState(defaultSuccessor(oldPlayer))
+            worldDao.updateWorldInfo(resetWorld(oldWorld))
+            inventoryDao.syncInventory(emptyList())
         }
-        stateMachine.clock.setTotalMinutes(0)
-        // 新世界从第 1 天重新计时：旧世界的熔断暂停与 spare 日不能跨世界继续生效
+
+        // 对前代的好感按 30% 折算；|旧值|<20 直接归零（记忆/需求/KEY 层级原样保留）
+        for (record in npcRuntime.values) {
+            val old = record.affinity.affinity
+            val next = if (abs(old) < 20) 0 else (old * 0.3f).toInt().coerceIn(-80, 80)
+            record.affinity.affinity = next
+            record.affinity.relationshipStage = next.toRelationshipStage()
+            record.affinity.emotionalTags.clear()
+        }
+        // 失败必须向上抛：调用方（VM）要能停在死亡层报错，而不是静默留下半套状态
+        persistV3StateOrThrow()
+
+        stateMachineInstance = null
+        lastMidnightSettlementDay = 1
+        settlementLedger.mark(1)
+        // 旧世界的时间相关缓冲不能跨世界继续生效
         fallbackSpareDay.clear()
         sceneFallbackGuard.reset()
-        return transferred
+        synchronized(pendingSceneNotes) { pendingSceneNotes.clear() }
+        expectedChanges = null
+        localSummaryLog.clear()
+        lastAccelerationSummary = ""
+        isAccelerating = false
+        return summary
+    }
+
+    /** 继承者：只保留身份与末日参数，其余回到新局默认。 */
+    private fun defaultSuccessor(old: PlayerState) = PlayerState(
+        id = old.id,
+        userId = old.userId,
+        name = "继承者",
+        genderPhysique = "未定",
+        personality = "未定",
+        adultProfile = "",
+        baseDescription = "前任幸存者的继承者",
+        doomType = old.doomType,
+        doomLevel = old.doomLevel,
+        hp = 100, hpMax = 100, sp = 100, spMax = 100,
+        hunger = 50, thirst = 50, fatigue = 0,
+        mentalStateTags = listOf("健康"),
+        innerThought = "我继承了一个不属于我的世界。",
+        equippedItems = emptyList()
+    )
+
+    /** 只重置日期/时间/场景/分钟；宏观背景、已知地点、已触发事件随世界保留。 */
+    private fun resetWorld(old: WorldInfo) = WorldInfo(
+        id = old.id,
+        currentDate = "第1天",
+        currentTime = "清晨",
+        locationScene = "避难所",
+        macroSituation = old.macroSituation,
+        knownPointsJson = old.knownPointsJson,
+        triggeredWorldEventIdsJson = old.triggeredWorldEventIdsJson,
+        totalGameMinutes = 360
+    )
+
+    /** 前代纪事：最近 10 条，一条一行；无历史返回空串。 */
+    private fun buildLegacySummary(history: List<StoryHistory>): String {
+        val recent = history.takeLast(10)
+        if (recent.isEmpty()) return ""
+        return buildString {
+            append("【前代纪事】")
+            for (entry in recent) {
+                append("\n- ").append(entry.action.ifBlank { "继续生存" })
+                    .append("：").append(entry.story.take(60))
+            }
+        }
     }
 
     /** V3.0 V2存档迁移 */

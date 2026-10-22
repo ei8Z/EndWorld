@@ -286,7 +286,11 @@ class GameRepositoryTest {
     }
 
     @Test
-    fun `inheritWorld rewinds the clock and clears the scene fallback state`() = runTest {
+    fun `inheritWorldV22 rewinds the clock and clears the scene fallback state`() = runTest {
+        every { playerDao.getPlayer() } returns flowOf(testPlayer())
+        every { worldDao.getWorldInfo() } returns flowOf(testWorld())
+        every { historyDao.getAllHistory() } returns flowOf(emptyList())
+
         val repo = createRepo()
         val scene3 = SceneType.KEY_NPC_DEATH.id
         repeat(5) { repo.sceneFallbackGuard.recordFailure(scene3, 0) }
@@ -294,9 +298,11 @@ class GameRepositoryTest {
         repo.stateMachine.clock.setTotalMinutes(30 * 1440)
         assertTrue(repo.sceneFallbackGuard.isPaused(scene3, 0))
 
-        repo.inheritWorld(testPlayer())
+        repo.inheritWorldV22()
 
-        assertEquals(0, repo.stateMachine.clock.elapsedMinutes)
+        // 继承后状态机按第 1 天（06:00 = 360 分钟）重建
+        assertEquals(1, repo.stateMachine.clock.currentDay)
+        assertEquals(360, repo.stateMachine.clock.elapsedMinutes)
         // 归零后的时钟不能继续被判为暂停，旧 spare 日也不能跨世界继续触发连杀
         assertFalse(repo.sceneFallbackGuard.isPaused(scene3, 0))
         assertTrue(repo.fallbackSpareDay.isEmpty())
