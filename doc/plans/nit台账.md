@@ -79,3 +79,16 @@
 - 3F-3 Task 1 遗留：`npcPairRelationDao` 注册未被单测断言；`DatabasePolicyTest` 用 `trim()` 非字节级比较；DAO 文件头注释仍写五表；`npc_pair_relations` 无索引；无真实 11→12 运行时迁移测试。
 - `pairKey` 在 `applyPairRelation` 里自拼、未复用 `pairKeyOf`；store 测试的 snapshot 键也是字面量。
 - `applyPairRelation` 与 `applyNpcInteractionResult` 的 KDoc 都写“唯一入口”，实际每日循环只走后者。
+
+## 2026-10-19 3F-4 批
+
+- Task 1：`V3WorldStateStoreTest` 回滚用例的新旧快照都用 `R01/避难所`，区域表断言空心（漏写/漏回滚区域也能过）。
+- Task 1：`GameRepositoryTest.stubV3Daos()` 未桩 `npcPairRelationDao`；继承先 `ensureV3WorldLoaded()`，pair 读取路径无覆盖。
+- Task 1：继承无仓储层失败测试——玩家/世界事务或 V3 快照失败时“整体不落库”只用 `V3WorldStateStore` 回滚用例间接证明。
+- Task 2：继承期间速度切换器仍可点：在开局流启动前切到加速，首轮行动可能被守卫吞掉，而成功路径只靠流的 `onCompletion` 收 `_isLoading`，出现 loading 孤儿窗口。
+- Task 2：`initializeGameV22()` 清空 `_legacySummary` 无独立用例（只测了 `restartGame()` 清空）。
+- Task 3：前代纪事卡片标题「前代纪事」与摘要文本首行「【前代纪事】」重复。
+- Task 3：纪事卡片正文 `heightIn(max=200.dp)` + 内层滚动，最长 10 条时要在卡片内二次滚动。
+- Task 3：继承/重开两个二次确认 `AlertDialog` 结构与样式重复，未抽公共确认框。
+- Task 3：取消继承（二次确认点取消/点外部）不调用 `onInherit` 无 UI 自动化测试，仅代码审查确认。
+- Task 2：`inheritWorld()` 只在入口取消已有的 `accelerationJob`；继承期间新建的加速任务不会被取消，可能继续按旧世界推进。
