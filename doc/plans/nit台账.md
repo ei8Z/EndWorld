@@ -58,7 +58,7 @@
 - 重开测试缺失败路径：repo 抛错时 `_error` 有值、成功时 `_error == null` 均无断言；VM `catch` 吞 `CancellationException`。
 - 重开未重置 `accelerationStatus`/`uiMode`/`reasoning`/`canRetry`；`accelerationExiting` 未复位（生产不可达）。
 - 收尾协程被 cancel 后 `finally` 仍 `applySpeedMode(targetMode)`；重开进行中死亡层按钮无 disabled，可能显示旧全局 `error`。
-- 仓库层 `inheritWorld` 现仅测试调用，保留给 C4。
+- 仓库层 `inheritWorld` 已由 C4 的 `inheritWorldV22` 取代。
 - 重开测试的 V3 部分只覆盖 3/5 表且 globalEvent 无前置断言；`GameRepositoryTest` 有 `clearAllMocks` 无用调用；`withContext` 全限定名、KDoc 措辞。
 
 ## 2026-10-19 3F-2 批
@@ -92,3 +92,12 @@
 - Task 3：继承/重开两个二次确认 `AlertDialog` 结构与样式重复，未抽公共确认框。
 - Task 3：取消继承（二次确认点取消/点外部）不调用 `onInherit` 无 UI 自动化测试，仅代码审查确认。
 - Task 2：`inheritWorld()` 只在入口取消已有的 `accelerationJob`；继承期间新建的加速任务不会被取消，可能继续按旧世界推进。
+
+## 2026-10-19 3F-4 终审补
+
+- `knownPointsJson` 在继承后会被 `generateOpeningAction` 用章节资源点覆盖；文档已改为“字段不重置，实际每轮由 AI 重写”。
+- `lastPlayerNpcInteractions` 未随继承清空：继承后首个每日结算会把前代交互以 `[Day 1]` 写入 NPC 记忆。
+- `memosExtractor.clearPauseState()` 未调：暂停到期日基于旧时间线，回第 1 天后该 NPC 记忆抽取可能静默停最多 30 日。
+- 账本跨存储非原子：事务提交后、`mark(1)` 前被杀 → 游标停旧值，回第 1 天后可能长时间不结算；可在 ensure 时把游标 clamp 到当前日。
+- `_isDead=false` 早于 `generateOpeningAction/sendAction`：开局行动生成抛错时会“继承已成功却报继承失败”，死亡层已关（同 `initializeGameV22` 先例）。
+- `story_history` 不清：叙事列表仍显示前代全部记录，与纪事卡片重复；Spec 未要求清，属口径取舍。
