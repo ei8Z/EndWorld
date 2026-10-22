@@ -18,7 +18,7 @@
 │  GmStrategy / ReasonerApiClient / StorytellerApiClient         │
 ├──────────────────────┬───────────────────────────────────────┤
 │  Domain State         │  Local (Room DB)                       │
-│  SurvivalStateMachine │  11 Entities / 11 DAOs                 │
+│  SurvivalStateMachine │  12 Entities / 12 DAOs                 │
 │  ├─ GameClock         │  Remote (Retrofit)                     │
 │  ├─ WeatherSystem     │  DeepSeek Flash SSE 流式              │
 │  ├─ VitalSystem       │  MemOS OpenMem API (长期记忆)           │
@@ -56,6 +56,12 @@
 - **Prompt 动态提取**：所有跨层数值从代码常量动态提取，确保 Prompt 与代码逻辑 100% 同步
 - **debug_json 调试系统**：每轮自动保存 reasoner_user_msg / action_result / storyteller_user_msg / final_response
 
+### V3.0 世界模拟与死亡闭环
+- **V3 世界模拟**：势力/区域/全局事件/NPC 六表由 `V3WorldStateStore` 单事务持久化；每日结算逐日推进（`settleUntil`），包含资源、战斗伤亡、NPC 互动、场景 3/5/6 与 KEY 提升
+- **KEY 层级**：`CONTACT` 好感 `>=80`/`<= -50` 或互动 `> 10` 自动升 `KEY`，只升不降
+- **NPC 间好感**：`npc_pair_relations` 有向记录，每日本地互动按类型增减，双方写社交快照
+- **死亡与继承**：HP 归零进入死亡层；「重新开始」清空本局并轮换身份，「继承世界」保留世界、重建默认继承者、好感按 30% 折算、时间回第 1 天，并展示前代纪事
+
 ## 技术栈
 
 | 层 | 技术 |
@@ -75,7 +81,7 @@
 
 ### 前置条件
 
-- Android Studio Hedgehog (2024.1+) 或更新版本
+- Android Studio 需支持 AGP 8.13.2（建议最新稳定版；Hedgehog 过旧）
 - JDK 17/20/25 均可（Gradle 9.5 要求 17+；daemon JVM 由 `gradle/gradle-daemon-jvm.properties` 指定为 25；编译目标仍为 JVM 11）
 - Android SDK 26+
 - DeepSeek API Key（[获取地址](https://platform.deepseek.com)）
@@ -131,7 +137,7 @@ app/src/main/java/com/ei8z/endworld/
 ├── MainActivity.kt                    # 入口，路由：初始化 / 游戏
 ├── data/
 │   ├── local/
-│   │   ├── AppDatabase.kt             # Room DB (v11), 仅 debug 破坏性回退
+│   │   ├── AppDatabase.kt             # Room DB (v12), 仅 debug 破坏性回退
 │   │   ├── Converters.kt              # List<String> ↔ JSON 转换
 │   │   ├── dao/
 │   │   │   ├── PlayerDao.kt           # 玩家状态 (单例 id=1)
@@ -156,8 +162,8 @@ app/src/main/java/com/ei8z/endworld/
 │       ├── GmStrategy.kt              # GM 策略配置 (难度/事件频率/成人模式)
 │       ├── ReasonerApiClient.kt       # 裁决Agent (非流式, reasoning_effort=max)
 │       ├── StorytellerApiClient.kt    # 叙事Agent (流式 SSE)
-│       ├── SceneTrigger.kt            # 场景 2/4/5/6/7 触发判定
-│       ├── V3WorldStateStore.kt       # V3 五表快照唯一事务出口
+│       ├── SceneTrigger.kt            # 场景 2/3/4/5/6/7 触发判定
+│       ├── V3WorldStateStore.kt       # V3 六表快照唯一事务出口
 │       └── StreamEvent.kt             # Sealed Class: PhaseChanged | Reasoning | Content | FinalResponse | Error
 ├── domain/state/
 │   ├── SurvivalStateMachine.kt        # 生存状态机门面
@@ -217,6 +223,29 @@ GameRepository.sendActionStream() [callbackFlow]
   │   writebackToMemos()             ← 回写 MemOS 长期记忆
   ↓
 UI 通过 Room Flow 自动刷新列表
+```
+
+### 旁路：每日结算与死亡
+
+```
+行动跨过午夜（processPreRuling 推进时钟）
+    ↓
+settleUntil() 逐日推进，每日成功才前移游标
+    ↓
+executeDailySettlement()
+    ├─ 世界规则引擎：资源/阈值/战斗伤亡
+    ├─ 场景 3：KEY 伤亡裁决（异步，结果下一轮注入）
+    ├─ resolveNpcSettlement()：NPC 需求/互动/双方快照
+    ├─ promoteEligibleNpcs()：CONTACT → KEY
+    └─ persistV3State()：六表单事务落库
+
+HP/饥渴归零
+    ↓
+GameRepository.checkPlayerDeath() → StreamEvent.PlayerDied
+    ↓
+DeathOverlay
+    ├─ 重新开始：restartGame() 清空本局，回初始化页
+    └─ 继承世界：inheritWorldV22() 保留世界，重建角色/时间/账本
 ```
 
 ### 数据权威分层
