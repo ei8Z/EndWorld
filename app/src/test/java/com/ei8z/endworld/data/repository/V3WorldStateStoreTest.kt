@@ -144,13 +144,62 @@ class V3WorldStateStoreTest {
         assertTrue(db.npcPairRelationDao().getAll().isEmpty())
     }
 
+    @Test
+    fun `save rolls back all six tables when the in-transaction callback throws`() = runTest {
+        val oldPairs = mapOf(
+            "npc_A|npc_B" to NpcPairRelation(
+                pairKey = "npc_A|npc_B", npcAId = "npc_A", npcBId = "npc_B",
+                affinityAtoB = 42, affinityBtoA = -17, lastInteractionDay = 6, lastType = "ARGUMENT"
+            )
+        )
+        store.save(snapshot(eventId = "old", npcId = "n1", factionName = "红松营地", pairRelations = oldPairs))
+
+        val newPairs = mapOf(
+            "npc_C|npc_D" to NpcPairRelation(
+                pairKey = "npc_C|npc_D", npcAId = "npc_C", npcBId = "npc_D",
+                affinityAtoB = 1, affinityBtoA = 2, lastInteractionDay = 3, lastType = "STALE"
+            )
+        )
+        var eventSeenInCallback: List<String>? = null
+        val result = runCatching {
+            store.save(
+                snapshot(eventId = "new", npcId = "n2", factionName = "新势力", pairRelations = newPairs)
+            ) {
+                // 回调必须在六表写完之后、同一事务内执行：此处读到的是新事件
+                eventSeenInCallback = db.globalEventDao().getAllEvents().first().map { it.eventId }
+                throw IllegalStateException("boom")
+            }
+        }
+
+        assertTrue(result.isFailure)
+        assertEquals(listOf("new"), eventSeenInCallback)
+        // 六表（含 pair）全部回滚到调用前
+        assertEquals(
+            listOf("F01" to "红松营地"),
+            db.factionDao().getAllFactions().first().map { it.factionId to it.name }
+        )
+        assertEquals(
+            listOf("R01" to "避难所"),
+            db.regionDao().getAllRegions().first().map { it.regionId to it.name }
+        )
+        assertEquals(listOf("old"), db.globalEventDao().getAllEvents().first().map { it.eventId })
+        assertEquals(listOf("n1"), db.npcStateDao().getAllNpcs().first().map { it.npcId })
+        assertEquals(listOf("n1"), db.npcScheduleDao().getAll().first().map { it.npcId })
+        assertEquals(
+            mapOf("npc_A|npc_B" to (42 to -17)),
+            db.npcPairRelationDao().getAll().associate { it.pairKey to (it.affinityAtoB to it.affinityBtoA) }
+        )
+    }
+
     private fun snapshot(
         eventId: String = "E01",
-        pairRelations: Map<String, NpcPairRelation> = emptyMap()
+        pairRelations: Map<String, NpcPairRelation> = emptyMap(),
+        factionName: String = "红松营地",
+        npcId: String = "n1"
     ) = V3WorldSnapshot(
         factions = listOf(
             Faction(
-                factionId = "F01", name = "红松营地", factionType = FactionType.SURVIVOR_SETTLEMENT,
+                factionId = "F01", name = factionName, factionType = FactionType.SURVIVOR_SETTLEMENT,
                 population = 40, militaryStrength = 12, armamentRate = 0.3f,
                 unitCombatCoefficient = 1.0f, controlledRegions = mutableListOf("R01"),
                 relationshipMatrix = mutableMapOf(), leaderPersonality = LeaderPersonality.NORMAL,
@@ -169,9 +218,9 @@ class V3WorldStateStoreTest {
         ),
         events = listOf(event(eventId)),
         npcs = mapOf(
-            "n1" to npcRecord(
+            npcId to npcRecord(
                 state = NpcState(
-                    npcId = "n1", name = "老张", identity = "哨兵", combatRole = CombatRole.COMBATANT,
+                    npcId = npcId, name = "老张", identity = "哨兵", combatRole = CombatRole.COMBATANT,
                     currentLocationId = "R01", factionId = "F01", personalityTags = emptyList(),
                     statusTags = mutableListOf(), tier = NpcTier.CONTACT
                 ),

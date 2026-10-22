@@ -1146,17 +1146,12 @@ class GameRepository(
     /** 串行 + 事务：快照要么全写进去，要么全不写；事务由 [V3WorldStateStore] 持有。 */
     suspend fun persistV3State() {
         try {
-            persistV3StateOrThrow()
+            persistMutex.withLock { v3Store.save(snapshotV3State()) }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             Log.e(TAG, "V3持久化失败: ${e.message}", e)
         }
-    }
-
-    /** [persistV3State] 的抛异常版本：继承失败必须让调用方知道，不能静默留下半套状态。 */
-    private suspend fun persistV3StateOrThrow() = persistMutex.withLock {
-        v3Store.save(snapshotV3State())
     }
 
     /** 把内存记录拆成快照，避免写入过程中被其它线程改到一半。 */
@@ -1862,30 +1857,32 @@ class GameRepository(
      * C4 继承：保留世界（势力/区域/事件/NPC/对关系/已触发事件/已知地点），重建默认继承者，
      * 好感按 30% 折算，时间回第 1 天；返回前代纪事文本（无历史时为空串）。
      *
+     * 先 [ensureV3WorldLoaded] 再取快照：重开进程后直接进死亡层时 V3 内存为空，
+     * 不先回读，save 会拿空表清掉世界。V3 六表与玩家/世界/背包在同一个事务里提交，
+     * 任一失败整体回滚；内存也只在事务成功后才更新，重试不会二次折算。
+     *
      * 状态机必须换新（否则还带着旧角色 seed 的状态）；但 `v3Loaded` 不能复位——
      * 一旦复位，下次读取会从 DB 重载并覆盖刚折算的内存世界（半继承）。
      */
     suspend fun inheritWorldV22(): String {
+        // 死亡 → 杀进程 → 重开 → 直接进死亡层时内存为空；不先回读，下面的 save 会 clearAll 清空世界表
+        ensureV3WorldLoaded()
         val oldPlayer = playerDao.getPlayer().first() ?: error("没有可继承的玩家")
         val oldWorld = worldDao.getWorldInfo().first() ?: error("没有可继承的世界")
         val summary = buildLegacySummary(historyDao.getAllHistory().first())
 
-        database.withTransaction {
-            playerDao.updatePlayerState(defaultSuccessor(oldPlayer))
-            worldDao.updateWorldInfo(resetWorld(oldWorld))
-            inventoryDao.syncInventory(emptyList())
+        persistMutex.withLock {
+            // 在局部副本上折算，事务成功前不碰 npcRuntime
+            val inherited = foldInheritedAffinities(snapshotV3State())
+            v3Store.save(inherited) {
+                playerDao.updatePlayerState(defaultSuccessor(oldPlayer))
+                worldDao.updateWorldInfo(resetWorld(oldWorld))
+                inventoryDao.syncInventory(emptyList())
+            }
+            // 事务成功后才让内存跟上；失败时 npcRuntime 仍是旧值
+            npcRuntime.clear()
+            npcRuntime.putAll(inherited.npcs)
         }
-
-        // 对前代的好感按 30% 折算；|旧值|<20 直接归零（记忆/需求/KEY 层级原样保留）
-        for (record in npcRuntime.values) {
-            val old = record.affinity.affinity
-            val next = if (abs(old) < 20) 0 else (old * 0.3f).toInt().coerceIn(-80, 80)
-            record.affinity.affinity = next
-            record.affinity.relationshipStage = next.toRelationshipStage()
-            record.affinity.emotionalTags.clear()
-        }
-        // 失败必须向上抛：调用方（VM）要能停在死亡层报错，而不是静默留下半套状态
-        persistV3StateOrThrow()
 
         stateMachineInstance = null
         lastMidnightSettlementDay = 1
@@ -1900,6 +1897,21 @@ class GameRepository(
         isAccelerating = false
         return summary
     }
+
+    /** 前代好感按 30% 折算：|旧值|<20 归零，否则 ×0.3 夹取 ±80；记忆/需求/KEY 层级原样保留。 */
+    private fun foldInheritedAffinities(snapshot: V3WorldSnapshot) = snapshot.copy(
+        npcs = snapshot.npcs.mapValues { (_, record) ->
+            val old = record.affinity.affinity
+            val next = if (abs(old) < 20) 0 else (old * 0.3f).toInt().coerceIn(-80, 80)
+            record.copy(
+                affinity = record.affinity.copy(
+                    affinity = next,
+                    relationshipStage = next.toRelationshipStage(),
+                    emotionalTags = mutableListOf()
+                )
+            )
+        }
+    )
 
     /** 继承者：只保留身份与末日参数，其余回到新局默认。 */
     private fun defaultSuccessor(old: PlayerState) = PlayerState(

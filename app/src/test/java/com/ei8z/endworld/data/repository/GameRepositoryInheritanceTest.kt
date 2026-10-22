@@ -325,6 +325,38 @@ class GameRepositoryInheritanceTest {
         assertEquals("", repo.inheritWorldV22())
     }
 
+    // ---- 8. C1：未预载 V3 时直接继承 ----
+
+    @Test
+    fun `inheritWorldV22 loads persisted world before saving an inherited snapshot`() = runTest {
+        seedSave()
+        repo.ensureV3WorldLoaded()
+        repo.npcRuntime["n1"] = testNpc("n1", affinity = 80, emotionalTags = listOf("感激"))
+        repo.npcRuntime["n2"] = testNpc("n2", affinity = 10)
+        repo.pairRelations[pairKeyOf("n1", "n2")] = seedPair()
+        repo.persistV3State()
+
+        val factionsBefore = factions()
+        val regionsBefore = regions()
+        val pairsBefore = pairs()
+
+        // 死亡 → 杀进程 → 重开：新仓库的 V3 内存为空，直接进死亡层继承（没有任何调用方先 ensure）
+        val reopened = newRepo()
+        reopened.inheritWorldV22()
+
+        // 没有预载也必须先回读再写，否则 save 的 clearAll 会把世界表清空
+        assertEquals(factionsBefore, factions())
+        assertEquals(regionsBefore, regions())
+        assertEquals(pairsBefore, pairs())
+        val stored = db.npcStateDao().getAllNpcs().first().associate { it.npcId to it.affinity }
+        assertEquals(setOf("n1", "n2"), stored.keys)
+        assertEquals(24, stored["n1"])
+        assertEquals(0, stored["n2"])
+        assertEquals(24, reopened.npcRuntime.getValue("n1").affinity.affinity)
+        // 继承本身确实发生了（世界时间已回第 1 天）
+        assertEquals("第1天", db.worldDao().getWorldInfo().first()?.currentDate)
+    }
+
     // ---- 7. 状态机与重复读取 ----
 
     @Test

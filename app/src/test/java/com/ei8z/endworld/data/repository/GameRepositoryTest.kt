@@ -287,6 +287,7 @@ class GameRepositoryTest {
 
     @Test
     fun `inheritWorldV22 rewinds the clock and clears the scene fallback state`() = runTest {
+        stubV3Daos() // 继承现在会先 ensureV3WorldLoaded，DAOs 必须可响应
         every { playerDao.getPlayer() } returns flowOf(testPlayer())
         every { worldDao.getWorldInfo() } returns flowOf(testWorld())
         every { historyDao.getAllHistory() } returns flowOf(emptyList())

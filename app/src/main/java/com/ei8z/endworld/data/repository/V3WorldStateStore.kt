@@ -30,10 +30,11 @@ data class V3WorldSnapshot(
  * V3 六张表的读写边界。
  *
  * - [load]：六表回读为域模型快照。
- * - [save]：在一个 Room 事务里写入六表（事件/时间表/对关系先清后写，势力/区域/NPC upsert）；异常穿透，由事务回滚。
+ * - [save]：在一个 Room 事务里写入六表（事件/时间表/对关系先清后写，势力/区域/NPC upsert）；
+ *   可选的 [also] 在同一事务内、六表写完后执行，用于把调用方的其它表更新一起提交。异常穿透，由事务回滚。
  * - [clear]：同样在一个事务里清空六表。
  *
- * 事务所有权只在这里，调用方（GameRepository）不得再套 `withTransaction`。
+ * 事务所有权只在这里，调用方（GameRepository）不得再套 `withTransaction`，也不得在 [also] 里开事务。
  */
 class V3WorldStateStore(private val db: AppDatabase) {
 
@@ -80,8 +81,8 @@ class V3WorldStateStore(private val db: AppDatabase) {
         )
     }
 
-    /** 整体替换六表；异常必须抛出，Room 事务才能回滚。 */
-    suspend fun save(snapshot: V3WorldSnapshot) {
+    /** 整体替换六表；[also] 在同一事务内、六表写完后执行；异常必须抛出，Room 事务才能回滚。 */
+    suspend fun save(snapshot: V3WorldSnapshot, also: suspend () -> Unit = {}) {
         db.withTransaction {
             factionDao.clearAll()
             regionDao.clearAll()
@@ -156,6 +157,7 @@ class V3WorldStateStore(private val db: AppDatabase) {
                     )
                 }
             )
+            also()
         }
     }
 
