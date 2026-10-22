@@ -33,13 +33,17 @@ import com.ei8z.endworld.data.remote.model.WorldUpdate
 import com.ei8z.endworld.domain.npc.engine.BattleCasualtyEngine
 import com.ei8z.endworld.domain.npc.engine.Casualty
 import com.ei8z.endworld.domain.npc.engine.CasualtySeverity
+import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine.InteractionResult
+import com.ei8z.endworld.domain.npc.engine.NpcBehaviorEngine.InteractionType
 import com.ei8z.endworld.domain.npc.engine.Scene3Fallback
 import com.ei8z.endworld.domain.npc.engine.Scene3FallbackDecider
 import com.ei8z.endworld.domain.npc.engine.SceneFallbackGuard
 import com.ei8z.endworld.domain.npc.model.AffinityState
 import com.ei8z.endworld.domain.npc.model.DepartureInfo
 import com.ei8z.endworld.domain.npc.model.DepartureStatus
+import com.ei8z.endworld.domain.npc.model.MemoryEntry
 import com.ei8z.endworld.domain.npc.model.MemoryQueue
+import com.ei8z.endworld.domain.npc.model.MemorySource
 import com.ei8z.endworld.domain.npc.model.NpcPairRelation
 import com.ei8z.endworld.domain.npc.model.NpcRecord
 import com.ei8z.endworld.domain.npc.model.NpcState
@@ -69,6 +73,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlin.math.abs
 import kotlin.math.max
 import java.io.File
 import java.util.UUID
@@ -1348,6 +1353,37 @@ class GameRepository(
         day: Int
     ): NpcPairRelation = pairRelations.applyPairRelation(aId, bId, deltaAtoB, deltaBtoA, type, day)
 
+    /**
+     * 每日互动的唯一落地入口：双向好感入表，并按快照规则给双方各写一条记忆。
+     *
+     * 日常社交且双向变化都 <5 时只记数值——这种微互动每天都有，写进记忆只会挤掉真正重要的事。
+     * DEAD/DEMOTED 一方不写记忆（旧实现里降级即删记忆），但关系数值照旧更新。
+     */
+    internal fun applyNpcInteractionResult(r: InteractionResult) {
+        applyPairRelation(
+            r.npcAId, r.npcBId,
+            r.affinityChangeAtoB, r.affinityChangeBtoA,
+            r.interactionType.name, currentGameDay
+        )
+        val quietDailySocial = r.interactionType == InteractionType.DAILY_SOCIAL &&
+            abs(r.affinityChangeAtoB) < 5 && abs(r.affinityChangeBtoA) < 5
+        if (quietDailySocial) return
+        for (npcId in listOf(r.npcAId, r.npcBId)) {
+            val record = npcRuntime[npcId] ?: continue
+            if (record.departure.status == DepartureStatus.DEAD ||
+                record.departure.status == DepartureStatus.DEMOTED) continue
+            npcEngine.addMemory(
+                record.memory,
+                MemoryEntry(
+                    timestamp = "[Day $currentGameDay]",
+                    location = record.state.currentLocationId,
+                    summary = r.description,
+                    source = MemorySource.NPC_SOCIAL_SNAPSHOT
+                )
+            )
+        }
+    }
+
     /** 单条记录的唯一回写入点：记录不存在就不新建，变换作用在当下值而不是局部快照。 */
     private inline fun updateRecord(id: String, transform: (NpcRecord) -> NpcRecord) {
         npcRuntime[id]?.let { npcRuntime[id] = transform(it) }
@@ -1667,12 +1703,7 @@ class GameRepository(
             for (i in list.indices) for (j in i + 1 until list.size) {
                 val r = engine.resolveNpcInteraction(list[i], npcRuntime[list[i].npcId]?.needs ?: continue,
                     list[j], npcRuntime[list[j].npcId]?.needs ?: continue) ?: continue
-                // 降级 NPC 的记忆条目在旧实现里被删除，等价于此处跳过写入
-                npcRuntime[list[i].npcId]
-                    ?.takeIf { it.departure.status != com.ei8z.endworld.domain.npc.model.DepartureStatus.DEMOTED }
-                    ?.let { engine.addMemory(it.memory,
-                        com.ei8z.endworld.domain.npc.model.MemoryEntry("[Day $currentGameDay]", list[i].currentLocationId,
-                            r.description, source = com.ei8z.endworld.domain.npc.model.MemorySource.NPC_SOCIAL_SNAPSHOT)) }
+                applyNpcInteractionResult(r)
 
                 // 场景5：破坏性互动或关键NPC参与 → 异步评估，结果供下一轮叙事注入
                 SceneTriggerDetector.detectRareInteraction(list[i], list[j], r.interactionType)?.let { trigger ->
