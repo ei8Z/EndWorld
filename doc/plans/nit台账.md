@@ -67,3 +67,15 @@
 - 场景 5 与提升的当日顺序：`executeDailySettlement` 里 `resolveNpcSettlement()` 的 `detectRareInteraction` 早于 `promoteEligibleNpcs()`，当日刚达标的 NPC 当天仍按 CONTACT 判定，场景 5 最早次日触发；属降噪方向，不阻塞。
 - 场景 3 执行链未覆盖（书面遗留）：`executeDailySettlement` 内 casualties→`evaluateScene3` 的异步 AI 裁决与回写分支未做集成测试，只证到 `BattleCasualtyEngine`→`detectKeyNpcCasualty` 给出 `KEY_NPC_DEATH`；该分支依赖当日真实开战与抽签随机，单测成本高、易 flaky。去向：批次收口或后续 Spec。
 - 用例命名偏乐观：`promotion turns the same daily social into scene 5` 实际直接调用 `detectRareInteraction` 断言检测器，未驱动每日社交循环；断言有效，但名字容易被读成端到端集成。
+
+## 2026-10-19 3F-3 批
+
+- `V3WorldStateStoreTest.clear empties every v3 table` 的 pair 断言是空转：`snapshot()` 未带 pair 行，删掉 `npcPairRelationDao.clearAll()` 也能过；重启测试已改用非空 pair 覆盖 DB 清空。
+- 每日互动循环只接线一行，无测试钉住“循环必走 `applyNpcInteractionResult`”；现有 4 条用例都是直接调用 helper。
+- `applyNpcInteractionResult` 无 `day` 参数，内部取 `currentGameDay`（追赶日记最后一天）；跨多日追赶时快照日戳是追赶终点日。
+- `pairRelations` 无锁写与快照，与后台 `persistV3State` 的理论竞态同 `npcRuntime`，属弱一致快照。
+- 双方记忆共用 `r.description`（A 视角文案），B 方语义未方向化。
+- 测试缺 `RESOURCE_SHARING`、单边 `|Δ|≥5`、预置记忆保留、`lastInteractionDay` 断言。
+- 3F-3 Task 1 遗留：`npcPairRelationDao` 注册未被单测断言；`DatabasePolicyTest` 用 `trim()` 非字节级比较；DAO 文件头注释仍写五表；`npc_pair_relations` 无索引；无真实 11→12 运行时迁移测试。
+- `pairKey` 在 `applyPairRelation` 里自拼、未复用 `pairKeyOf`；store 测试的 snapshot 键也是字面量。
+- `applyPairRelation` 与 `applyNpcInteractionResult` 的 KDoc 都写“唯一入口”，实际每日循环只走后者。

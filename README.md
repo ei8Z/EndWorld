@@ -63,7 +63,7 @@
 | 语言 | Kotlin 2.0 |
 | UI | Jetpack Compose + Material 3 |
 | 架构 | MVVM (手动 DI) |
-| 本地数据库 | Room (11 实体/11 DAO, `version 11`, Flow 响应式；10→11 有迁移，仅 debug 允许破坏性回退) |
+| 本地数据库 | Room (12 实体/12 DAO, `version 12`, Flow 响应式；10→11、11→12 有迁移，仅 debug 允许破坏性回退) |
 | 网络 | Retrofit + OkHttp SSE |
 | 构建 | Gradle 9.5.0；JDK 17/20/25 均可，daemon 默认 25（编译目标 JVM 11） |
 | JSON | Gson (序列化) + org.json (兜底提取) |

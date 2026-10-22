@@ -78,9 +78,12 @@ class GameRepositoryRestartTest {
         )
         db.npcDao().insertIfNotExist(NpcRelation(name = "老张", relation = "同伴"))
         repo.ensureV3WorldLoaded()
+        repo.applyPairRelation("npc_A", "npc_B", 30, -12, "ARGUMENT", 2)
         repo.persistV3State()
 
         // 前提：清之前这些表真的有数据，否则清表断言是空转
+        assertTrue(repo.pairRelations.isNotEmpty())
+        assertTrue(db.npcPairRelationDao().getAll().isNotEmpty())
         assertNotNull(db.playerDao().getPlayer().first())
         assertNotNull(db.worldDao().getWorldInfo().first())
         assertTrue(db.inventoryDao().getAllItems().first().isNotEmpty())
@@ -103,6 +106,8 @@ class GameRepositoryRestartTest {
         assertTrue(db.globalEventDao().getAllEvents().first().isEmpty())
         assertTrue(repo.factions.isEmpty())
         assertTrue(repo.regions.isEmpty())
+        assertTrue(repo.pairRelations.isEmpty())
+        assertTrue(db.npcPairRelationDao().getAll().isEmpty())
         assertNull(repo.playerState.first())
     }
 

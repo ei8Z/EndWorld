@@ -79,13 +79,15 @@
 ./gradlew :app:assembleDebug --no-daemon
 ```
 
-- 当前基线：**413 tests / 0 failed（52 个测试类）**（2026-10-19，3F-2 KEY seed 后）。
+- 当前基线：**423 tests / 0 failed（54 个测试类）**（2026-10-19，3F-3 NPC 间好感后）。
 - 测试数不得减少；新增测试必须断言行为。
 - JDK 17/20/25 均可（`jvmTarget=11`）；daemon 由 `gradle/gradle-daemon-jvm.properties` 指定。
 
 ## 代码约定
 
+- DB version 12：`npc_pair_relations` 随 11→12 迁移新增，迁移 SQL 与 `app/schemas/.../12.json` 的 `createSql` 逐字一致。
 - 唯一 NPC 状态容器：`GameRepository.npcRuntime: LinkedHashMap<String, NpcRecord>`；不新增平行 map。
+- NPC 对好感只由每日互动写：`GameRepository.pairRelations` 唯一容器，`pairKey=min|max`，A→B/B→A 有向独立累加并夹取 ±100；互动后双方各写一条 `NPC_SOCIAL_SNAPSHOT`，`DAILY_SOCIAL` 且双向 `|Δ|<5` 跳过；随 V3 快照事务持久化，重启清空。
 - 同名 NPC 唯一：id `npc_<name>`；旧 `npc_<name>_<day>` 保持可读。
 - 好感度只由模拟层写：AI 增量经 `NpcBehaviorEngine.applyAffinityDelta`（±20 夹取、阶段重算）。
 - KEY 层级只自动升：`GameRepository.promoteEligibleNpcs()` 按好感 `>= 80`/`<= -50` 或互动 `> 10` 把 `CONTACT` 升为 `KEY`；只升不降，`BACKGROUND` 不参与，无 DB 迁移。
