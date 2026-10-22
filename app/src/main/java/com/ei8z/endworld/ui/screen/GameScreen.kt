@@ -14,7 +14,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.*
@@ -70,6 +72,7 @@ fun GameScreen(viewModel: GameViewModel) {
     val isDead by viewModel.isDead.collectAsStateWithLifecycle()
     val deathNarrative by viewModel.deathNarrative.collectAsStateWithLifecycle()
     val deathCause by viewModel.deathCause.collectAsStateWithLifecycle()
+    val legacySummary by viewModel.legacySummary.collectAsStateWithLifecycle()
 
     var customAction by remember { mutableStateOf("") }
     var showStatusDialog by remember { mutableStateOf(false) }
@@ -207,59 +210,68 @@ fun GameScreen(viewModel: GameViewModel) {
             }
         }
     ) { innerPadding ->
-        Box(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                items(history) { entry ->
-                    StoryEntryItem(entry, debugMode = gmStrategy.debugMode)
-                }
-
-                if (currentStory.isNotEmpty() || currentReasoning.isNotEmpty() || isLoading) {
-                    item {
-                        StoryEntryItem(
-                            StoryEntry(
-                                reasoning = currentReasoning,
-                                story = currentStory,
-                                isStreaming = true
-                            ),
-                            debugMode = gmStrategy.debugMode
-                        )
+        // 前代纪事卡片位于叙事区上方，只占自身高度，不遮挡叙事与输入区
+        Column(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+            if (legacySummary.isNotBlank()) {
+                LegacySummaryCard(
+                    summary = legacySummary,
+                    onDismiss = { viewModel.dismissLegacySummary() }
+                )
+            }
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(history) { entry ->
+                        StoryEntryItem(entry, debugMode = gmStrategy.debugMode)
                     }
-                }
 
-                if (error != null) {
-                    item {
-                        Card(
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text("系统异常: $error", color = MaterialTheme.colorScheme.onErrorContainer)
-                                if (canRetry) {
-                                    Button(
-                                        onClick = { viewModel.retryLastAction() },
-                                        modifier = Modifier.padding(top = 8.dp)
-                                    ) {
-                                        Text("重试")
+                    if (currentStory.isNotEmpty() || currentReasoning.isNotEmpty() || isLoading) {
+                        item {
+                            StoryEntryItem(
+                                StoryEntry(
+                                    reasoning = currentReasoning,
+                                    story = currentStory,
+                                    isStreaming = true
+                                ),
+                                debugMode = gmStrategy.debugMode
+                            )
+                        }
+                    }
+
+                    if (error != null) {
+                        item {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text("系统异常: $error", color = MaterialTheme.colorScheme.onErrorContainer)
+                                    if (canRetry) {
+                                        Button(
+                                            onClick = { viewModel.retryLastAction() },
+                                            modifier = Modifier.padding(top = 8.dp)
+                                        ) {
+                                            Text("重试")
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+
+                    item { Spacer(modifier = Modifier.height(100.dp)) }
                 }
 
-                item { Spacer(modifier = Modifier.height(100.dp)) }
-            }
+                // V2.1 UI 模式视觉叠加层
+                UIModeOverlay(uiMode)
 
-            // V2.1 UI 模式视觉叠加层
-            UIModeOverlay(uiMode)
-
-            if (isLoading && currentStory.isEmpty()) {
-                LinearProgressIndicator(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
+                if (isLoading && currentStory.isEmpty()) {
+                    LinearProgressIndicator(modifier = Modifier.fillMaxWidth().align(Alignment.TopCenter))
+                }
             }
         }
     }
@@ -270,6 +282,8 @@ fun GameScreen(viewModel: GameViewModel) {
             cause = deathCause,
             narrative = deathNarrative,
             error = error,
+            isLoading = isLoading,
+            onInherit = { viewModel.inheritWorld() },
             onRestart = { viewModel.restartGame() }
         )
     }
@@ -867,12 +881,53 @@ fun AccelerationPanel(statusText: String, onExitAcceleration: () -> Unit) {
     }
 }
 
-/** 死亡覆盖层：死亡即本局终点，重新开始会清库，必须二次确认。 */
+/** C4 前代纪事：继承成功后展示上一局结尾，由玩家手动关闭。 */
+@Composable
+fun LegacySummaryCard(summary: String, onDismiss: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer
+        )
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                "前代纪事",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            // 纪事最长 10 行，限高滚动：长摘要只撑高卡片，不会把叙事区挤没
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 200.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                TextButton(onClick = onDismiss) { Text("知道了") }
+            }
+        }
+    }
+}
+
+/** 死亡覆盖层：死亡即本局终点。继承保留世界重建继承者，重新开始会清库，两者都必须二次确认。 */
 @Composable
 fun DeathOverlay(
-    cause: String, narrative: String, error: String?, onRestart: () -> Unit
+    cause: String, narrative: String, error: String?, isLoading: Boolean,
+    onInherit: () -> Unit, onRestart: () -> Unit
 ) {
-    var showConfirm by remember { mutableStateOf(false) }
+    var showInheritConfirm by remember { mutableStateOf(false) }
+    var showRestartConfirm by remember { mutableStateOf(false) }
     Box(
         modifier = Modifier.fillMaxSize()
             .background(Color.Black.copy(alpha = 0.92f))
@@ -899,28 +954,61 @@ fun DeathOverlay(
                         color = Color(0xFFFF5252))
                 }
                 Spacer(modifier = Modifier.height(24.dp))
-                Button(onClick = { showConfirm = true }, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { showInheritConfirm = true },
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("继承世界")
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { showRestartConfirm = true },
+                    enabled = !isLoading,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text("重新开始")
                 }
             }
         }
     }
 
-    if (showConfirm) {
+    if (showInheritConfirm) {
         AlertDialog(
-            onDismissRequest = { showConfirm = false },
+            onDismissRequest = { showInheritConfirm = false },
+            title = { Text("继承世界？") },
+            text = { Text("创建继承者并保留这个世界？本局角色与背包将重置。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showInheritConfirm = false
+                    onInherit()
+                }) {
+                    Text("继承世界")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showInheritConfirm = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showRestartConfirm) {
+        AlertDialog(
+            onDismissRequest = { showRestartConfirm = false },
             title = { Text("重新开始？") },
             text = { Text("将清除本局所有进度（角色、世界、NPC、记忆、历史），不可恢复。") },
             confirmButton = {
                 TextButton(onClick = {
-                    showConfirm = false
+                    showRestartConfirm = false
                     onRestart()
                 }) {
                     Text("重新开始")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showConfirm = false }) {
+                TextButton(onClick = { showRestartConfirm = false }) {
                     Text("取消")
                 }
             }
