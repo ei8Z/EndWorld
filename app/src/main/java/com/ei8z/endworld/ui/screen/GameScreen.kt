@@ -8,6 +8,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -965,7 +966,10 @@ fun DeathOverlay(
                 OutlinedButton(
                     onClick = { showRestartConfirm = true },
                     enabled = !isLoading,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    // 卡片底色固定深色，默认 primary 文字在此对比度不足，统一用浅灰
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFD0D0D0)),
+                    border = BorderStroke(1.dp, Color(0xFFD0D0D0))
                 ) {
                     Text("重新开始")
                 }
