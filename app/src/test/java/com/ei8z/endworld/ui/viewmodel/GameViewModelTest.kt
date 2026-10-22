@@ -2,12 +2,14 @@ package com.ei8z.endworld.ui.viewmodel
 
 import com.ei8z.endworld.data.local.entity.PlayerState
 import com.ei8z.endworld.data.local.entity.WorldInfo
+import com.ei8z.endworld.data.model.ActionParsed
 import com.ei8z.endworld.data.model.GameConfig
 import com.ei8z.endworld.data.model.InitialStats
 import com.ei8z.endworld.data.model.SpeedMode
 import com.ei8z.endworld.data.model.SuggestionItem
 import com.ei8z.endworld.data.repository.GameRepository
 import com.ei8z.endworld.data.repository.GmStrategy
+import com.ei8z.endworld.data.repository.StreamEvent
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.coVerify
@@ -30,6 +32,7 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -215,4 +218,100 @@ class GameViewModelTest {
 
         coVerify(exactly = 1) { repository.restartGame() }
     }
+
+    // ======================== C4 继承 ========================
+
+    @Test
+    fun `inheritWorld clears death state publishes the summary and sends the opening action`() =
+        runTest(dispatcher.scheduler) {
+            // 先真的进入死亡态并填上死亡叙事，否则「清死亡态」的断言恒真
+            player.value = alivePlayer().copy(doomLevel = 7)
+            every { repository.sendActionStream(any(), any()) } returns
+                flowOf(StreamEvent.PlayerDied("致命伤势", "你倒在了避难所门口。"))
+            val vm = createViewModel()
+            vm.sendAction("前进", null)
+            advanceUntilIdle()
+            assertTrue("前置：必须先进入死亡态", vm.isDead.value)
+            assertTrue("前置：死亡叙事必须已设置", vm.deathNarrative.value.isNotBlank())
+
+            // 继承后发的开局行动走空流，避免再次触发同一个死亡事件
+            every { repository.sendActionStream(any(), any()) } returns emptyFlow()
+            val parsed = mockk<ActionParsed>(relaxed = true)
+            coEvery { repository.inheritWorldV22() } returns legacySummaryText
+            // 只认 7：doomLevel 必须取自 playerState，不能退回状态机的默认值
+            coEvery { repository.generateOpeningAction(7) } returns Pair("查看四周", parsed)
+
+            vm.inheritWorld()
+            advanceUntilIdle()
+
+            assertFalse("继承成功后必须离开死亡层", vm.isDead.value)
+            assertEquals("", vm.deathCause.value)
+            assertEquals("", vm.deathNarrative.value)
+            assertEquals(legacySummaryText, vm.legacySummary.value)
+            assertNull(vm.error.value)
+            coVerify(exactly = 1) { repository.inheritWorldV22() }
+            coVerify(exactly = 1) { repository.generateOpeningAction(7) }
+            // 开局行动走 sendAction 主线，不能调用会清世界的初始化流程
+            verify(exactly = 1) { repository.sendActionStream("查看四周", parsed) }
+        }
+
+    @Test
+    fun `repeated inherit taps only inherit once`() = runTest(dispatcher.scheduler) {
+        coEvery { repository.inheritWorldV22() } coAnswers {
+            delay(50)
+            legacySummaryText
+        }
+        coEvery { repository.generateOpeningAction(any()) } returns
+            Pair("查看四周", mockk(relaxed = true))
+        val vm = createViewModel()
+
+        vm.inheritWorld()
+        vm.inheritWorld()
+        advanceUntilIdle()
+
+        coVerify(exactly = 1) { repository.inheritWorldV22() }
+        coVerify(exactly = 1) { repository.generateOpeningAction(any()) }
+    }
+
+    @Test
+    fun `inherit failure keeps the death state and reports the error`() = runTest(dispatcher.scheduler) {
+        every { repository.sendActionStream(any(), any()) } returns
+            flowOf(StreamEvent.PlayerDied("致命伤势", "你倒下了。"))
+        val vm = createViewModel()
+        vm.sendAction("前进", null)
+        advanceUntilIdle()
+        assertTrue("前置：必须先进入死亡态", vm.isDead.value)
+        coEvery { repository.inheritWorldV22() } throws IllegalStateException("没有可继承的玩家")
+        coEvery { repository.generateOpeningAction(any()) } returns
+            Pair("查看四周", mockk(relaxed = true))
+
+        vm.inheritWorld()
+        advanceUntilIdle()
+
+        assertTrue("继承失败必须留在死亡层", vm.isDead.value)
+        assertEquals("致命伤势", vm.deathCause.value)
+        assertEquals("你倒下了。", vm.deathNarrative.value)
+        assertTrue("错误必须是继承失败: ${vm.error.value}", vm.error.value?.contains("继承失败") == true)
+        assertEquals("失败不能显示前代纪事", "", vm.legacySummary.value)
+        coVerify(exactly = 0) { repository.generateOpeningAction(any()) }
+        verify(exactly = 0) { repository.sendActionStream("查看四周", any()) }
+    }
+
+    @Test
+    fun `dismissLegacySummary clears the summary`() = runTest(dispatcher.scheduler) {
+        coEvery { repository.inheritWorldV22() } returns legacySummaryText
+        coEvery { repository.generateOpeningAction(any()) } returns
+            Pair("查看四周", mockk(relaxed = true))
+        val vm = createViewModel()
+
+        vm.inheritWorld()
+        advanceUntilIdle()
+        assertEquals(legacySummaryText, vm.legacySummary.value)
+
+        vm.dismissLegacySummary()
+
+        assertEquals("", vm.legacySummary.value)
+    }
+
+    private val legacySummaryText = "【前代纪事】\n- 前进：你倒在了避难所门口。"
 }

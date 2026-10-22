@@ -116,6 +116,10 @@ class GameViewModel(
     private val _deathCause = MutableStateFlow("")
     val deathCause: StateFlow<String> = _deathCause.asStateFlow()
 
+    /** C4：继承成功后显示的前代纪事；空串表示不显示 */
+    private val _legacySummary = MutableStateFlow("")
+    val legacySummary: StateFlow<String> = _legacySummary.asStateFlow()
+
     private var accelerationJob: Job? = null
 
     /** 离开加速的收尾协程：重开时要一起取消，否则它会把旧局的世界推进与行动写回新局 */
@@ -123,6 +127,9 @@ class GameViewModel(
 
     /** 重新开局进行中的任务：清库+轮换身份期间，重复点击必须忽略 */
     private var restartJob: Job? = null
+
+    /** 继承进行中的任务：折算+继承期间，重复点击必须忽略 */
+    private var inheritJob: Job? = null
 
     /**
      * P1-6：死亡由 DB 里的玩家数值决定，重启后只要 HP≤0 就仍然锁定在死亡态，
@@ -435,6 +442,42 @@ class GameViewModel(
                 _isLoading.value = false
             }
         }
+    }
+
+    /**
+     * C4：继承世界——保留世界只重置继承者，回到第 1 天。
+     * 与重开一样先停掉在跑的流式/加速/加速收尾，否则它们会把旧局的状态写回新局。
+     * 不走 [initializeGameV22]（[OpeningModule.prepare] 会清世界），首轮行动与初始化页 Phase 2 一致。
+     */
+    fun inheritWorld() {
+        if (inheritJob?.isActive == true) return
+        streamJob?.cancel()
+        accelerationJob?.cancel()
+        accelerationExitJob?.cancel()
+        inheritJob = viewModelScope.launch {
+            _isLoading.value = true
+            try {
+                val summary = repository.inheritWorldV22()
+                _legacySummary.value = summary
+                _isDead.value = false
+                _deathCause.value = ""
+                _deathNarrative.value = ""
+                _suggestions.value = emptyList()
+                _currentStory.value = ""
+                _error.value = null
+                val (action, parsed) = repository.generateOpeningAction(playerState.first()?.doomLevel ?: 1)
+                sendAction(action, parsed)
+            } catch (e: Exception) {
+                _error.value = "继承失败: ${e.message}"
+            } finally {
+                _isLoading.value = false
+            }
+        }
+    }
+
+    /** C4：关掉前代纪事卡片 */
+    fun dismissLegacySummary() {
+        _legacySummary.value = ""
     }
 
     companion object {
