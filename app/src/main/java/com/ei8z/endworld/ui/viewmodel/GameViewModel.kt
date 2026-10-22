@@ -462,6 +462,10 @@ class GameViewModel(
                 _isDead.value = false
                 _deathCause.value = ""
                 _deathNarrative.value = ""
+                // 加速中死亡再继承：加速循环已在上面取消，模式必须落回 NORMAL，
+                // 否则开局行动会被 sendAction 的加速守卫吞掉（同 restartGame 的先例）
+                _speedMode.value = SpeedMode.NORMAL
+                _accelerationStatusText.value = ""
                 _suggestions.value = emptyList()
                 _currentStory.value = ""
                 _error.value = null

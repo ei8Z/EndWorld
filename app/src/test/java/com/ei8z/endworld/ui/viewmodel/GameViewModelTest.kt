@@ -313,5 +313,27 @@ class GameViewModelTest {
         assertEquals("", vm.legacySummary.value)
     }
 
+    @Test
+    fun `inheritWorld while accelerating resets speed mode and still sends the opening action`() =
+        runTest(dispatcher.scheduler) {
+            // 加速中 HP 归零后点继承：不落回 NORMAL 的话，开局行动会被加速守卫吞掉
+            player.value = testPlayer().copy(hp = 0)
+            val vm = createViewModel()
+            advanceUntilIdle()
+            assertTrue("前置：必须先进入死亡态", vm.isDead.value)
+            vm.setSpeedMode(SpeedMode.ACCELERATION)
+            assertEquals("前置：必须已在加速中", SpeedMode.ACCELERATION, vm.speedMode.value)
+            val parsed = mockk<ActionParsed>(relaxed = true)
+            coEvery { repository.inheritWorldV22() } returns legacySummaryText
+            coEvery { repository.generateOpeningAction(any()) } returns Pair("查看四周", parsed)
+
+            vm.inheritWorld()
+            advanceUntilIdle()
+
+            assertEquals(SpeedMode.NORMAL, vm.speedMode.value)
+            verify(exactly = 1) { repository.sendActionStream("查看四周", parsed) }
+            assertNull(vm.error.value)
+        }
+
     private val legacySummaryText = "【前代纪事】\n- 前进：你倒在了避难所门口。"
 }
