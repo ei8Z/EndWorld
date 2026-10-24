@@ -8,7 +8,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
 
 object RetrofitClient {
-    private const val DEEPSEEK_BASE_URL = "https://api.deepseek.com/beta/"
+    private const val DEEPSEEK_BASE_URL = "https://api.deepseek.com/"
     private const val MEMOS_BASE_URL = "https://memos.memtensor.cn/api/openmem/v1/"
 
     private val okHttpClient = buildOkHttpClient(BuildConfig.DEBUG)

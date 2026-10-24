@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "43e0ea80-434d-49c6-9457-f458bc517754",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/candidate.json",
+  "output": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+  "specification": {
+    "sha256": "96aae821ebb0aa24f0ef866e4dcce4a6e4676a54385189e2f17c6433aeb32b2a",
+    "bytes": 11598
+  },
+  "artifact": {
+    "sha256": "a3c2cc24e53bfaad1887ac7de85ffac0d3ae229c0184cc00f741583014a3c301",
+    "bytes": 789090
+  }
+}

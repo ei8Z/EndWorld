@@ -1,0 +1,556 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-10-22T06:00:53.088Z",
+  "specification": {
+    "path": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/candidate.json",
+    "sha256": "96aae821ebb0aa24f0ef866e4dcce4a6e4676a54385189e2f17c6433aeb32b2a",
+    "bytes": 11598
+  },
+  "artifact": {
+    "path": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+    "sha256": "a3c2cc24e53bfaad1887ac7de85ffac0d3ae229c0184cc00f741583014a3c301",
+    "bytes": 789090
+  },
+  "stages": {
+    "validate": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": null,
+      "execution": "embedded-in-deliver",
+      "command": [
+        "/Users/ei8z/.local/bin/node",
+        "/Users/ei8z/.agents/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/candidate.json",
+        "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/ei8z/Projects/android/EndWorld",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "validate",
+        "specification": {
+          "sha256": "96aae821ebb0aa24f0ef866e4dcce4a6e4676a54385189e2f17c6433aeb32b2a",
+          "bytes": 11598
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        }
+      }
+    },
+    "deliver": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 284,
+      "command": [
+        "/Users/ei8z/.local/bin/node",
+        "/Users/ei8z/.agents/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/candidate.json",
+        "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/ei8z/Projects/android/EndWorld",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "09b862be-20a2-4e16-a63e-4f607b40f344",
+        "ok": true,
+        "command": "deliver",
+        "type": "architecture",
+        "input": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/candidate.json",
+        "output": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+        "specification": {
+          "sha256": "96aae821ebb0aa24f0ef866e4dcce4a6e4676a54385189e2f17c6433aeb32b2a",
+          "bytes": 11598
+        },
+        "artifact": {
+          "sha256": "a3c2cc24e53bfaad1887ac7de85ffac0d3ae229c0184cc00f741583014a3c301",
+          "bytes": 789090
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        },
+        "evidence": {
+          "verified": true,
+          "repository": "https://github.com/ei8Z/EndWorld",
+          "revision": "3dfbf1d9b7e381ef8db6be49cbbb709dd2974268",
+          "references": 21
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    },
+    "check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 84,
+      "command": [
+        "/Users/ei8z/.local/bin/node",
+        "/Users/ei8z/.agents/skills/archify/bin/archify.mjs",
+        "check",
+        "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+        "--require-provenance"
+      ],
+      "receipt": {
+        "ok": true,
+        "file": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+        "artifact": {
+          "sha256": "a3c2cc24e53bfaad1887ac7de85ffac0d3ae229c0184cc00f741583014a3c301",
+          "bytes": 789090
+        },
+        "checks": [
+          {
+            "name": "single_svg",
+            "ok": true,
+            "details": [
+              "found 1 <svg> block(s)"
+            ]
+          },
+          {
+            "name": "finite_svg",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "orthogonal_arrows",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "label_route_clearance",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_crossings",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_corridors",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "container_border_runs",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "route_rhythm",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "legend_clearance",
+            "ok": true,
+            "details": []
+          }
+        ],
+        "composition": {
+          "schemaVersion": 1,
+          "profile": "showcase",
+          "status": "pass",
+          "summary": {
+            "errors": 0,
+            "warnings": 0
+          },
+          "metrics": {
+            "properCrossings": 0,
+            "resolvedCrossovers": 7,
+            "ambiguousCorridors": 0,
+            "arrowheadCollisions": 0,
+            "containerBorderRuns": 0,
+            "labelRouteClearanceIssues": 0,
+            "labelCanvasOverflowIssues": 0,
+            "minLabelRouteClearance": 6,
+            "desktopReadabilityIssues": 0,
+            "viewportHeightIssues": 0,
+            "minProjectedNodeTextPx": 7.05047619047619,
+            "maxBends": 4,
+            "routesOverSuggestedBends": 1,
+            "maxStretch": 1.248,
+            "routesOverSuggestedStretch": 0,
+            "minSegmentPx": 16,
+            "minInteriorSegmentPx": 16,
+            "shortSegmentCount": 0,
+            "shortEndpointSegmentCount": 0,
+            "shortInteriorSegmentCount": 0,
+            "microSegmentCount": 0
+          },
+          "suggestedLimits": {
+            "bendsPerRelationship": 2,
+            "stretch": 1.35,
+            "segmentPx": 16,
+            "microSegmentPx": 8
+          },
+          "routeReview": {
+            "crossings": [
+              {
+                "left": {
+                  "id": "repo-state",
+                  "from": "repo",
+                  "to": "state",
+                  "label": "快照",
+                  "collectionIndex": 4,
+                  "artifactIndex": 5
+                },
+                "right": {
+                  "id": "story-vm",
+                  "from": "storyteller",
+                  "to": "vm",
+                  "label": "流式事件",
+                  "collectionIndex": 9,
+                  "artifactIndex": 10
+                },
+                "point": [
+                  760,
+                  251
+                ]
+              },
+              {
+                "left": {
+                  "id": "repo-state",
+                  "from": "repo",
+                  "to": "state",
+                  "label": "快照",
+                  "collectionIndex": 4,
+                  "artifactIndex": 5
+                },
+                "right": {
+                  "id": "repo-v3sim",
+                  "from": "repo",
+                  "to": "v3sim",
+                  "label": "结算 / 持久化",
+                  "collectionIndex": 11,
+                  "artifactIndex": 12
+                },
+                "point": [
+                  760,
+                  244
+                ],
+                "sharedNode": "repo"
+              },
+              {
+                "left": {
+                  "id": "story-vm",
+                  "from": "storyteller",
+                  "to": "vm",
+                  "label": "流式事件",
+                  "collectionIndex": 9,
+                  "artifactIndex": 10
+                },
+                "right": {
+                  "id": "repo-memos",
+                  "from": "repo",
+                  "to": "memos",
+                  "label": "检索 / 回写",
+                  "collectionIndex": 10,
+                  "artifactIndex": 11
+                },
+                "point": [
+                  851,
+                  251
+                ]
+              },
+              {
+                "left": {
+                  "id": "story-vm",
+                  "from": "storyteller",
+                  "to": "vm",
+                  "label": "流式事件",
+                  "collectionIndex": 9,
+                  "artifactIndex": 10
+                },
+                "right": {
+                  "id": "repo-v3sim",
+                  "from": "repo",
+                  "to": "v3sim",
+                  "label": "结算 / 持久化",
+                  "collectionIndex": 11,
+                  "artifactIndex": 12
+                },
+                "point": [
+                  680.0666666666667,
+                  244
+                ]
+              },
+              {
+                "left": {
+                  "id": "daily-world",
+                  "from": "daily",
+                  "to": "world",
+                  "label": "世界规则",
+                  "collectionIndex": 13,
+                  "artifactIndex": 14
+                },
+                "right": {
+                  "id": "v3sim-store",
+                  "from": "v3sim",
+                  "to": "v3store",
+                  "label": "六表快照",
+                  "collectionIndex": 15,
+                  "artifactIndex": 16
+                },
+                "point": [
+                  720,
+                  432
+                ]
+              },
+              {
+                "left": {
+                  "id": "daily-npc",
+                  "from": "daily",
+                  "to": "npc",
+                  "label": "NPC 互动",
+                  "collectionIndex": 14,
+                  "artifactIndex": 15
+                },
+                "right": {
+                  "id": "v3sim-store",
+                  "from": "v3sim",
+                  "to": "v3store",
+                  "label": "六表快照",
+                  "collectionIndex": 15,
+                  "artifactIndex": 16
+                },
+                "point": [
+                  844,
+                  432
+                ]
+              },
+              {
+                "left": {
+                  "id": "v3sim-store",
+                  "from": "v3sim",
+                  "to": "v3store",
+                  "label": "六表快照",
+                  "collectionIndex": 15,
+                  "artifactIndex": 16
+                },
+                "right": {
+                  "id": "v3store-room",
+                  "from": "v3store",
+                  "to": "room",
+                  "label": "事务写",
+                  "collectionIndex": 16,
+                  "artifactIndex": 17
+                },
+                "point": [
+                  1216,
+                  432
+                ],
+                "sharedNode": "v3store"
+              }
+            ],
+            "detours": [
+              {
+                "relationship": {
+                  "id": "vm-repo",
+                  "from": "vm",
+                  "to": "repo",
+                  "label": "Flow 事件流",
+                  "collectionIndex": 3,
+                  "artifactIndex": 4
+                },
+                "bends": 4,
+                "stretch": 1.248
+              }
+            ]
+          },
+          "leadingSpace": {
+            "measured": true,
+            "emptyTopPx": 80,
+            "emptyTopRatio": 0.131,
+            "occupiedTop": 80,
+            "viewBoxTop": 0,
+            "canvasHeight": 610,
+            "typicalNodeHeight": 60,
+            "reviewSuggested": false
+          },
+          "desktopReadability": {
+            "budgetBasis": "recognized-declared-wide",
+            "readerContract": "declared-wide-v1",
+            "availableDiagramWidth": 1346,
+            "actualBudgetPx": 1346,
+            "actualReaderWidth": 1376,
+            "desiredReaderWidth": 1461.8181818181818,
+            "viewportCap": 1376,
+            "limit": "viewport-cap",
+            "requestedTargetPx": 7.5,
+            "requestedTargetMet": false,
+            "hardFloorPx": 6,
+            "hardFloorMet": true,
+            "minimumOwner": {
+              "kind": "node",
+              "id": "v3sim"
+            },
+            "minimumSourceTextPx": 7.7,
+            "minimumProjectedTextPx": 7.05047619047619,
+            "semanticTextCount": 53
+          },
+          "issues": []
+        },
+        "provenance": "current",
+        "deliveryReceiptId": "09b862be-20a2-4e16-a63e-4f607b40f344"
+      }
+    },
+    "browser-check": {
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 6,
+      "command": [
+        "/Users/ei8z/.local/bin/node",
+        "/Users/ei8z/.agents/skills/archify/bin/archify.mjs",
+        "browser-check",
+        "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+        "--json",
+        "--require-provenance"
+      ],
+      "execution": "in-process",
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": false,
+        "command": "browser-check",
+        "evidenceKind": "automated-browser",
+        "status": "fail",
+        "visualReview": "not-requested",
+        "provenance": "current",
+        "deliveryReceiptId": "09b862be-20a2-4e16-a63e-4f607b40f344",
+        "artifact": {
+          "path": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+          "sha256": "a3c2cc24e53bfaad1887ac7de85ffac0d3ae229c0184cc00f741583014a3c301",
+          "bytes": 789090
+        },
+        "state": {
+          "detail": "read",
+          "motion": "still"
+        },
+        "chrome": {
+          "status": "not-checked",
+          "executable": null
+        },
+        "diagnostics": [
+          {
+            "code": "viewer/evidence-path-conflict",
+            "severity": "error",
+            "message": "browser-check will not replace the existing unowned evidence path \"/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.browser-check.json\".",
+            "subject": {
+              "artifact": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+              "evidencePath": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.browser-check.json"
+            },
+            "evidence": {
+              "reason": {
+                "code": "ownership-artifact-mismatch"
+              }
+            },
+            "supportedFixes": [
+              "move the conflicting file aside, or choose a separate --out-dir, then rerun browser-check"
+            ]
+          }
+        ],
+        "containment": {
+          "status": "fail",
+          "policy": "fit-or-reader-declared-readable-vertical-scroll",
+          "viewports": []
+        },
+        "themeStates": {
+          "status": "fail",
+          "viewports": []
+        },
+        "readability": {
+          "status": "fail",
+          "minimumProjectedNodeTextPx": 6,
+          "viewports": []
+        },
+        "viewerChrome": {
+          "status": "fail",
+          "viewports": []
+        },
+        "captures": {
+          "status": "not-requested",
+          "screenshots": [],
+          "contactSheet": null
+        },
+        "sidecars": {
+          "receipt": "architecture-highlevel-20261022-140007.browser-check.json",
+          "files": []
+        },
+        "error": "browser-check will not replace the existing unowned evidence path \"/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.browser-check.json\"."
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "viewer/evidence-path-conflict",
+      "severity": "error",
+      "message": "browser-check will not replace the existing unowned evidence path \"/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.browser-check.json\".",
+      "subject": {
+        "artifact": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.html",
+        "evidencePath": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.browser-check.json"
+      },
+      "evidence": {
+        "reason": {
+          "code": "ownership-artifact-mismatch"
+        }
+      },
+      "supportedFixes": [
+        "move the conflicting file aside, or choose a separate --out-dir, then rerun browser-check"
+      ]
+    }
+  ],
+  "evidence": {
+    "receipt": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.finalize.json",
+    "summaryReceipt": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.finalize-summary.json",
+    "browserCheckReceipt": "/Users/ei8z/Projects/android/EndWorld/.archify/architecture-highlevel-20261022-140007/architecture-highlevel-20261022-140007.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "failedStage": "browser-check",
+  "finishedAt": "2026-10-22T06:00:53.563Z",
+  "durationMs": 474,
+  "update": {
+    "status": "update_available",
+    "installedVersion": "3.0.1",
+    "availableVersion": "3.2.0",
+    "releaseNotes": "https://github.com/tt-a1i/archify/releases/tag/v3.2.0",
+    "severity": "normal",
+    "checkedAt": "2026-10-22T05:43:48.325Z",
+    "source": "cache",
+    "noticeRequired": true,
+    "noticeText": "Archify update: 3.0.1 → 3.2.0. A previous check at 2026-10-22T05:43:48.325Z found a newer release. Release notes: https://github.com/tt-a1i/archify/releases/tag/v3.2.0. The installed Skill has not changed; ask to snooze or ignore this reminder.",
+    "eventKey": "archify@sha256:70e210265c59f24dcbdf2a502ff671104b5454e7ee7d3554aecd86bad32384f5"
+  }
+}

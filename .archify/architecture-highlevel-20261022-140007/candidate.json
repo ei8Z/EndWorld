@@ -1,0 +1,484 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "EndWorld 高层运行时架构",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": "architecture-highlevel-20261022-140007.html",
+    "repository": {
+      "url": "https://github.com/ei8Z/EndWorld",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "3dfbf1d9b7e381ef8db6be49cbbb709dd2974268"
+    }
+  },
+  "layout": {
+    "mode": "grid",
+    "cols": 6,
+    "gapX": 60,
+    "gapY": 30,
+    "cellW": 188,
+    "cellH": 104
+  },
+  "components": [
+    {
+      "id": "player",
+      "type": "external",
+      "label": "玩家",
+      "sublabel": "文字 / 建议按钮",
+      "row": 0,
+      "col": 0
+    },
+    {
+      "id": "init",
+      "type": "frontend",
+      "label": "InitializationScreen",
+      "sublabel": "姓名 / 末日类型",
+      "row": 1,
+      "col": 0,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/ui/screen/InitializationScreen.kt",
+          "line": 19,
+          "end_line": 40
+        }
+      ],
+      "size": [
+        180,
+        100
+      ]
+    },
+    {
+      "id": "screen",
+      "type": "frontend",
+      "label": "GameScreen",
+      "sublabel": "叙事流 / 输入 / 死亡层",
+      "row": 0,
+      "col": 1,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/ui/screen/GameScreen.kt",
+          "line": 52,
+          "end_line": 80
+        },
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/ui/screen/GameScreen.kt",
+          "line": 926,
+          "end_line": 940
+        }
+      ]
+    },
+    {
+      "id": "vm",
+      "type": "frontend",
+      "label": "GameViewModel",
+      "sublabel": "流状态 / 重试 / 继承",
+      "row": 0,
+      "col": 2,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/ui/viewmodel/GameViewModel.kt",
+          "line": 41,
+          "end_line": 70
+        },
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/ui/viewmodel/GameViewModel.kt",
+          "line": 262,
+          "end_line": 300
+        }
+      ]
+    },
+    {
+      "id": "memos",
+      "type": "cloud",
+      "label": "MemOS",
+      "sublabel": "OpenMem 检索 / 回写",
+      "row": 2,
+      "col": 4,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/remote/MemOSAdapter.kt",
+          "line": 14,
+          "end_line": 45
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "type": "external",
+      "label": "DeepSeek API",
+      "sublabel": "deepseek-flash · SSE",
+      "row": 1,
+      "col": 5,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/remote/RetrofitClient.kt",
+          "line": 11,
+          "end_line": 20
+        },
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/ReasonerApiClient.kt",
+          "line": 41,
+          "end_line": 45
+        }
+      ]
+    },
+    {
+      "id": "state",
+      "type": "backend",
+      "label": "SurvivalStateMachine",
+      "sublabel": "时钟 / 生存 / 伤病 / 物资",
+      "row": 1,
+      "col": 1,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/domain/state/SurvivalStateMachine.kt",
+          "line": 24,
+          "end_line": 60
+        }
+      ],
+      "size": [
+        180,
+        100
+      ]
+    },
+    {
+      "id": "repo",
+      "type": "backend",
+      "label": "GameRepository",
+      "sublabel": "双 Agent 流水线编排",
+      "row": 0,
+      "col": 3,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/GameRepository.kt",
+          "line": 81,
+          "end_line": 110
+        },
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/GameRepository.kt",
+          "line": 372,
+          "end_line": 418
+        }
+      ]
+    },
+    {
+      "id": "prompt",
+      "type": "backend",
+      "label": "PromptBuilder",
+      "sublabel": "策略 + 快照 → Prompt",
+      "row": 0,
+      "col": 4,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/PromptBuilder.kt",
+          "line": 19,
+          "end_line": 35
+        }
+      ]
+    },
+    {
+      "id": "reasoner",
+      "type": "backend",
+      "label": "裁决 Agent",
+      "sublabel": "非流式 · reasoning max",
+      "row": 0,
+      "col": 5,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/ReasonerApiClient.kt",
+          "line": 58,
+          "end_line": 90
+        }
+      ]
+    },
+    {
+      "id": "v3sim",
+      "type": "backend",
+      "label": "V3 世界模拟",
+      "sublabel": "势力 / 区域 / 事件 / NPC",
+      "row": 2,
+      "col": 2,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/GameRepository.kt",
+          "line": 1486,
+          "end_line": 1515
+        },
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/GameRepository.kt",
+          "line": 257,
+          "end_line": 270
+        }
+      ]
+    },
+    {
+      "id": "daily",
+      "type": "backend",
+      "label": "DailySettlement",
+      "sublabel": "逐日编排 · 场景 3/5",
+      "row": 2,
+      "col": 3,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/domain/world/engine/DailySettlement.kt",
+          "line": 11,
+          "end_line": 40
+        }
+      ]
+    },
+    {
+      "id": "storyteller",
+      "type": "backend",
+      "label": "叙事 Agent",
+      "sublabel": "SSE 流式 · 第一人称",
+      "row": 1,
+      "col": 4,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/StorytellerApiClient.kt",
+          "line": 31,
+          "end_line": 60
+        }
+      ]
+    },
+    {
+      "id": "world",
+      "type": "backend",
+      "label": "WorldRulesEngine",
+      "sublabel": "资源 / 战斗 / 阈值",
+      "row": 3,
+      "col": 2,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/domain/world/engine/WorldRulesEngine.kt",
+          "line": 14,
+          "end_line": 40
+        }
+      ]
+    },
+    {
+      "id": "npc",
+      "type": "backend",
+      "label": "NpcBehaviorEngine",
+      "sublabel": "需求 / 好感 / KEY / 离去",
+      "row": 3,
+      "col": 3,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/domain/npc/engine/NpcBehaviorEngine.kt",
+          "line": 12,
+          "end_line": 40
+        }
+      ]
+    },
+    {
+      "id": "v3store",
+      "type": "database",
+      "label": "V3WorldStateStore",
+      "sublabel": "六表单事务出口",
+      "row": 2,
+      "col": 5,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/V3WorldStateStore.kt",
+          "line": 85,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "room",
+      "type": "database",
+      "label": "Room DB",
+      "sublabel": "v12 · 12 实体 / 12 DAO",
+      "row": 3,
+      "col": 4,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/local/AppDatabase.kt",
+          "line": 14,
+          "end_line": 45
+        }
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "端侧权威状态 · AI 只给增量",
+      "wraps": [
+        "state",
+        "v3sim",
+        "v3store"
+      ]
+    },
+    {
+      "kind": "region",
+      "label": "外部服务 · 网络边界",
+      "wraps": [
+        "deepseek",
+        "memos"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "player-screen",
+      "from": "player",
+      "to": "screen",
+      "label": "行动",
+      "variant": "emphasis"
+    },
+    {
+      "id": "init-vm",
+      "from": "init",
+      "to": "vm",
+      "label": "开局参数"
+    },
+    {
+      "id": "screen-vm",
+      "from": "screen",
+      "to": "vm",
+      "label": "sendAction",
+      "variant": "emphasis"
+    },
+    {
+      "id": "vm-repo",
+      "from": "vm",
+      "to": "repo",
+      "label": "Flow 事件流",
+      "variant": "emphasis"
+    },
+    {
+      "id": "repo-state",
+      "from": "repo",
+      "to": "state",
+      "label": "快照"
+    },
+    {
+      "id": "repo-prompt",
+      "from": "repo",
+      "to": "prompt",
+      "label": "上下文装配"
+    },
+    {
+      "id": "prompt-reasoner",
+      "from": "prompt",
+      "to": "reasoner",
+      "label": "System + User"
+    },
+    {
+      "id": "reasoner-deepseek",
+      "from": "reasoner",
+      "to": "deepseek",
+      "label": "非流式 JSON",
+      "variant": "dashed"
+    },
+    {
+      "id": "repo-story",
+      "from": "repo",
+      "to": "storyteller",
+      "label": "postSnapshot"
+    },
+    {
+      "id": "story-vm",
+      "from": "storyteller",
+      "to": "vm",
+      "label": "流式事件",
+      "variant": "emphasis"
+    },
+    {
+      "id": "repo-memos",
+      "from": "repo",
+      "to": "memos",
+      "label": "检索 / 回写",
+      "variant": "dashed"
+    },
+    {
+      "id": "repo-v3sim",
+      "from": "repo",
+      "to": "v3sim",
+      "label": "结算 / 持久化"
+    },
+    {
+      "id": "v3sim-daily",
+      "from": "v3sim",
+      "to": "daily",
+      "label": "每日编排"
+    },
+    {
+      "id": "daily-world",
+      "from": "daily",
+      "to": "world",
+      "label": "世界规则"
+    },
+    {
+      "id": "daily-npc",
+      "from": "daily",
+      "to": "npc",
+      "label": "NPC 互动"
+    },
+    {
+      "id": "v3sim-store",
+      "from": "v3sim",
+      "to": "v3store",
+      "label": "六表快照"
+    },
+    {
+      "id": "v3store-room",
+      "from": "v3store",
+      "to": "room",
+      "label": "事务写"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主请求路径",
+      "items": [
+        "UI → ViewModel → Repository → Prompt → 裁决 Agent → Repository → 叙事 Agent → ViewModel",
+        "裁决结果由 Repository 应用，流式事件经 callbackFlow 回传",
+        "Room Flow 驱动 UI 刷新；重试与降级在 ViewModel"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "世界模拟与结算",
+      "items": [
+        "跨午夜时 settleUntil 逐日推进，成功才前移游标",
+        "每日结算含资源、战斗、场景 3/5/6、NPC 互动与 KEY 提升",
+        "V3 六表由 V3WorldStateStore 单事务写入 Room"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "权威与信任边界",
+      "items": [
+        "HP/SP/背包/时间以状态机 postSnapshot 为权威",
+        "AI 只提供增量与软数据，不直接写数值",
+        "release 不做破坏性迁移回退；Room 为 v12 / 12 实体"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "死亡与续局",
+      "items": [
+        "HP/饥渴归零进入死亡层；「重新开始」清空本局并轮换 stable_user_id",
+        "「继承世界」保留势力/NPC/关系，重置角色/背包/时间，好感 ×0.3",
+        "前代纪事仅展示 story_history 最近 10 条，不进 prompt/MemOS"
+      ]
+    },
+    {
+      "dot": "slate",
+      "title": "支持组件（不单独连线）",
+      "items": [
+        "GameConfigLoader / WorldInitializer：配置与默认世界",
+        "DependencyContainer：手写单例 DI；UIModeManager：界面模式",
+        "ToolRegistry：check_inventory 防幻觉对账",
+        "WorldStoryteller：加速退出摘要；SettlementLedger：逐日游标"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "1a5fea23-4798-432b-a20e-27dff2f65b1c",
+  "status": "current",
+  "command": "deliver",
+  "type": "workflow",
+  "input": "/Users/ei8z/Projects/android/EndWorld/.archify/workflow-core-loop-20261022-134140/candidate.json",
+  "output": "/Users/ei8z/Projects/android/EndWorld/.archify/workflow-core-loop-20261022-134140/core-loop.html",
+  "specification": {
+    "sha256": "2a28bbe8bd470dcf2e869843d3b52453a95d89367a47dab9525f79a25b3a44ed",
+    "bytes": 8171
+  },
+  "artifact": {
+    "sha256": "f51890572d66d9769490084f06368a452b132034b2f3b2d61ec5a0336f131f48",
+    "bytes": 769042
+  }
+}

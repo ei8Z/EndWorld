@@ -57,7 +57,7 @@ class StorytellerApiClient(
                 ChatMessage(role = "system", content = systemPrompt),
                 ChatMessage(role = "user", content = userMessage)
             ),
-            reasoningEffort = "height",
+            reasoningEffort = "high",
             responseFormat = ResponseFormat("json_object"),
             maxTokens = ChatRequest.MAX_OUTPUT_TOKENS,
             stream = true,

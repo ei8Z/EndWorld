@@ -1,0 +1,363 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "EndWorld 核心业务流程",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "output": ".archify/workflow-core-loop-20261022-134140/core-loop.html",
+    "repository": {
+      "url": "https://github.com/ei8Z/EndWorld",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "3dfbf1d9b7e381ef8db6be49cbbb709dd2974268"
+    }
+  },
+  "lanes": [
+    {
+      "id": "ui",
+      "label": "玩家与界面"
+    },
+    {
+      "id": "app",
+      "label": "应用编排"
+    },
+    {
+      "id": "sim",
+      "label": "状态机与世界模拟"
+    },
+    {
+      "id": "ai",
+      "label": "AI 与记忆"
+    }
+  ],
+  "phases": [
+    {
+      "id": "input",
+      "label": "输入",
+      "fromCol": 0,
+      "toCol": 1
+    },
+    {
+      "id": "decide",
+      "label": "裁决 + 状态",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    },
+    {
+      "id": "narrate",
+      "label": "叙事 + 落库",
+      "fromCol": 4,
+      "toCol": 5,
+      "variant": "dashed"
+    }
+  ],
+  "groups": [
+    {
+      "id": "daily",
+      "label": "跨午夜逐日结算",
+      "lane": "sim",
+      "fromCol": 2,
+      "toCol": 3,
+      "variant": "emphasis"
+    }
+  ],
+  "mainPath": [
+    "player",
+    "screen",
+    "vm",
+    "repo",
+    "pre",
+    "reasoner",
+    "apply",
+    "storyteller",
+    "sync",
+    "final"
+  ],
+  "nodes": [
+    {
+      "id": "player",
+      "lane": "ui",
+      "col": 0,
+      "type": "external",
+      "label": "玩家行动",
+      "sublabel": "文字 / 建议按钮",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/ui/screen/GameScreen.kt",
+          "line": 282,
+          "end_line": 300
+        }
+      ]
+    },
+    {
+      "id": "screen",
+      "lane": "ui",
+      "col": 1,
+      "type": "frontend",
+      "label": "GameScreen",
+      "sublabel": "输入 + 叙事流",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/ui/screen/GameScreen.kt",
+          "line": 282,
+          "end_line": 300
+        }
+      ]
+    },
+    {
+      "id": "final",
+      "lane": "ui",
+      "col": 5,
+      "type": "frontend",
+      "label": "叙事呈现",
+      "sublabel": "Room Flow 刷新",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/ui/viewmodel/GameViewModel.kt",
+          "line": 373,
+          "end_line": 390
+        }
+      ]
+    },
+    {
+      "id": "vm",
+      "lane": "app",
+      "col": 1,
+      "type": "backend",
+      "label": "GameViewModel",
+      "sublabel": "sendAction / 流状态",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/ui/viewmodel/GameViewModel.kt",
+          "line": 262,
+          "end_line": 310
+        }
+      ]
+    },
+    {
+      "id": "repo",
+      "lane": "app",
+      "col": 2,
+      "type": "backend",
+      "label": "GameRepository",
+      "sublabel": "sendActionStream",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/GameRepository.kt",
+          "line": 372,
+          "end_line": 418
+        }
+      ]
+    },
+    {
+      "id": "sync",
+      "lane": "app",
+      "col": 5,
+      "type": "backend",
+      "label": "syncGameData",
+      "sublabel": "权威快照 + 历史",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/GameRepository.kt",
+          "line": 868,
+          "end_line": 875
+        }
+      ]
+    },
+    {
+      "id": "pre",
+      "lane": "sim",
+      "col": 2,
+      "type": "backend",
+      "label": "processPreRuling",
+      "sublabel": "时钟 / 天气 / 消耗",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/GameRepository.kt",
+          "line": 441,
+          "end_line": 447
+        }
+      ]
+    },
+    {
+      "id": "settle",
+      "lane": "sim",
+      "col": 3,
+      "type": "backend",
+      "label": "每日结算",
+      "sublabel": "逐日游标 / 六表",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/GameRepository.kt",
+          "line": 1486,
+          "end_line": 1520
+        }
+      ]
+    },
+    {
+      "id": "apply",
+      "lane": "sim",
+      "col": 4,
+      "type": "backend",
+      "label": "applyActionResult",
+      "sublabel": "状态机权威落值",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/GameRepository.kt",
+          "line": 506,
+          "end_line": 530
+        }
+      ]
+    },
+    {
+      "id": "reasoner",
+      "lane": "ai",
+      "col": 3,
+      "type": "cloud",
+      "label": "裁决 Agent",
+      "sublabel": "reasoning_effort=max",
+      "tag": "非流式",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/ReasonerApiClient.kt",
+          "line": 58,
+          "end_line": 90
+        }
+      ]
+    },
+    {
+      "id": "storyteller",
+      "lane": "ai",
+      "col": 4,
+      "type": "cloud",
+      "label": "叙事 Agent",
+      "sublabel": "SSE 流式",
+      "tag": "第一人称",
+      "width": 132,
+      "sources": [
+        {
+          "path": "app/src/main/java/com/ei8z/endworld/data/repository/StorytellerApiClient.kt",
+          "line": 31,
+          "end_line": 60
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "id": "player-screen",
+      "from": "player",
+      "to": "screen",
+      "label": "行动 / 建议",
+      "variant": "emphasis"
+    },
+    {
+      "id": "screen-vm",
+      "from": "screen",
+      "to": "vm",
+      "label": "sendAction",
+      "variant": "default"
+    },
+    {
+      "id": "vm-repo",
+      "from": "vm",
+      "to": "repo",
+      "label": "sendActionStream",
+      "variant": "emphasis"
+    },
+    {
+      "id": "repo-pre",
+      "from": "repo",
+      "to": "pre",
+      "label": "主线",
+      "variant": "default"
+    },
+    {
+      "id": "pre-reasoner",
+      "from": "pre",
+      "to": "reasoner",
+      "label": "上下文 + 快照",
+      "variant": "emphasis"
+    },
+    {
+      "id": "reasoner-apply",
+      "from": "reasoner",
+      "to": "apply",
+      "label": "action_result",
+      "variant": "emphasis"
+    },
+    {
+      "id": "apply-story",
+      "from": "apply",
+      "to": "storyteller",
+      "label": "postSnapshot",
+      "variant": "default"
+    },
+    {
+      "id": "story-sync",
+      "from": "storyteller",
+      "to": "sync",
+      "label": "finalGameResponse",
+      "variant": "emphasis"
+    },
+    {
+      "id": "sync-final",
+      "from": "sync",
+      "to": "final",
+      "label": "Room Flow 刷新",
+      "variant": "default"
+    },
+    {
+      "id": "pre-settle",
+      "from": "pre",
+      "to": "settle",
+      "label": "跨午夜",
+      "variant": "security",
+      "role": "branch"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "主线职责",
+      "items": [
+        "ViewModel 管流状态与重试，Repository 编排双 Agent",
+        "裁决 Agent 非流式，叙事 Agent SSE 流式",
+        "HP/SP/背包/时间以状态机 postSnapshot 为权威",
+        "叙事完成后由 syncGameData 回写 MemOS",
+        "MemOS 在裁决前检索、叙事结束后回写"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "世界模拟",
+      "items": [
+        "跨午夜才结算；游标逐日推进，成功才前移",
+        "结算含战斗伤亡、NPC 互动、KEY 提升与场景 3/5",
+        "V3 六表通过 V3WorldStateStore 单事务落库",
+        "事件/势力/NPC/记忆等 12 实体落在 Room"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "死亡后的两条路",
+      "items": [
+        "重新开始：清空 Room/V3/账本，轮换用户身份",
+        "继承世界：保留势力/NPC/关系，重置角色与时间",
+        "继承后好感 ×0.3，并展示前代纪事"
+      ]
+    }
+  ]
+}
